@@ -1,0 +1,57 @@
+# Circus Keywords Configuration
+# Hierarchical categories for content tagging
+# Keywords can have custom prompts to improve CLIP recognition
+
+- name: Circus Skills
+  keywords:
+    - keyword: juggling
+      prompt: juggling rings, juggling clubs, juggling ball, a person juggling balls or clubs, circus juggler performing with multiple objects in the air
+    - keyword: acrobatics
+      prompt: acrobatic performance, gymnast doing flips and somersaults, circus acrobat in mid-air
+    - keyword: stilt-walking
+      prompt:  tall, tall person on stilts
+    - keyword: hula-hoop
+      prompt: hula hoops,hula-hoops,hula-hoop on hands,hula-hoop on feet, hula-hoops in handstands, hula-hoops on waist,circus hula-hoop performer with multiple hula=hoops
+    - keyword: contortion
+      prompt: contortionist bending in extreme poses
+    - keyword: lyra
+      prompt: suspended hoop, person hanging from hoop
+    - keyword: dancing
+      prompt: people not touching, person dancing, dancer performing choreography
+    - keyword: fire-performance
+      prompt: fire performer spinning fire poi or staff, circus fire dancer with flames
+    - keyword: diabolo
+      prompt: large yoyo, yoyo on string
+    - keyword: poi
+      prompt: balls on strings, person swinging poi balls on strings in circular patterns
+    - keyword: unicycle
+      prompt: person riding a unicycle, circus performer on one-wheeled bicycle, unicyclist balancing on single wheel bike
+    - keyword: hand to hand
+      prompt: multiple partner touching each other, hand to hand acrobatic performance with base and flyer
+    - keyword: handstands
+      prompt: person doing handstand, upside down handstand balance, inverted handstand pose
+    - keyword: aerial-silks
+      prompt: hanging from ribbon, climbing on fabric
+
+- name: Costume Colors
+  keywords:
+    - keyword: red-costume
+      prompt: performer wearing red costume, person in red clothing or outfit
+    - keyword: blue-costume
+      prompt: performer wearing blue costume, person in blue clothing or outfit
+    - keyword: green-costume
+      prompt: performer wearing green costume, person in green clothing or outfit
+    - keyword: yellow-costume
+      prompt: performer wearing yellow costume, person in yellow clothing or outfit
+    - keyword: purple-costume
+      prompt: performer wearing purple costume, person in purple clothing or outfit
+    - keyword: orange-costume
+      prompt: performer wearing orange costume, person in orange clothing or outfit
+    - keyword: pink-costume
+      prompt: performer wearing pink costume, person in pink clothing or outfit
+    - keyword: black-costume
+      prompt: performer wearing black costume, person in black clothing or outfit
+    - keyword: white-costume
+      prompt: performer wearing white costume, person in white clothing or outfit
+    - keyword: multicolor-costume
+      prompt: performer wearing colorful multi-colored costume, person in rainbow or patterned outfit

@@ -1,0 +1,111 @@
+# Example Keywords Configuration
+# Hierarchical categories for content tagging
+
+- name: Nature
+  keywords:
+    - landscape
+    - sunset
+    - sunrise
+    - mountains
+    - beach
+    - forest
+    - ocean
+    - lake
+  subcategories:
+    - name: Wildlife
+      keywords:
+        - animals
+        - birds
+        - mammals
+        - insects
+    - name: Flora
+      keywords:
+        - flowers
+        - trees
+        - plants
+        - garden
+
+- name: People
+  keywords:
+    - portrait
+    - group
+    - selfie
+  subcategories:
+    - name: Family
+      keywords:
+        - family
+        - parents
+        - children
+        - siblings
+    - name: Friends
+      keywords:
+        - friends
+        - gathering
+        - party
+
+- name: Events
+  keywords:
+    - event
+    - celebration
+  subcategories:
+    - name: Vacation
+      keywords:
+        - vacation
+        - travel
+        - trip
+        - holiday
+    - name: Special Occasions
+      keywords:
+        - birthday
+        - wedding
+        - anniversary
+        - graduation
+
+- name: Activities
+  keywords:
+    - sports
+    - outdoor
+    - indoor
+  subcategories:
+    - name: Sports
+      keywords:
+        - soccer
+        - basketball
+        - tennis
+        - swimming
+        - hiking
+    - name: Hobbies
+      keywords:
+        - cooking
+        - reading
+        - crafts
+        - music
+
+- name: Architecture
+  keywords:
+    - building
+    - architecture
+    - interior
+    - exterior
+    - urban
+    - city
+
+- name: Food
+  keywords:
+    - food
+    - meal
+    - restaurant
+    - cooking
+    - dessert
+    - breakfast
+    - lunch
+    - dinner
+
+- name: Objects
+  keywords:
+    - car
+    - vehicle
+    - technology
+    - furniture
+    - art
+    - clothing

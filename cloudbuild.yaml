@@ -1,0 +1,58 @@
+# Cloud Build configuration for GCP deployment
+
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA', '.']
+  
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA']
+  
+  # Deploy to Cloud Run (API service)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'photocat-api'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=$PROJECT_ID'
+      - '--add-cloudsql-instances'
+      - '${_CLOUDSQL_INSTANCE}'
+  
+  # Deploy worker service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'photocat-worker'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--no-allow-unauthenticated'
+      - '--set-env-vars'
+      - 'GCP_PROJECT_ID=$PROJECT_ID,WORKER_MODE=true'
+      - '--add-cloudsql-instances'
+      - '${_CLOUDSQL_INSTANCE}'
+
+images:
+  - 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA'
+
+substitutions:
+  _CLOUDSQL_INSTANCE: 'project:region:instance'
+
+options:
+  machineType: 'N1_HIGHCPU_8'
+  timeout: '1200s'
