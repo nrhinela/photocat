@@ -35,6 +35,7 @@ dependencies = [
     
     # Image Processing
     "Pillow>=10.2.0",
+    "pillow-heif>=0.15.0",
     "opencv-python-headless>=4.9.0",
     "piexif>=1.1.3",
     
@@ -78,6 +79,9 @@ ml = [
 ]
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+photocat = ["static/*", "static/**/*"]
 
 [tool.black]
 line-length = 100

@@ -1,13 +1,28 @@
 # Cloud Build configuration for GCP deployment
 
 steps:
-  # Build the container image
+  # Pull previous image for caching (continue if not found)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA', '.']
+    entrypoint: 'bash'
+    args: ['-c', 'docker pull gcr.io/$PROJECT_ID/photocat:latest || echo "No cache found, building from scratch"']
+    id: 'pull-cache'
+  
+  # Build the container image with cache
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '--cache-from', 'gcr.io/$PROJECT_ID/photocat:latest',
+      '-t', 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/photocat:latest',
+      '.'
+    ]
   
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA']
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/photocat:latest']
   
   # Deploy to Cloud Run (API service)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -23,8 +38,15 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--memory=8Gi'
+      - '--cpu=2'
+      - '--timeout=900'
+      - '--max-instances=10'
+      - '--min-instances=1'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=$PROJECT_ID'
+      - 'GCP_PROJECT_ID=$PROJECT_ID,TAGGING_MODEL=siglip,THUMBNAIL_BUCKET_NAME=photocat-483622-thumbnails,DATABASE_URL=postgresql://photocat-user:photocat123@/photocat?host=/cloudsql/${_CLOUDSQL_INSTANCE}'
+      - '--set-secrets'
+      - 'DROPBOX_APP_KEY=dropbox-app-key:latest,DROPBOX_APP_SECRET=dropbox-app-secret:latest'
       - '--add-cloudsql-instances'
       - '${_CLOUDSQL_INSTANCE}'
   
@@ -42,8 +64,14 @@ steps:
       - '--platform'
       - 'managed'
       - '--no-allow-unauthenticated'
+      - '--memory=8Gi'
+      - '--cpu=2'
+      - '--timeout=900'
+      - '--max-instances=10'
       - '--set-env-vars'
-      - 'GCP_PROJECT_ID=$PROJECT_ID,WORKER_MODE=true'
+      - 'GCP_PROJECT_ID=$PROJECT_ID,WORKER_MODE=true,TAGGING_MODEL=siglip,THUMBNAIL_BUCKET_NAME=photocat-483622-thumbnails,DATABASE_URL=postgresql://photocat-user:photocat123@/photocat?host=/cloudsql/${_CLOUDSQL_INSTANCE}'
+      - '--set-secrets'
+      - 'DROPBOX_APP_KEY=dropbox-app-key:latest,DROPBOX_APP_SECRET=dropbox-app-secret:latest'
       - '--add-cloudsql-instances'
       - '${_CLOUDSQL_INSTANCE}'
 
@@ -55,4 +83,5 @@ substitutions:
 
 options:
   machineType: 'N1_HIGHCPU_8'
-  timeout: '1200s'
+
+timeout: '1200s'

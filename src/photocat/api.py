@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse, RedirectResponse
 from typing import Optional, List
 from pathlib import Path
+from datetime import datetime
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from google.cloud import storage
@@ -15,9 +16,10 @@ import json
 
 from photocat.tenant import Tenant, TenantContext
 from photocat.settings import settings
-from photocat.metadata import ImageMetadata, ImageTag, DropboxCursor
+from photocat.metadata import ImageMetadata, ImageTag, DropboxCursor, Permatag
 from photocat.image import ImageProcessor
 from photocat.config import TenantConfig
+from photocat.config.db_config import ConfigManager
 from photocat.tagging import get_tagger
 from photocat.dropbox import DropboxClient, DropboxWebhookValidator
 
@@ -102,13 +104,13 @@ async def get_tenant(x_tenant_id: Optional[str] = Header(None)) -> Tenant:
     return tenant
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def root():
     """Serve the web interface."""
     html_file = static_dir / "index.html"
     if html_file.exists():
         return HTMLResponse(content=html_file.read_text())
-    return {"name": "PhotoCat", "version": "0.1.0"}
+    return RedirectResponse(url="/health")
 
 
 @app.get("/health")
@@ -117,21 +119,185 @@ async def health_check():
     return {"status": "healthy"}
 
 
+# Include configuration router (after dependencies are defined)
+from photocat.api_config import router as config_router
+app.include_router(config_router)
+
+
 @app.get("/api/v1/images")
 async def list_images(
     tenant: Tenant = Depends(get_tenant),
-    limit: int = 20,
+    limit: int = None,
     offset: int = 0,
+    keywords: Optional[str] = None,  # Comma-separated keywords (deprecated)
+    operator: str = "OR",  # "AND" or "OR" (deprecated)
+    category_filters: Optional[str] = None,  # JSON string with per-category filters
     db: Session = Depends(get_db)
 ):
-    """List images for tenant."""
-    images = db.query(ImageMetadata).filter_by(
-        tenant_id=tenant.id
-    ).order_by(
-        ImageMetadata.id.desc()
-    ).limit(limit).offset(offset).all()
-    
-    total = db.query(ImageMetadata).filter_by(tenant_id=tenant.id).count()
+    """List images for tenant with optional faceted search by keywords."""
+    from sqlalchemy import func, distinct, and_
+    from sqlalchemy.orm import aliased
+    import json
+
+    # Handle per-category filters if provided
+    if category_filters:
+        try:
+            filters = json.loads(category_filters)
+            # filters structure: {category: {keywords: [...], operator: "OR"|"AND"}}
+
+            # Start with base query
+            base_query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+
+            # For each category, apply its filter
+            # Categories are combined with OR (image matches any category's criteria)
+            category_image_ids = []
+
+            for category, filter_data in filters.items():
+                category_keywords = filter_data.get('keywords', [])
+                category_operator = filter_data.get('operator', 'OR').upper()
+
+                if not category_keywords:
+                    continue
+
+                if category_operator == "OR":
+                    # Image must have ANY of the keywords in this category
+                    matching_ids = db.query(ImageTag.image_id).filter(
+                        ImageTag.keyword.in_(category_keywords),
+                        ImageTag.tenant_id == tenant.id
+                    ).distinct().all()
+                    category_image_ids.extend([id[0] for id in matching_ids])
+
+                elif category_operator == "AND":
+                    # Image must have ALL keywords in this category
+                    # Start with images that have the first keyword
+                    and_query = db.query(ImageTag.image_id).filter(
+                        ImageTag.keyword == category_keywords[0],
+                        ImageTag.tenant_id == tenant.id
+                    )
+
+                    # Intersect with images that have each additional keyword
+                    for keyword in category_keywords[1:]:
+                        keyword_subquery = db.query(ImageTag.image_id).filter(
+                            ImageTag.keyword == keyword,
+                            ImageTag.tenant_id == tenant.id
+                        ).subquery()
+                        and_query = and_query.filter(ImageTag.image_id.in_(keyword_subquery))
+
+                    matching_ids = and_query.distinct().all()
+                    category_image_ids.extend([id[0] for id in matching_ids])
+
+            if category_image_ids:
+                # Remove duplicates
+                unique_image_ids = list(set(category_image_ids))
+
+                # Get all keywords for relevance counting
+                all_keywords = []
+                for filter_data in filters.values():
+                    all_keywords.extend(filter_data.get('keywords', []))
+
+                # Query with relevance ordering
+                query = db.query(
+                    ImageMetadata,
+                    func.count(ImageTag.id).label('match_count')
+                ).join(
+                    ImageTag,
+                    and_(
+                        ImageTag.image_id == ImageMetadata.id,
+                        ImageTag.keyword.in_(all_keywords),
+                        ImageTag.tenant_id == tenant.id
+                    )
+                ).filter(
+                    ImageMetadata.tenant_id == tenant.id,
+                    ImageMetadata.id.in_(unique_image_ids)
+                ).group_by(
+                    ImageMetadata.id
+                ).order_by(
+                    func.count(ImageTag.id).desc(),
+                    ImageMetadata.id.desc()
+                )
+
+                total = len(unique_image_ids)
+                results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+                images = [img for img, _ in results]
+            else:
+                # No matches
+                total = 0
+                images = []
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            print(f"Error parsing category_filters: {e}")
+            # Fall back to returning all images
+            query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+            total = query.count()
+            images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+
+    # Apply keyword filtering if provided (legacy support)
+    elif keywords:
+        keyword_list = [k.strip() for k in keywords.split(',') if k.strip()]
+
+        if keyword_list and operator.upper() == "OR":
+            # OR: Image must have ANY of the selected keywords
+            # Use subquery to get image IDs that match keywords
+            matching_image_ids = db.query(ImageTag.image_id).filter(
+                ImageTag.keyword.in_(keyword_list),
+                ImageTag.tenant_id == tenant.id
+            ).distinct().subquery()
+
+            # Main query with relevance ordering
+            query = db.query(
+                ImageMetadata,
+                func.count(ImageTag.id).label('match_count')
+            ).join(
+                ImageTag,
+                and_(
+                    ImageTag.image_id == ImageMetadata.id,
+                    ImageTag.keyword.in_(keyword_list),
+                    ImageTag.tenant_id == tenant.id
+                )
+            ).filter(
+                ImageMetadata.tenant_id == tenant.id,
+                ImageMetadata.id.in_(matching_image_ids)
+            ).group_by(
+                ImageMetadata.id
+            ).order_by(
+                func.count(ImageTag.id).desc(),
+                ImageMetadata.id.desc()
+            )
+
+            total = db.query(ImageMetadata).filter(
+                ImageMetadata.tenant_id == tenant.id,
+                ImageMetadata.id.in_(matching_image_ids)
+            ).count()
+
+            results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+            images = [img for img, _ in results]
+
+        elif keyword_list and operator.upper() == "AND":
+            # AND: Image must have ALL selected keywords
+            # Start with images that have tenant_id
+            base_query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+
+            # For each keyword, filter images that have that keyword
+            for keyword in keyword_list:
+                subquery = db.query(ImageTag.image_id).filter(
+                    ImageTag.keyword == keyword,
+                    ImageTag.tenant_id == tenant.id
+                ).subquery()
+
+                base_query = base_query.filter(ImageMetadata.id.in_(subquery))
+
+            total = base_query.count()
+            images = base_query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else base_query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+        else:
+            # No valid keywords, return all
+            query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+            total = query.count()
+            images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+    else:
+        # No keywords filter, return all
+        query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+        total = query.count()
+        images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
     
     # Get tags for all images
     image_ids = [img.id for img in images]
@@ -170,6 +336,7 @@ async def list_images(
                 "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
                 "modified_time": img.modified_time.isoformat() if img.modified_time else None,
                 "thumbnail_path": img.thumbnail_path,
+                "thumbnail_url": f"https://storage.googleapis.com/{settings.thumbnail_bucket}/{img.thumbnail_path}" if img.thumbnail_path else None,
                 "tags_applied": img.tags_applied,
                 "faces_detected": img.faces_detected,
                 "tags": sorted(tags_by_image.get(img.id, []), key=lambda x: x['confidence'], reverse=True)
@@ -179,6 +346,49 @@ async def list_images(
         "total": total,
         "limit": limit,
         "offset": offset
+    }
+
+
+@app.get("/api/v1/keywords")
+async def get_available_keywords(
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Get all available keywords from config for faceted search with counts."""
+    from sqlalchemy import func
+
+    config_mgr = ConfigManager(db, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
+
+    # Get counts for each keyword
+    keyword_counts = db.query(
+        ImageTag.keyword,
+        func.count(func.distinct(ImageTag.image_id)).label('count')
+    ).filter(
+        ImageTag.tenant_id == tenant.id
+    ).group_by(
+        ImageTag.keyword
+    ).all()
+
+    # Create a dictionary of keyword -> count
+    counts_dict = {kw: count for kw, count in keyword_counts}
+
+    # Group by category with counts
+    by_category = {}
+    for kw in all_keywords:
+        cat = kw['category']
+        keyword = kw['keyword']
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append({
+            'keyword': keyword,
+            'count': counts_dict.get(keyword, 0)
+        })
+
+    return {
+        "tenant_id": tenant.id,
+        "keywords_by_category": by_category,
+        "all_keywords": [kw['keyword'] for kw in all_keywords]
     }
 
 
@@ -203,6 +413,12 @@ async def get_image(
         ImageTag.tenant_id == tenant.id
     ).all()
     
+    # Get permatags
+    permatags = db.query(Permatag).filter(
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id
+    ).all()
+    
     return {
         "id": image.id,
         "filename": image.filename,
@@ -215,7 +431,8 @@ async def get_image(
         "camera_model": image.camera_model,
         "perceptual_hash": image.perceptual_hash,
         "thumbnail_path": image.thumbnail_path,
-        "tags": [{"keyword": t.keyword, "category": t.category, "confidence": round(t.confidence, 2)} for t in tags],
+        "tags": [{"keyword": t.keyword, "category": t.category, "confidence": round(t.confidence, 2), "created_at": t.created_at.isoformat() if t.created_at else None} for t in tags],
+        "permatags": [{"id": p.id, "keyword": p.keyword, "category": p.category, "signum": p.signum, "created_at": p.created_at.isoformat() if p.created_at else None} for p in permatags],
         "exif_data": image.exif_data,
     }
 
@@ -253,6 +470,203 @@ async def get_thumbnail(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching thumbnail: {str(e)}")
+
+
+@app.get("/api/v1/images/{image_id}/permatags")
+async def get_permatags(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Get all permatags for an image."""
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+    
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    permatags = db.query(Permatag).filter(
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id
+    ).all()
+    
+    return {
+        "image_id": image_id,
+        "permatags": [
+            {
+                "id": p.id,
+                "keyword": p.keyword,
+                "category": p.category,
+                "signum": p.signum,
+                "created_at": p.created_at.isoformat(),
+                "created_by": p.created_by
+            }
+            for p in permatags
+        ]
+    }
+
+
+@app.post("/api/v1/images/{image_id}/permatags")
+async def add_permatag(
+    image_id: int,
+    request: Request,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Add or update a permatag for an image."""
+    body = await request.json()
+    keyword = body.get("keyword")
+    category = body.get("category")
+    signum = body.get("signum", 1)
+    
+    if not keyword:
+        raise HTTPException(status_code=400, detail="keyword is required")
+    
+    if signum not in [-1, 1]:
+        raise HTTPException(status_code=400, detail="signum must be -1 or 1")
+    
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+    
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Check if permatag already exists (update or insert)
+    existing = db.query(Permatag).filter(
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id,
+        Permatag.keyword == keyword
+    ).first()
+    
+    if existing:
+        # Update existing permatag
+        existing.category = category
+        existing.signum = signum
+        existing.created_at = datetime.utcnow()
+        permatag = existing
+    else:
+        # Create new permatag
+        permatag = Permatag(
+            image_id=image_id,
+            tenant_id=tenant.id,
+            keyword=keyword,
+            category=category,
+            signum=signum,
+            created_by=None  # Could be set from auth header if available
+        )
+        db.add(permatag)
+    
+    db.commit()
+    db.refresh(permatag)
+    
+    return {
+        "id": permatag.id,
+        "keyword": permatag.keyword,
+        "category": permatag.category,
+        "signum": permatag.signum,
+        "created_at": permatag.created_at.isoformat()
+    }
+
+
+@app.delete("/api/v1/images/{image_id}/permatags/{permatag_id}")
+async def delete_permatag(
+    image_id: int,
+    permatag_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Delete a permatag."""
+    permatag = db.query(Permatag).filter(
+        Permatag.id == permatag_id,
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id
+    ).first()
+    
+    if not permatag:
+        raise HTTPException(status_code=404, detail="Permatag not found")
+    
+    db.delete(permatag)
+    db.commit()
+    
+    return {"success": True}
+
+
+@app.post("/api/v1/images/{image_id}/permatags/accept-all")
+async def accept_all_tags(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Accept all current tags as positive permatags and create negative permatags for all other keywords."""
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+    
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    # Get current machine tags
+    current_tags = db.query(ImageTag).filter(
+        ImageTag.image_id == image_id,
+        ImageTag.tenant_id == tenant.id
+    ).all()
+    
+    # Get all keywords from config
+    config_manager = ConfigManager(db, tenant.id)
+    all_keywords = config_manager.get_all_keywords()
+    
+    # Build set of current tag keywords
+    current_keywords = {tag.keyword for tag in current_tags}
+    all_keyword_names = {kw['keyword'] for kw in all_keywords}
+    
+    # Delete existing permatags ONLY for keywords in the controlled vocabulary
+    # This preserves manually added permatags for keywords not in the vocabulary
+    db.query(Permatag).filter(
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id,
+        Permatag.keyword.in_(all_keyword_names)
+    ).delete(synchronize_session=False)
+    
+    # Create positive permatags for all current tags
+    for tag in current_tags:
+        permatag = Permatag(
+            image_id=image_id,
+            tenant_id=tenant.id,
+            keyword=tag.keyword,
+            category=tag.category,
+            signum=1
+        )
+        db.add(permatag)
+    
+    # Create negative permatags for all keywords NOT in current tags
+    for kw_info in all_keywords:
+        keyword = kw_info['keyword']
+        if keyword not in current_keywords:
+            permatag = Permatag(
+                image_id=image_id,
+                tenant_id=tenant.id,
+                keyword=keyword,
+                category=kw_info['category'],
+                signum=-1
+            )
+            db.add(permatag)
+    
+    db.commit()
+    
+    # Return counts
+    positive_count = len(current_keywords)
+    negative_count = len(all_keyword_names - current_keywords)
+    
+    return {
+        "success": True,
+        "positive_permatags": positive_count,
+        "negative_permatags": negative_count
+    }
 
 
 @app.post("/api/v1/images/upload")
@@ -308,9 +722,10 @@ async def upload_images(
                 db.delete(existing)
                 db.commit()
             
-            # Upload thumbnail to Cloud Storage
+            # Upload thumbnail to Cloud Storage with cache headers
             thumbnail_path = f"{tenant.id}/thumbnails/{Path(file.filename).stem}_thumb.jpg"
             blob = thumbnail_bucket.blob(thumbnail_path)
+            blob.cache_control = "public, max-age=31536000, immutable"  # 1 year cache
             blob.upload_from_string(features['thumbnail'], content_type='image/jpeg')
             
             # Create metadata record
@@ -344,8 +759,8 @@ async def upload_images(
             
             # Apply automatic tags from keywords using CLIP
             try:
-                config = TenantConfig.load(tenant.id)
-                all_keywords = config.get_all_keywords()
+                config_mgr = ConfigManager(db, tenant.id)
+                all_keywords = config_mgr.get_all_keywords()
                 
                 # Group keywords by category to avoid softmax suppression
                 by_category = {}
@@ -414,6 +829,176 @@ async def upload_images(
     }
 
 
+@app.get("/api/v1/images/{image_id}/analyze")
+async def analyze_image_keywords(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """
+    Analyze an image and return ALL keyword scores (not just above threshold).
+    Useful for debugging and tuning keyword configurations.
+    """
+    from photocat.config import TenantConfig
+    from photocat.tagging import get_tagger
+    from google.cloud import storage
+
+    # Get the image
+    image = db.query(ImageMetadata).filter(
+        ImageMetadata.id == image_id,
+        ImageMetadata.tenant_id == tenant.id
+    ).first()
+
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Load config
+    config_mgr = ConfigManager(db, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
+
+    # Group keywords by category
+    by_category = {}
+    for kw in all_keywords:
+        cat = kw['category']
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append(kw)
+
+    # Setup tagger and storage
+    tagger = get_tagger(model_type=settings.tagging_model)
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    thumbnail_bucket = storage_client.bucket(settings.thumbnail_bucket)
+
+    try:
+        # Download thumbnail
+        blob = thumbnail_bucket.blob(image.thumbnail_path)
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="Thumbnail not found in storage")
+
+        image_data = blob.download_as_bytes()
+
+        # Run model with threshold=0 to get ALL scores
+        all_scores_by_category = {}
+        for category, keywords in by_category.items():
+            category_scores = tagger.tag_image(
+                image_data,
+                keywords,
+                threshold=0.0  # Get all scores
+            )
+            all_scores_by_category[category] = [
+                {"keyword": kw, "confidence": round(conf, 3)}
+                for kw, conf in category_scores
+            ]
+
+        return {
+            "tenant_id": tenant.id,
+            "image_id": image_id,
+            "filename": image.filename,
+            "model": settings.tagging_model,
+            "threshold": 0.15,  # Show current threshold
+            "scores_by_category": all_scores_by_category
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error analyzing {image.filename}: {e}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+
+@app.post("/api/v1/images/{image_id}/retag")
+async def retag_single_image(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Retag a single image with current keywords."""
+    from photocat.config import TenantConfig
+    from photocat.tagging import get_tagger
+    from google.cloud import storage
+
+    # Get the image
+    image = db.query(ImageMetadata).filter(
+        ImageMetadata.id == image_id,
+        ImageMetadata.tenant_id == tenant.id
+    ).first()
+
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Load config
+    config_mgr = ConfigManager(db, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
+
+    # Group keywords by category
+    by_category = {}
+    for kw in all_keywords:
+        cat = kw['category']
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append(kw)
+
+    # Setup CLIP tagger and storage
+    tagger = get_tagger(model_type=settings.tagging_model)
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    thumbnail_bucket = storage_client.bucket(settings.thumbnail_bucket)
+
+    try:
+        # Delete existing tags
+        db.query(ImageTag).filter(ImageTag.image_id == image.id).delete()
+
+        # Download thumbnail
+        blob = thumbnail_bucket.blob(image.thumbnail_path)
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="Thumbnail not found in storage")
+
+        image_data = blob.download_as_bytes()
+
+        # Run CLIP separately for each category
+        all_tags = []
+        for category, keywords in by_category.items():
+            category_tags = tagger.tag_image(
+                image_data,
+                keywords,
+                threshold=0.15
+            )
+            all_tags.extend(category_tags)
+
+        # Create new tags
+        keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
+
+        for keyword, confidence in all_tags:
+            tag = ImageTag(
+                image_id=image.id,
+                tenant_id=tenant.id,
+                keyword=keyword,
+                category=keyword_to_category[keyword],
+                confidence=confidence,
+                manual=False
+            )
+            db.add(tag)
+
+        # Update tags_applied flag
+        image.tags_applied = len(all_tags) > 0
+
+        db.commit()
+
+        return {
+            "tenant_id": tenant.id,
+            "image_id": image_id,
+            "filename": image.filename,
+            "tags_count": len(all_tags),
+            "tags": [{"keyword": kw, "confidence": round(conf, 2)} for kw, conf in all_tags]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error processing {image.filename}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Retagging failed: {str(e)}")
+
+
 @app.post("/api/v1/retag")
 async def retag_all_images(
     tenant: Tenant = Depends(get_tenant),
@@ -425,8 +1010,8 @@ async def retag_all_images(
     from google.cloud import storage
     
     # Load config
-    config = TenantConfig.load(tenant.id)
-    all_keywords = config.get_all_keywords()
+    config_mgr = ConfigManager(db, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
     
     # Group keywords by category
     by_category = {}
@@ -592,8 +1177,8 @@ async def trigger_sync(
         thumbnail_bucket = storage_client.bucket(settings.thumbnail_bucket)
         
         # Load config for tagging
-        config = TenantConfig.load(tenant.id)
-        all_keywords = config.get_all_keywords()
+        config_mgr = ConfigManager(db, tenant.id)
+        all_keywords = config_mgr.get_all_keywords()
         
         # Group keywords by category
         by_category = {}
@@ -654,10 +1239,11 @@ async def trigger_sync(
                         # Skip already processed, don't count toward limit
                         continue
                     
-                    # Upload thumbnail
+                    # Upload thumbnail with cache headers
                     status_messages.append(f"Saving thumbnail and metadata")
                     thumbnail_path = f"{tenant.id}/thumbnails/{Path(entry.name).stem}_thumb.jpg"
                     blob = thumbnail_bucket.blob(thumbnail_path)
+                    blob.cache_control = "public, max-age=31536000, immutable"  # 1 year cache
                     blob.upload_from_string(features['thumbnail'], content_type='image/jpeg')
                     
                     # Create new metadata

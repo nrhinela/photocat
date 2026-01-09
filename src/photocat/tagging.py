@@ -7,6 +7,13 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 import numpy as np
 
+# Register HEIF/HEIC support for Pillow
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass  # HEIC support not available
+
 
 class ImageTagger(Protocol):
     """Protocol for image tagging models."""

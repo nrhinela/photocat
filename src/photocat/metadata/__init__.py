@@ -59,6 +59,7 @@ class ImageMetadata(Base):
     
     # Relationships
     tags = relationship("ImageTag", back_populates="image", cascade="all, delete-orphan")
+    permatags = relationship("Permatag", back_populates="image", cascade="all, delete-orphan")
     faces = relationship("DetectedFace", back_populates="image", cascade="all, delete-orphan")
     
     # Indexes for common queries
@@ -90,6 +91,31 @@ class ImageTag(Base):
     
     __table_args__ = (
         Index("idx_tenant_keyword", "tenant_id", "keyword"),
+    )
+
+
+class Permatag(Base):
+    """Permanent human-verified tags with positive/negative polarity."""
+    
+    __tablename__ = "permatags"
+    
+    id = Column(Integer, primary_key=True)
+    image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    
+    keyword = Column(String(255), nullable=False, index=True)
+    category = Column(String(255))  # Parent category from hierarchy
+    signum = Column(Integer, nullable=False)  # -1 = rejected, 1 = approved
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String(255))  # Optional: track who approved/rejected
+    
+    # Relationship
+    image = relationship("ImageMetadata", back_populates="permatags")
+    
+    __table_args__ = (
+        Index("idx_permatag_tenant_image", "tenant_id", "image_id"),
+        Index("idx_permatag_keyword", "keyword"),
     )
 
 

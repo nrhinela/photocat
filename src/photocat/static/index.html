@@ -38,6 +38,9 @@
                         <option value="siglip">SigLIP Model (Better)</option>
                         <option value="clip">CLIP Model</option>
                     </select>
+                    <button onclick="openConfig()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700" title="Edit configuration">
+                        <i class="fas fa-cog mr-2"></i>Config
+                    </button>
                     <button onclick="connectDropbox()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
                         <i class="fab fa-dropbox mr-2"></i>Connect Dropbox
                     </button>
@@ -61,12 +64,12 @@
     <!-- Search & Filters -->
     <div class="max-w-7xl mx-auto px-4 py-6">
         <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                 <div class="md:col-span-2">
-                    <input 
-                        id="searchInput" 
-                        type="text" 
-                        placeholder="Search by filename, camera, location..." 
+                    <input
+                        id="searchInput"
+                        type="text"
+                        placeholder="Search by filename, camera, location..."
                         class="w-full px-4 py-2 border rounded-lg"
                         onkeyup="handleSearch()"
                     >
@@ -79,12 +82,30 @@
                     </select>
                 </div>
                 <div>
-                    <input 
-                        type="date" 
-                        id="dateFilter" 
+                    <input
+                        type="date"
+                        id="dateFilter"
                         class="w-full px-4 py-2 border rounded-lg"
                         onchange="loadImages()"
                     >
+                </div>
+            </div>
+
+            <!-- Faceted Search -->
+            <div class="border-t pt-4">
+                <div class="flex items-center gap-4 mb-3">
+                    <div class="flex items-center gap-2">
+                        <label class="text-sm text-gray-600 font-semibold">Filter by Keywords:</label>
+                        <span id="activeFiltersCount" class="bg-blue-600 text-white text-xs px-2 py-1 rounded-full hidden">0</span>
+                    </div>
+                    <button onclick="clearFilters()" class="text-sm text-red-600 hover:text-red-700 ml-auto">
+                        <i class="fas fa-times mr-1"></i>Clear All
+                    </button>
+                </div>
+
+                <!-- Tag Input with Autocomplete - One per category -->
+                <div id="categoryInputsContainer" class="space-y-3">
+                    <!-- Category input fields will be dynamically generated here -->
                 </div>
             </div>
         </div>
@@ -167,9 +188,60 @@
                                 </div>
                             </div>
                             <div>
-                                <h3 class="font-semibold text-gray-700 mb-2">Tags</h3>
-                                <div id="imageTags" class="flex flex-wrap gap-2">
-                                    <!-- Tags will be loaded here -->
+                                <h3 class="font-semibold text-gray-700 mb-2">Current Tags</h3>
+                                <div class="text-xs text-gray-500 mb-2 flex items-center gap-4">
+                                    <span class="flex items-center gap-1">
+                                        <span class="inline-block bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">ML</span>
+                                        <span>Machine-generated</span>
+                                    </span>
+                                    <span class="flex items-center gap-1">
+                                        <span class="inline-block bg-green-100 text-green-800 px-2 py-0.5 rounded-full">✓</span>
+                                        <span>Manually approved</span>
+                                    </span>
+                                </div>
+                                <div id="currentTags" class="flex flex-wrap gap-2">
+                                    <!-- Current active tags will be loaded here -->
+                                </div>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-700 mb-2 cursor-pointer hover:text-gray-900 flex items-center" onclick="toggleTagDetails()">
+                                    <i id="tagDetailsIcon" class="fas fa-chevron-right mr-2 text-sm transition-transform"></i>
+                                    <span>Tag Details</span>
+                                </h3>
+                                <div id="tagDetailsSection" class="hidden">
+                                    <div class="ml-4 space-y-4 mt-2">
+                                        <div>
+                                            <h4 class="font-medium text-gray-600 mb-1 text-sm">Machine Generated Tags</h4>
+                                            <p class="text-xs text-gray-500 mb-2">All ML-generated tags with confidence scores and dates. <span class="line-through">Strikethrough</span> indicates tags rejected by permatags.</p>
+                                            <div id="imageTags" class="flex flex-wrap gap-2">
+                                                <!-- All machine tags will be loaded here -->
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-medium text-gray-600 mb-1 text-sm flex justify-between items-center">
+                                                <span>Permatags - Tag Overrides</span>
+                                                <button onclick="acceptAllTags()" id="acceptAllBtn" 
+                                                        class="bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1 rounded transition-colors">
+                                                    <i class="fas fa-check mr-1"></i>Accept All
+                                                </button>
+                                            </h4>
+                                            <p class="text-xs text-gray-500 mb-2">Manual tag decisions (✓ approved, − rejected) that persist across retagging.</p>
+                                            <div id="imagePermatags" class="flex flex-wrap gap-2 mb-3">
+                                                <!-- Permatags will be loaded here -->
+                                            </div>
+                                            <div class="flex gap-2 mt-2">
+                                                <input type="text" id="newPermatagKeyword" placeholder="Add keyword..." 
+                                                       class="text-sm border border-gray-300 rounded px-2 py-1 flex-1">
+                                                <select id="newPermatagSignum" class="text-sm border border-gray-300 rounded px-2 py-1">
+                                                    <option value="1">✓ Approve</option>
+                                                    <option value="-1">✗ Reject</option>
+                                                </select>
+                                                <button onclick="addPermatag()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1 rounded transition-colors">
+                                                    Add
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div>
@@ -216,21 +288,369 @@
     <script>
         let currentTenant = 'demo';
         let currentImages = [];
+        let selectedKeywords = new Set();
+        let selectedKeywordsByCategory = {}; // Track which category each keyword belongs to
+        let categoryOperators = {}; // Track OR/AND operator per category
+        let availableKeywords = {};
+
+        function openConfig() {
+            window.location.href = `/static/config.html?tenant=${currentTenant}`;
+        }
+
+        async function loadKeywords() {
+            try {
+                const response = await fetch('/api/v1/keywords', {
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+
+                if (!response.ok) {
+                    console.error('Failed to load keywords');
+                    return;
+                }
+
+                const data = await response.json();
+                availableKeywords = data.keywords_by_category;
+
+                // Initialize category tracking
+                for (const category in availableKeywords) {
+                    if (!selectedKeywordsByCategory[category]) {
+                        selectedKeywordsByCategory[category] = new Set();
+                    }
+                    if (!categoryOperators[category]) {
+                        categoryOperators[category] = 'OR'; // Default to OR
+                    }
+                }
+
+                // Render category input fields
+                renderCategoryInputs();
+            } catch (error) {
+                console.error('Error loading keywords:', error);
+            }
+        }
+
+        function renderCategoryInputs() {
+            const container = document.getElementById('categoryInputsContainer');
+            container.innerHTML = '';
+
+            for (const [category, keywords] of Object.entries(availableKeywords)) {
+                const categoryDiv = document.createElement('div');
+                categoryDiv.className = 'space-y-1';
+
+                // Category label with operator toggle
+                const headerDiv = document.createElement('div');
+                headerDiv.className = 'flex items-center justify-between';
+
+                const label = document.createElement('label');
+                label.className = 'text-xs font-semibold text-gray-600 uppercase';
+                label.textContent = category;
+
+                const operatorButton = document.createElement('button');
+                operatorButton.id = `operator-${category}`;
+                operatorButton.className = 'px-2 py-0.5 rounded bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700';
+                operatorButton.textContent = categoryOperators[category] || 'OR';
+                operatorButton.onclick = () => toggleCategoryOperator(category);
+
+                headerDiv.appendChild(label);
+                headerDiv.appendChild(operatorButton);
+                categoryDiv.appendChild(headerDiv);
+
+                // Tag input container with relative positioning for dropdown
+                const inputWrapper = document.createElement('div');
+                inputWrapper.className = 'relative';
+
+                // Tags container
+                const tagsContainer = document.createElement('div');
+                tagsContainer.id = `tags-${category}`;
+                tagsContainer.className = 'min-h-[42px] border rounded-lg p-2 bg-white flex flex-wrap gap-2 items-center cursor-text';
+                tagsContainer.onclick = () => document.getElementById(`input-${category}`).focus();
+
+                // Input field
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = `input-${category}`;
+                input.placeholder = `Type to search ${category}...`;
+                input.className = 'flex-1 min-w-[200px] outline-none text-sm';
+                input.autocomplete = 'off';
+                input.oninput = (e) => handleCategoryInput(category, e);
+                input.onkeydown = (e) => handleCategoryKeydown(category, e);
+                input.onfocus = () => showCategoryDropdown(category);
+
+                tagsContainer.appendChild(input);
+                inputWrapper.appendChild(tagsContainer);
+
+                // Dropdown
+                const dropdown = document.createElement('div');
+                dropdown.id = `dropdown-${category}`;
+                dropdown.className = 'hidden absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-64 overflow-y-auto';
+                inputWrapper.appendChild(dropdown);
+
+                categoryDiv.appendChild(inputWrapper);
+                container.appendChild(categoryDiv);
+            }
+        }
+
+        function renderCategoryDropdown(category, filterText = '') {
+            const dropdown = document.getElementById(`dropdown-${category}`);
+            if (!dropdown) return;
+
+            dropdown.innerHTML = '';
+
+            const filter = filterText.toLowerCase();
+            const keywords = availableKeywords[category] || [];
+            const selectedInCategory = selectedKeywordsByCategory[category] || new Set();
+
+            // Filter keywords by search text and exclude already selected
+            const filteredKeywords = keywords.filter(kwObj => {
+                const keyword = kwObj.keyword || kwObj;
+                return keyword.toLowerCase().includes(filter) && !selectedInCategory.has(keyword);
+            });
+
+            if (filteredKeywords.length === 0) {
+                const noResults = document.createElement('div');
+                noResults.className = 'px-3 py-4 text-sm text-gray-500 text-center';
+                noResults.textContent = filterText ? 'No matching keywords found' : 'No more keywords available';
+                dropdown.appendChild(noResults);
+                return;
+            }
+
+            // Keywords
+            filteredKeywords.forEach(kwObj => {
+                const keyword = kwObj.keyword || kwObj;
+                const count = kwObj.count || 0;
+
+                const item = document.createElement('div');
+                item.className = 'px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between items-center';
+                item.onclick = () => addCategoryKeyword(category, keyword);
+
+                const keywordSpan = document.createElement('span');
+                keywordSpan.className = 'text-sm';
+                keywordSpan.textContent = keyword;
+
+                const countSpan = document.createElement('span');
+                countSpan.className = 'text-xs text-gray-400';
+                countSpan.textContent = `(${count})`;
+
+                item.appendChild(keywordSpan);
+                item.appendChild(countSpan);
+                dropdown.appendChild(item);
+            });
+        }
+
+        function showCategoryDropdown(category) {
+            // Load keywords if not already loaded
+            if (Object.keys(availableKeywords).length === 0) {
+                loadKeywords().then(() => {
+                    renderCategoryDropdown(category);
+                    const dropdown = document.getElementById(`dropdown-${category}`);
+                    if (dropdown) dropdown.classList.remove('hidden');
+                });
+            } else {
+                renderCategoryDropdown(category);
+                const dropdown = document.getElementById(`dropdown-${category}`);
+                if (dropdown) dropdown.classList.remove('hidden');
+            }
+        }
+
+        function hideCategoryDropdown(category) {
+            const dropdown = document.getElementById(`dropdown-${category}`);
+            if (dropdown) dropdown.classList.add('hidden');
+        }
+
+        function handleCategoryInput(category, event) {
+            const filterText = event.target.value;
+            renderCategoryDropdown(category, filterText);
+            showCategoryDropdown(category);
+        }
+
+        function handleCategoryKeydown(category, event) {
+            const input = event.target;
+
+            // Backspace on empty input removes last tag in this category
+            if (event.key === 'Backspace' && input.value === '') {
+                const categorySet = selectedKeywordsByCategory[category];
+                if (categorySet && categorySet.size > 0) {
+                    const lastKeyword = Array.from(categorySet).pop();
+                    removeCategoryKeyword(category, lastKeyword);
+                }
+            }
+
+            // Escape closes dropdown
+            if (event.key === 'Escape') {
+                hideCategoryDropdown(category);
+            }
+        }
+
+        function addCategoryKeyword(category, keyword) {
+            console.log('Adding keyword to category:', category, keyword);
+
+            if (!selectedKeywordsByCategory[category]) {
+                selectedKeywordsByCategory[category] = new Set();
+            }
+            selectedKeywordsByCategory[category].add(keyword);
+            selectedKeywords.add(keyword);
+
+            console.log('Selected keywords:', Array.from(selectedKeywords));
+            renderCategoryTags(category);
+            updateFilterCount();
+            loadImages();
+
+            // Clear input and update dropdown
+            const input = document.getElementById(`input-${category}`);
+            if (input) {
+                input.value = '';
+                renderCategoryDropdown(category);
+                input.focus();
+            }
+        }
+
+        function removeCategoryKeyword(category, keyword) {
+            if (selectedKeywordsByCategory[category]) {
+                selectedKeywordsByCategory[category].delete(keyword);
+            }
+            selectedKeywords.delete(keyword);
+
+            renderCategoryTags(category);
+            updateFilterCount();
+            loadImages();
+            renderCategoryDropdown(category);
+        }
+
+        function renderCategoryTags(category) {
+            const container = document.getElementById(`tags-${category}`);
+            const input = document.getElementById(`input-${category}`);
+            if (!container || !input) return;
+
+            // Clear existing tags (but keep the input)
+            const existingTags = container.querySelectorAll('.keyword-tag');
+            existingTags.forEach(tag => tag.remove());
+
+            // Add tags before input
+            const categorySet = selectedKeywordsByCategory[category] || new Set();
+            categorySet.forEach(keyword => {
+                const tag = document.createElement('span');
+                tag.className = 'keyword-tag inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm';
+
+                const text = document.createElement('span');
+                text.textContent = keyword;
+
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '×';
+                removeBtn.className = 'hover:bg-blue-200 rounded-full w-4 h-4 flex items-center justify-center';
+                removeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    removeCategoryKeyword(category, keyword);
+                };
+
+                tag.appendChild(text);
+                tag.appendChild(removeBtn);
+                container.insertBefore(tag, input);
+            });
+        }
+
+        function toggleCategoryOperator(category) {
+            categoryOperators[category] = categoryOperators[category] === 'OR' ? 'AND' : 'OR';
+            const button = document.getElementById(`operator-${category}`);
+            if (button) {
+                button.textContent = categoryOperators[category];
+            }
+
+            // Reload images if this category has selected keywords
+            const categorySet = selectedKeywordsByCategory[category];
+            if (categorySet && categorySet.size > 0) {
+                loadImages();
+            }
+        }
+
+        function updateFilterCount() {
+            const count = selectedKeywords.size;
+            const badge = document.getElementById('activeFiltersCount');
+
+            if (count > 0) {
+                badge.textContent = count;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function clearFilters() {
+            selectedKeywords.clear();
+            selectedKeywordsByCategory = {};
+            categoryOperators = {};
+
+            // Re-initialize category sets and operators
+            for (const category in availableKeywords) {
+                selectedKeywordsByCategory[category] = new Set();
+                categoryOperators[category] = 'OR';
+                renderCategoryTags(category);
+                renderCategoryDropdown(category);
+
+                // Update operator button
+                const button = document.getElementById(`operator-${category}`);
+                if (button) {
+                    button.textContent = 'OR';
+                }
+            }
+
+            updateFilterCount();
+            loadImages();
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            for (const category in availableKeywords) {
+                const dropdown = document.getElementById(`dropdown-${category}`);
+                const container = document.getElementById(`tags-${category}`);
+
+                if (dropdown && container) {
+                    if (!dropdown.contains(e.target) && !container.contains(e.target)) {
+                        hideCategoryDropdown(category);
+                    }
+                }
+            }
+        });
 
         async function loadImages() {
             console.log('loadImages: Starting...');
             const loading = document.getElementById('loading');
             const imageGrid = document.getElementById('imageGrid');
             const emptyState = document.getElementById('emptyState');
-            
+
             console.log('loadImages: Showing loading spinner');
             loading.classList.remove('hidden');
             imageGrid.innerHTML = '';
             emptyState.classList.add('hidden');
-            
+
             try {
-                console.log('loadImages: Fetching images from API...');
-                const response = await fetch(`/api/v1/images?limit=100`, {
+                // Build query parameters
+                const params = new URLSearchParams();
+
+                console.log('loadImages: selectedKeywords:', Array.from(selectedKeywords));
+                console.log('loadImages: selectedKeywords.size:', selectedKeywords.size);
+                console.log('loadImages: categoryOperators:', categoryOperators);
+                console.log('loadImages: selectedKeywordsByCategory:', selectedKeywordsByCategory);
+
+                // Add keyword filters with per-category operators
+                if (selectedKeywords.size > 0) {
+                    // Build category filter data
+                    const categoryFilters = {};
+                    for (const [category, keywords] of Object.entries(selectedKeywordsByCategory)) {
+                        // keywords is a Set, so check size
+                        if (keywords && keywords.size > 0) {
+                            categoryFilters[category] = {
+                                keywords: Array.from(keywords),  // Convert Set to Array
+                                operator: categoryOperators[category] || 'OR'
+                            };
+                        }
+                    }
+                    console.log('loadImages: Adding category filters:', categoryFilters);
+                    params.append('category_filters', JSON.stringify(categoryFilters));
+                }
+
+                console.log('loadImages: Fetching images from API with params:', params.toString());
+                const response = await fetch(`/api/v1/images?${params.toString()}`, {
                     headers: {
                         'X-Tenant-ID': currentTenant
                     }
@@ -307,18 +727,23 @@
             
             div.innerHTML = `
                 <div class="aspect-square bg-gray-200 relative">
-                    <img src="/api/v1/images/${image.id}/thumbnail" 
+                    <img src="${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}" 
                          alt="${image.filename}" 
                          class="w-full h-full object-cover"
                          loading="lazy"
                          onerror="this.src=&quot;data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 400%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22400%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Image%3C/text%3E%3C/svg%3E&quot;">
-                    <a href="https://www.dropbox.com/home${encodeURIComponent(image.dropbox_path)}" 
-                       target="dropbox" 
-                       onclick="event.stopPropagation()" 
-                       class="absolute top-2 left-2 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors" 
+                    <a href="https://www.dropbox.com/home${encodeURIComponent(image.dropbox_path)}"
+                       target="dropbox"
+                       onclick="event.stopPropagation()"
+                       class="absolute top-2 left-2 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
                        title="Open in Dropbox">
                         <i class="fab fa-dropbox"></i>
                     </a>
+                    <button onclick="reprocessImage(${image.id}, event)"
+                       class="absolute bottom-2 right-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded shadow-lg transition-colors text-xs"
+                       title="Reprocess this image with current keywords">
+                        <i class="fas fa-sync-alt"></i> Retag
+                    </button>
                     ${image.tags_applied ? '<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>' : ''}
                 </div>
                 <div class="p-3">
@@ -337,7 +762,10 @@
         async function showImageDetail(image) {
             const modal = document.getElementById('imageModal');
             document.getElementById('modalTitle').textContent = image.filename;
-            document.getElementById('modalImage').src = `/api/v1/images/${image.id}/thumbnail`;
+            document.getElementById('modalImage').src = image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`;
+            
+            // Store current image ID for permatag operations
+            window.currentImageId = image.id;
             
             // Fetch full details including tags
             try {
@@ -348,6 +776,9 @@
                 });
                 const details = await response.json();
                 
+                // Store details for reference
+                window.currentImageDetails = details;
+                
                 // Details
                 const detailsDiv = document.getElementById('imageDetails');
                 detailsDiv.innerHTML = `
@@ -355,12 +786,25 @@
                     <div><strong>Format:</strong> ${details.format || 'Unknown'}</div>
                     <div><strong>File Size:</strong> ${formatBytes(details.file_size)}</div>
                     <div><strong>Path:</strong> ${details.dropbox_path}</div>
-                    <div class="mt-3">
-                        <a href="https://www.dropbox.com/home${encodeURIComponent(details.dropbox_path)}" 
-                           target="dropbox" 
+                    <div class="mt-3 space-y-2">
+                        <a href="https://www.dropbox.com/home${encodeURIComponent(details.dropbox_path)}"
+                           target="dropbox"
                            class="inline-flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
                             <i class="fab fa-dropbox mr-2"></i>Open in Dropbox
                         </a>
+                        <button onclick="reprocessImageFromModal(${image.id})"
+                           id="modalRetagButton"
+                           class="inline-flex items-center bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors ml-2">
+                            <i class="fas fa-sync-alt mr-2"></i>Retag
+                        </button>
+                        <button onclick="analyzeImageScores(${image.id})"
+                           id="modalAnalyzeButton"
+                           class="inline-flex items-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-colors ml-2">
+                            <i class="fas fa-chart-bar mr-2"></i>Show All Scores
+                        </button>
+                    </div>
+                    <div id="analysisResults" class="mt-4 hidden">
+                        <!-- Analysis results will be shown here -->
                     </div>
                 `;
                 
@@ -374,16 +818,116 @@
                     ${details.aperture ? `<div><strong>Aperture:</strong> f/${details.aperture}</div>` : ''}
                 ` : '<div class="text-gray-400">No camera information</div>';
                 
-                // Tags
+                // Build permatag lookup maps
+                const permatagMap = {};
+                if (details.permatags) {
+                    details.permatags.forEach(p => {
+                        permatagMap[p.keyword] = p.signum;
+                    });
+                }
+                
+                // 1. Current Tags (machine tags - negative permatags + positive permatags)
+                const currentTagsDiv = document.getElementById('currentTags');
+                const currentTags = [];
+                
+                // Add machine tags that aren't negatively permatagged
+                if (details.tags) {
+                    details.tags.forEach(tag => {
+                        if (permatagMap[tag.keyword] !== -1) {
+                            currentTags.push({
+                                keyword: tag.keyword,
+                                category: tag.category,
+                                source: 'machine',
+                                confidence: tag.confidence
+                            });
+                        }
+                    });
+                }
+                
+                // Add positive permatags
+                if (details.permatags) {
+                    details.permatags.forEach(p => {
+                        if (p.signum === 1) {
+                            // Check if it's not already in machine tags
+                            const alreadyInMachine = details.tags && details.tags.some(t => t.keyword === p.keyword);
+                            if (!alreadyInMachine) {
+                                currentTags.push({
+                                    keyword: p.keyword,
+                                    category: p.category,
+                                    source: 'permatag'
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                if (currentTags.length > 0) {
+                    currentTagsDiv.innerHTML = currentTags.map(tag => {
+                        // Green if tag is in permatags (regardless of source), blue if only in machine tags
+                        const isInPermatags = permatagMap.hasOwnProperty(tag.keyword);
+                        const bgColor = isInPermatags ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
+                        const confidenceText = tag.confidence ? ` <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}%)</span>` : '';
+                        return `<span class="inline-block ${bgColor} px-3 py-1 rounded-full text-sm">
+                            ${tag.keyword}${confidenceText}
+                        </span>`;
+                    }).join(' ');
+                } else {
+                    currentTagsDiv.innerHTML = '<div class="text-gray-400">No active tags</div>';
+                }
+                
+                // 2. Machine Generated Tags (all image_tags with dates)
                 const tagsDiv = document.getElementById('imageTags');
                 if (details.tags && details.tags.length > 0) {
-                    tagsDiv.innerHTML = details.tags.map(tag => 
-                        `<span class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                            ${tag.keyword} <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}%)</span>
-                        </span>`
-                    ).join(' ');
+                    tagsDiv.innerHTML = details.tags.map(tag => {
+                        const dateStr = tag.created_at ? new Date(tag.created_at).toLocaleDateString() : 'Unknown';
+                        const isRejected = permatagMap[tag.keyword] === -1;
+                        
+                        if (isRejected) {
+                            // Show with strikethrough, no reject button
+                            return `<span class="inline-block bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-sm">
+                                <span class="line-through" title="Rejected by permatag">
+                                    ${tag.keyword} <span class="text-xs text-gray-400">(${Math.round(tag.confidence * 100)}% • ${dateStr})</span>
+                                </span>
+                            </span>`;
+                        } else {
+                            // Normal display with approve/reject buttons
+                            return `<span class="inline-block bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm hover:bg-gray-200 transition-colors group relative">
+                                <span onclick="promoteToPermatag('${tag.keyword}', '${tag.category || ''}', 1)" class="cursor-pointer" title="Click to approve">
+                                    ${tag.keyword} <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}% • ${dateStr})</span>
+                                </span>
+                                <button onclick="promoteToPermatag('${tag.keyword}', '${tag.category || ''}', -1); event.stopPropagation();" 
+                                        class="ml-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
+                                        title="Reject this tag">
+                                    −
+                                </button>
+                            </span>`;
+                        }
+                    }).join(' ');
                 } else {
-                    tagsDiv.innerHTML = '<div class="text-gray-400">No tags</div>';
+                    tagsDiv.innerHTML = '<div class="text-gray-400">No machine tags</div>';
+                }
+                
+                // 3. Permatags (with dates)
+                const permatagsDiv = document.getElementById('imagePermatags');
+                
+                if (details.permatags && details.permatags.length > 0) {
+                    // Sort: positive (signum=1) first, negative (signum=-1) last
+                    const sortedPermatags = [...details.permatags].sort((a, b) => b.signum - a.signum);
+                    permatagsDiv.innerHTML = sortedPermatags.map(permatag => {
+                        const isPositive = permatag.signum === 1;
+                        const bgColor = isPositive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                        const icon = isPositive ? '✓' : '−';
+                        const dateStr = permatag.created_at ? new Date(permatag.created_at).toLocaleDateString() : 'Unknown';
+                        return `<span class="${bgColor} inline-block px-3 py-1 rounded-full text-sm relative group">
+                            ${icon} ${permatag.keyword} <span class="text-xs opacity-75">(${dateStr})</span>
+                            <button onclick="deletePermatag(${permatag.id})" 
+                                    class="ml-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600">
+                                ×
+                            </button>
+                        </span>`;
+                    }).join(' ');
+                } else {
+                    permatagsDiv.innerHTML = '<div class="text-gray-400 text-sm">No permatags yet</div>';
                 }
                 
                 // People
@@ -498,17 +1042,221 @@
             document.getElementById('storageUsed').textContent = '0 MB'; // TODO
         }
 
+        async function reprocessImage(imageId, event) {
+            // Stop propagation to prevent opening the image detail modal
+            event.stopPropagation();
+
+            const button = event.target.closest('button');
+            const originalHTML = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+            try {
+                const response = await fetch(`/api/v1/images/${imageId}/retag`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Reprocessing failed');
+                }
+
+                const result = await response.json();
+                console.log('Reprocess result:', result);
+
+                // Show success briefly
+                button.innerHTML = '<i class="fas fa-check"></i>';
+
+                // Reload images to show updated tags
+                setTimeout(() => {
+                    loadImages();
+                }, 500);
+
+            } catch (error) {
+                console.error('Reprocess error:', error);
+                button.innerHTML = '<i class="fas fa-times"></i>';
+                alert('✗ Reprocessing failed: ' + error.message);
+
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 2000);
+            }
+        }
+
+        async function reprocessImageFromModal(imageId) {
+            const button = document.getElementById('modalRetagButton');
+            const originalHTML = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Retagging...';
+
+            try {
+                const response = await fetch(`/api/v1/images/${imageId}/retag`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Reprocessing failed');
+                }
+
+                const result = await response.json();
+                console.log('Reprocess result:', result);
+
+                // Show success briefly
+                button.innerHTML = '<i class="fas fa-check mr-2"></i>Complete!';
+
+                // Reload the image details to show new tags
+                setTimeout(async () => {
+                    const detailsResponse = await fetch(`/api/v1/images/${imageId}`, {
+                        headers: {
+                            'X-Tenant-ID': currentTenant
+                        }
+                    });
+                    const details = await detailsResponse.json();
+
+                    // Update tags in modal
+                    const tagsDiv = document.getElementById('imageTags');
+                    if (details.tags && details.tags.length > 0) {
+                        tagsDiv.innerHTML = details.tags.map(tag =>
+                            `<span class="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                                ${tag.keyword} <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}%)</span>
+                            </span>`
+                        ).join(' ');
+                    } else {
+                        tagsDiv.innerHTML = '<div class="text-gray-400">No tags</div>';
+                    }
+
+                    // Reload the main gallery to show updated tags on thumbnails
+                    loadImages();
+
+                    // Reset button
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 1000);
+
+            } catch (error) {
+                console.error('Reprocess error:', error);
+                button.innerHTML = '<i class="fas fa-times mr-2"></i>Failed';
+                alert('✗ Reprocessing failed: ' + error.message);
+
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 2000);
+            }
+        }
+
+        async function analyzeImageScores(imageId) {
+            const button = document.getElementById('modalAnalyzeButton');
+            const resultsDiv = document.getElementById('analysisResults');
+            const originalHTML = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Analyzing...';
+            resultsDiv.classList.add('hidden');
+
+            try {
+                const response = await fetch(`/api/v1/images/${imageId}/analyze`, {
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error('Analysis failed');
+                }
+
+                const result = await response.json();
+                console.log('Analysis result:', result);
+
+                // Backend returns scores_by_category as a dictionary
+                const scoresByCategory = result.scores_by_category || {};
+
+                // Build HTML for results
+                let html = `
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <h4 class="font-semibold mb-3 text-gray-900">All Keyword Scores (Threshold: ${Math.round(result.threshold * 100)}%)</h4>
+                `;
+
+                // Sort categories alphabetically
+                const sortedCategories = Object.keys(scoresByCategory).sort();
+
+                sortedCategories.forEach(category => {
+                    const scores = scoresByCategory[category];
+                    // Sort by confidence descending
+                    scores.sort((a, b) => b.confidence - a.confidence);
+
+                    html += `
+                        <div class="mb-4">
+                            <h5 class="font-medium text-sm text-gray-700 mb-2">${category}</h5>
+                            <div class="grid grid-cols-2 gap-2">
+                    `;
+
+                    scores.forEach(item => {
+                        const percentage = Math.round(item.confidence * 100);
+                        const isAboveThreshold = item.confidence >= result.threshold;
+                        const badgeColor = isAboveThreshold ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600';
+                        const icon = isAboveThreshold ? '✓' : '';
+
+                        html += `
+                            <div class="flex justify-between items-center ${badgeColor} px-2 py-1 rounded text-sm">
+                                <span>${icon} ${item.keyword}</span>
+                                <span class="font-mono text-xs">${percentage}%</span>
+                            </div>
+                        `;
+                    });
+
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        <div class="mt-3 text-xs text-gray-500">
+                            <strong>Legend:</strong>
+                            <span class="inline-block bg-green-100 text-green-800 px-2 py-0.5 rounded ml-2">✓ Above threshold (applied)</span>
+                            <span class="inline-block bg-gray-100 text-gray-600 px-2 py-0.5 rounded ml-2">Below threshold</span>
+                        </div>
+                    </div>
+                `;
+
+                resultsDiv.innerHTML = html;
+                resultsDiv.classList.remove('hidden');
+
+                button.innerHTML = '<i class="fas fa-chart-bar mr-2"></i>Refresh Analysis';
+                button.disabled = false;
+
+            } catch (error) {
+                console.error('Analysis error:', error);
+                button.innerHTML = '<i class="fas fa-times mr-2"></i>Failed';
+                alert('✗ Analysis failed: ' + error.message);
+
+                setTimeout(() => {
+                    button.disabled = false;
+                    button.innerHTML = originalHTML;
+                }, 2000);
+            }
+        }
+
         async function retagAllImages() {
             const button = document.getElementById('retagButton');
             const originalText = button.innerHTML;
-            
+
             if (!confirm('Retag all images with current keywords? This may take a few minutes.')) {
                 return;
             }
-            
+
             button.disabled = true;
             button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Retagging...';
-            
+
             try {
                 const response = await fetch('/api/v1/retag', {
                     method: 'POST',
@@ -516,17 +1264,17 @@
                         'X-Tenant-ID': currentTenant
                     }
                 });
-                
+
                 if (!response.ok) {
                     throw new Error('Retag failed');
                 }
-                
+
                 const result = await response.json();
                 alert(`✓ Retagging complete!\n\nProcessed: ${result.processed}/${result.total} images`);
-                
+
                 // Reload images to show new tags
                 loadImages();
-                
+
             } catch (error) {
                 console.error('Retag error:', error);
                 alert('✗ Retagging failed: ' + error.message);
@@ -639,8 +1387,297 @@
             return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
         }
 
+        // Toggle tag details section
+        function toggleTagDetails() {
+            const section = document.getElementById('tagDetailsSection');
+            const icon = document.getElementById('tagDetailsIcon');
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                icon.style.transform = 'rotate(90deg)';
+            } else {
+                section.classList.add('hidden');
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        // Permatag functions
+        async function addPermatag() {
+            const keyword = document.getElementById('newPermatagKeyword').value.trim();
+            const signum = parseInt(document.getElementById('newPermatagSignum').value);
+            
+            if (!keyword) {
+                alert('Please enter a keyword');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/v1/images/${window.currentImageId}/permatags`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Tenant-ID': currentTenant
+                    },
+                    body: JSON.stringify({ keyword, signum })
+                });
+                
+                if (!response.ok) throw new Error('Failed to add permatag');
+                
+                // Clear input
+                document.getElementById('newPermatagKeyword').value = '';
+                
+                // Refresh image details
+                await refreshImageDetails();
+            } catch (error) {
+                console.error('Error adding permatag:', error);
+                alert('Failed to add permatag');
+            }
+        }
+
+        async function deletePermatag(permatagId) {
+            if (!confirm('Remove this permatag?')) return;
+            
+            try {
+                const response = await fetch(`/api/v1/images/${window.currentImageId}/permatags/${permatagId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Failed to delete permatag');
+                
+                await refreshImageDetails();
+            } catch (error) {
+                console.error('Error deleting permatag:', error);
+                alert('Failed to delete permatag');
+            }
+        }
+
+        async function acceptAllTags() {
+            if (!confirm('Accept all current tags as permatags and reject all others?')) return;
+            
+            const button = document.getElementById('acceptAllBtn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Processing...';
+            
+            try {
+                const response = await fetch(`/api/v1/images/${window.currentImageId}/permatags/accept-all`, {
+                    method: 'POST',
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+                
+                if (!response.ok) throw new Error('Failed to accept tags');
+                
+                const result = await response.json();
+                alert(`✓ Accepted ${result.positive_permatags} tags, rejected ${result.negative_permatags} keywords`);
+                
+                await refreshImageDetails();
+            } catch (error) {
+                console.error('Error accepting tags:', error);
+                alert('Failed to accept tags');
+            } finally {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }
+        }
+
+        function showTagActions(event, keyword, category) {
+            event.stopPropagation();
+            
+            const actions = `
+                <div class="absolute z-10 bg-white shadow-lg rounded-lg p-2 border border-gray-200" 
+                     style="top: ${event.clientY}px; left: ${event.clientX}px;">
+                    <button onclick="promoteToPermatag('${keyword}', '${category}', 1)" 
+                            class="block w-full text-left px-3 py-2 text-sm hover:bg-green-100 rounded">
+                        <i class="fas fa-check text-green-600 mr-2"></i>Approve
+                    </button>
+                    <button onclick="promoteToPermatag('${keyword}', '${category}', -1)" 
+                            class="block w-full text-left px-3 py-2 text-sm hover:bg-red-100 rounded">
+                        <i class="fas fa-times text-red-600 mr-2"></i>Reject
+                    </button>
+                    <button onclick="closeTagActions()" 
+                            class="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100 rounded border-t mt-1">
+                        Cancel
+                    </button>
+                </div>
+            `;
+            
+            // Remove any existing action menu
+            closeTagActions();
+            
+            const menu = document.createElement('div');
+            menu.id = 'tagActionsMenu';
+            menu.innerHTML = actions;
+            document.body.appendChild(menu);
+            
+            // Close menu when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', closeTagActions, { once: true });
+            }, 10);
+        }
+
+        function closeTagActions() {
+            const menu = document.getElementById('tagActionsMenu');
+            if (menu) menu.remove();
+        }
+
+        async function promoteToPermatag(keyword, category, signum) {
+            closeTagActions();
+            
+            try {
+                const response = await fetch(`/api/v1/images/${window.currentImageId}/permatags`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Tenant-ID': currentTenant
+                    },
+                    body: JSON.stringify({ keyword, category, signum })
+                });
+                
+                if (!response.ok) throw new Error('Failed to promote tag');
+                
+                await refreshImageDetails();
+            } catch (error) {
+                console.error('Error promoting tag:', error);
+                alert('Failed to promote tag to permatag');
+            }
+        }
+
+        async function refreshImageDetails() {
+            if (!window.currentImageId) return;
+            
+            try {
+                const response = await fetch(`/api/v1/images/${window.currentImageId}`, {
+                    headers: {
+                        'X-Tenant-ID': currentTenant
+                    }
+                });
+                const details = await response.json();
+                
+                window.currentImageDetails = details;
+                
+                // Build permatag lookup maps
+                const permatagMap = {};
+                if (details.permatags) {
+                    details.permatags.forEach(p => {
+                        permatagMap[p.keyword] = p.signum;
+                    });
+                }
+                
+                // 1. Current Tags (machine tags - negative permatags + positive permatags)
+                const currentTagsDiv = document.getElementById('currentTags');
+                const currentTags = [];
+                
+                // Add machine tags that aren't negatively permatagged
+                if (details.tags) {
+                    details.tags.forEach(tag => {
+                        if (permatagMap[tag.keyword] !== -1) {
+                            currentTags.push({
+                                keyword: tag.keyword,
+                                category: tag.category,
+                                source: 'machine',
+                                confidence: tag.confidence
+                            });
+                        }
+                    });
+                }
+                
+                // Add positive permatags
+                if (details.permatags) {
+                    details.permatags.forEach(p => {
+                        if (p.signum === 1) {
+                            // Check if it's not already in machine tags
+                            const alreadyInMachine = details.tags && details.tags.some(t => t.keyword === p.keyword);
+                            if (!alreadyInMachine) {
+                                currentTags.push({
+                                    keyword: p.keyword,
+                                    category: p.category,
+                                    source: 'permatag'
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                if (currentTags.length > 0) {
+                    currentTagsDiv.innerHTML = currentTags.map(tag => {
+                        // Green if tag is in permatags (regardless of source), blue if only in machine tags
+                        const isInPermatags = permatagMap.hasOwnProperty(tag.keyword);
+                        const bgColor = isInPermatags ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
+                        const confidenceText = tag.confidence ? ` <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}%)</span>` : '';
+                        return `<span class="inline-block ${bgColor} px-3 py-1 rounded-full text-sm">
+                            ${tag.keyword}${confidenceText}
+                        </span>`;
+                    }).join(' ');
+                } else {
+                    currentTagsDiv.innerHTML = '<div class="text-gray-400">No active tags</div>';
+                }
+                
+                // 2. Machine Generated Tags (all image_tags with dates)
+                const tagsDiv = document.getElementById('imageTags');
+                if (details.tags && details.tags.length > 0) {
+                    tagsDiv.innerHTML = details.tags.map(tag => {
+                        const dateStr = tag.created_at ? new Date(tag.created_at).toLocaleDateString() : 'Unknown';
+                        const isRejected = permatagMap[tag.keyword] === -1;
+                        
+                        if (isRejected) {
+                            // Show with strikethrough, no reject button
+                            return `<span class="inline-block bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-sm">
+                                <span class="line-through" title="Rejected by permatag">
+                                    ${tag.keyword} <span class="text-xs text-gray-400">(${Math.round(tag.confidence * 100)}% • ${dateStr})</span>
+                                </span>
+                            </span>`;
+                        } else {
+                            // Normal display with approve/reject buttons
+                            return `<span class="inline-block bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm hover:bg-gray-200 transition-colors group relative">
+                                <span onclick="promoteToPermatag('${tag.keyword}', '${tag.category || ''}', 1)" class="cursor-pointer" title="Click to approve">
+                                    ${tag.keyword} <span class="text-xs text-gray-500">(${Math.round(tag.confidence * 100)}% • ${dateStr})</span>
+                                </span>
+                                <button onclick="promoteToPermatag('${tag.keyword}', '${tag.category || ''}', -1); event.stopPropagation();" 
+                                        class="ml-1 text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600"
+                                        title="Reject this tag">
+                                    −
+                                </button>
+                            </span>`;
+                        }
+                    }).join(' ');
+                } else {
+                    tagsDiv.innerHTML = '<div class="text-gray-400">No machine tags</div>';
+                }
+                
+                // 3. Permatags (with dates)
+                const permatagsDiv = document.getElementById('imagePermatags');
+                if (details.permatags && details.permatags.length > 0) {
+                    // Sort: positive (signum=1) first, negative (signum=-1) last
+                    const sortedPermatags = [...details.permatags].sort((a, b) => b.signum - a.signum);
+                    permatagsDiv.innerHTML = sortedPermatags.map(permatag => {
+                        const isPositive = permatag.signum === 1;
+                        const bgColor = isPositive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                        const icon = isPositive ? '✓' : '−';
+                        const dateStr = permatag.created_at ? new Date(permatag.created_at).toLocaleDateString() : 'Unknown';
+                        return `<span class="${bgColor} inline-block px-3 py-1 rounded-full text-sm relative group">
+                            ${icon} ${permatag.keyword} <span class="text-xs opacity-75">(${dateStr})</span>
+                            <button onclick="deletePermatag(${permatag.id})" 
+                                    class="ml-2 text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-600">
+                                ×
+                            </button>
+                        </span>`;
+                    }).join(' ');
+                } else {
+                    permatagsDiv.innerHTML = '<div class="text-gray-400 text-sm">No permatags yet</div>';
+                }
+            } catch (error) {
+                console.error('Error refreshing details:', error);
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            loadKeywords();
             loadImages();
         });
 
