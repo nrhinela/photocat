@@ -229,10 +229,7 @@
                 <h1><i class="fas fa-tags"></i> PhotoCat Tagging Administration</h1>
                 <p>Configure keywords and manage people for facial recognition</p>
             </div>
-            <div style="display: flex; gap: 10px;">
-                <button class="btn btn-secondary" onclick="window.location.href='/admin'">
-                    <i class="fas fa-cog"></i> System Settings
-                </button>
+            <div>
                 <button class="btn btn-secondary" onclick="window.location.href='/'">
                     <i class="fas fa-arrow-left"></i> Back to Gallery
                 </button>
@@ -240,12 +237,13 @@
         </div>
     </div>
 
-    <!-- Tenant Selector -->
+    <!-- Current Tenant Display -->
     <div class="tenant-selector">
-        <label for="tenant-selector"><i class="fas fa-user"></i> Select Tenant:</label>
-        <select id="tenant-selector" onchange="handleTenantChange()">
-            <option value="">Loading tenants...</option>
-        </select>
+        <label><i class="fas fa-user"></i> Current Tenant:</label>
+        <strong id="current-tenant-name" style="font-size: 16px; color: #333;">Loading...</strong>
+        <span style="margin-left: 20px; color: #666; font-size: 14px;">
+            (To change tenant, go back to the <a href="/" style="color: #007bff; text-decoration: none;">gallery</a>)
+        </span>
     </div>
 
     <!-- Tabs -->
@@ -342,54 +340,45 @@
             });
         });
 
-        // Load tenants on page load
-        async function loadTenants() {
+        // Load current tenant from gallery selection
+        async function loadCurrentTenant() {
             try {
-                const response = await fetch('/api/v1/admin/tenants');
-                const tenants = await response.json();
+                // Get tenant from localStorage (set by main gallery)
+                const storedTenant = localStorage.getItem('currentTenant');
 
-                const select = document.getElementById('tenant-selector');
-                const activeTenants = tenants.filter(t => t.active);
-
-                if (activeTenants.length === 0) {
-                    select.innerHTML = '<option value="">No active tenants</option>';
+                if (!storedTenant) {
+                    showError('keywords', 'No tenant selected. Please select a tenant in the gallery first.');
+                    document.getElementById('current-tenant-name').textContent = 'No tenant selected';
                     return;
                 }
 
-                select.innerHTML = '<option value="">Select a tenant...</option>' +
-                    activeTenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+                // Fetch tenant details to display name
+                const response = await fetch('/api/v1/admin/tenants');
+                const tenants = await response.json();
+                const tenant = tenants.find(t => t.id === storedTenant);
 
-                // Auto-select first tenant or restore from localStorage
-                const storedTenant = localStorage.getItem('taggingAdminTenant');
-                if (storedTenant && activeTenants.some(t => t.id === storedTenant)) {
-                    currentTenantId = storedTenant;
-                    select.value = storedTenant;
-                    loadKeywords();
-                } else if (activeTenants.length > 0) {
-                    currentTenantId = activeTenants[0].id;
-                    select.value = activeTenants[0].id;
-                    loadKeywords();
+                if (!tenant) {
+                    showError('keywords', 'Selected tenant not found. Please select a valid tenant in the gallery.');
+                    document.getElementById('current-tenant-name').textContent = 'Invalid tenant';
+                    return;
                 }
+
+                if (!tenant.active) {
+                    showError('keywords', 'Selected tenant is inactive. Please select an active tenant in the gallery.');
+                    document.getElementById('current-tenant-name').textContent = `${tenant.name} (Inactive)`;
+                    return;
+                }
+
+                // Set current tenant
+                currentTenantId = storedTenant;
+                document.getElementById('current-tenant-name').textContent = tenant.name;
+
+                // Load keywords for the selected tab
+                loadKeywords();
             } catch (error) {
-                console.error('Error loading tenants:', error);
-                showError('keywords', 'Failed to load tenants: ' + error.message);
-            }
-        }
-
-        function handleTenantChange() {
-            const select = document.getElementById('tenant-selector');
-            currentTenantId = select.value;
-
-            if (currentTenantId) {
-                localStorage.setItem('taggingAdminTenant', currentTenantId);
-
-                // Load data for current tab
-                const activeTab = document.querySelector('.tab.active').dataset.tab;
-                if (activeTab === 'keywords') {
-                    loadKeywords();
-                } else if (activeTab === 'people') {
-                    loadPeople();
-                }
+                console.error('Error loading tenant:', error);
+                showError('keywords', 'Failed to load tenant: ' + error.message);
+                document.getElementById('current-tenant-name').textContent = 'Error loading tenant';
             }
         }
 
@@ -640,7 +629,7 @@
 
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', () => {
-            loadTenants();
+            loadCurrentTenant();
         });
     </script>
 </body>
