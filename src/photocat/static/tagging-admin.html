@@ -263,7 +263,11 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2><i class="fas fa-tags"></i> Keywords Configuration</h2>
         </div>
-        <p style="color: #666; margin-bottom: 20px;">Define categories and keywords for image tagging. Keywords are used by the ML model to categorize images.</p>
+        <p style="color: #666; margin-bottom: 10px;">Define categories and keywords for image tagging. Keywords are used by the ML model to categorize images.</p>
+        <div style="background: #e7f3ff; border-left: 4px solid #0066cc; padding: 12px; margin-bottom: 20px; border-radius: 4px;">
+            <p style="margin: 0; color: #333; font-size: 14px;"><strong>Format:</strong> Each keyword can be a string or an object with <code>keyword</code> and optional <code>prompt</code> fields.</p>
+            <p style="margin: 8px 0 0 0; color: #666; font-size: 13px;">Example: <code>{"keyword": "juggling", "prompt": "a photo of someone juggling balls or clubs"}</code></p>
+        </div>
         <div id="keywords-error" class="error" style="display: none;"></div>
         <div id="keywords-success" class="success" style="display: none;"></div>
         <textarea id="keywords-editor" style="width: 100%; min-height: 500px; font-family: 'Monaco', 'Consolas', monospace; font-size: 13px; padding: 15px; border: 1px solid #ddd; border-radius: 4px;" placeholder="Select a tenant to load keywords..."></textarea>
@@ -461,7 +465,10 @@
                 if (!categories[kw.category]) {
                     categories[kw.category] = [];
                 }
-                categories[kw.category].push(kw.keyword);
+                // Preserve the full keyword object (with prompt if it exists)
+                const kwObj = { keyword: kw.keyword };
+                if (kw.prompt) kwObj.prompt = kw.prompt;
+                categories[kw.category].push(kwObj);
             });
             return categories;
         }
@@ -470,8 +477,15 @@
         function categoriesToKeywords(categories) {
             const keywords = [];
             for (const [category, kws] of Object.entries(categories)) {
-                kws.forEach(keyword => {
-                    keywords.push({ category, keyword });
+                kws.forEach(kw => {
+                    // Handle both string format and object format
+                    if (typeof kw === 'string') {
+                        keywords.push({ category, keyword: kw });
+                    } else {
+                        const kwObj = { category, keyword: kw.keyword };
+                        if (kw.prompt) kwObj.prompt = kw.prompt;
+                        keywords.push(kwObj);
+                    }
                 });
             }
             return keywords;
