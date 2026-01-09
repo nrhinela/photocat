@@ -31,19 +31,13 @@
                     <h1 class="text-2xl font-bold text-gray-800">PhotoCat</h1>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <select id="tenantSelect" class="px-4 py-2 border rounded-lg" onchange="currentTenant = this.value; loadImages();">
-                        <option value="demo">Demo Tenant</option>
-                    </select>
-                    <select id="modelSelect" class="px-4 py-2 border rounded-lg" title="Select tagging model">
-                        <option value="siglip">SigLIP Model (Better)</option>
-                        <option value="clip">CLIP Model</option>
-                    </select>
-                    <button onclick="openConfig()" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700" title="Edit configuration">
-                        <i class="fas fa-cog mr-2"></i>Config
-                    </button>
-                    <button onclick="connectDropbox()" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-                        <i class="fab fa-dropbox mr-2"></i>Connect Dropbox
-                    </button>
+                    <div class="flex items-center space-x-2">
+                        <label for="modelSelect" class="text-gray-700 font-medium">Model:</label>
+                        <select id="modelSelect" class="px-4 py-2 border rounded-lg" title="Select tagging model">
+                            <option value="siglip">SigLIP</option>
+                            <option value="clip">CLIP</option>
+                        </select>
+                    </div>
                     <button onclick="syncDropbox()" id="syncButton" class="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700">
                         <i class="fas fa-sync mr-2"></i>Sync
                     </button>
@@ -55,6 +49,16 @@
                     </button>
                     <button onclick="showUploadModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
                         <i class="fas fa-upload mr-2"></i>Upload
+                    </button>
+                    <div class="flex items-center space-x-2">
+                        <label for="tenantSelect" class="text-gray-700 font-medium">Tenant:</label>
+                        <select id="tenantSelect" class="px-4 py-2 border rounded-lg" onchange="switchTenant(this.value)">
+                            *** End Patch
+                            <option value="">Loading tenants...</option>
+                        </select>
+                    </div>
+                    <button onclick="window.location.href='/admin'" class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700" title="Admin Panel">
+                        <i class="fas fa-cog mr-2"></i>Settings
                     </button>
                 </div>
             </div>
@@ -672,17 +676,16 @@
                 if (currentImages.length === 0) {
                     console.log('loadImages: No images, showing empty state');
                     emptyState.classList.remove('hidden');
-                    return;
+                } else {
+                    console.log('loadImages: Creating image cards...');
+                    // Preload thumbnail URLs for better performance
+                    currentImages.forEach((image, index) => {
+                        console.log(`Creating card ${index + 1}/${currentImages.length}`);
+                        const card = createImageCard(image);
+                        imageGrid.appendChild(card);
+                    });
                 }
-                
-                console.log('loadImages: Creating image cards...');
-                // Preload thumbnail URLs for better performance
-                currentImages.forEach((image, index) => {
-                    console.log(`Creating card ${index + 1}/${currentImages.length}`);
-                    const card = createImageCard(image);
-                    imageGrid.appendChild(card);
-                });
-                
+                // Always update stats, even if no images
                 console.log('loadImages: Updating stats...');
                 updateStats(data);
                 console.log('loadImages: Complete!');
@@ -1675,10 +1678,63 @@
             }
         }
 
+        // Load tenants into dropdown
+        async function loadTenants() {
+            try {
+                const response = await fetch('/api/v1/admin/tenants');
+                const tenants = await response.json();
+                
+                const select = document.getElementById('tenantSelect');
+                const activetenants = tenants.filter(t => t.active);
+                
+                if (activetenants.length === 0) {
+                    select.innerHTML = '<option value="">No active tenants</option>';
+                    return;
+                }
+                
+                select.innerHTML = activetenants.map(t => 
+                    `<option value="${t.id}">${t.name}</option>`
+                ).join('');
+                
+                // Restore tenant from localStorage if available and valid
+                let storedTenant = localStorage.getItem('currentTenant');
+                if (storedTenant && activetenants.some(t => t.id === storedTenant)) {
+                    currentTenant = storedTenant;
+                } else {
+                    currentTenant = activetenants[0].id;
+                }
+                select.value = currentTenant;
+                loadKeywords();
+                loadImages();
+            } catch (error) {
+                console.error('Error loading tenants:', error);
+                document.getElementById('tenantSelect').innerHTML = '<option value="">Error loading tenants</option>';
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
+            // Make switchTenant globally available
+            window.switchTenant = function(tenantId) {
+                currentTenant = tenantId;
+                // Persist selection
+                localStorage.setItem('currentTenant', tenantId);
+                // Reset all keyword/filter state and taxonomy
+                selectedKeywords = new Set();
+                selectedKeywordsByCategory = {};
+                categoryOperators = {};
+                availableKeywords = {};
+                // Clear filter UI and taxonomy UI
+                const container = document.getElementById('categoryInputsContainer');
+                if (container) container.innerHTML = '';
+                document.getElementById('activeFiltersCount').textContent = '0';
+                document.getElementById('activeFiltersCount').classList.add('hidden');
+                // Reload data
+                loadKeywords();
+                loadImages();
+            };
             loadKeywords();
-            loadImages();
+            loadTenants();
         });
 
         // Close modals on escape

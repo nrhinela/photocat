@@ -11,6 +11,50 @@ from sqlalchemy.orm import relationship
 Base = declarative_base()
 
 
+class Tenant(Base):
+    """Tenant configuration and settings."""
+    
+    __tablename__ = "tenants"
+    
+    id = Column(String(255), primary_key=True)  # Tenant identifier (e.g., "demo")
+    name = Column(String(255), nullable=False)  # Display name
+    active = Column(Boolean, default=True, nullable=False, index=True)
+    
+    # Dropbox integration
+    dropbox_app_key = Column(String(255))
+    # Secret Manager paths constructed from tenant_id:
+    # - dropbox-app-secret-{tenant_id}
+    # - dropbox-token-{tenant_id}
+    
+    # Flexible settings (JSON)
+    settings = Column(JSONB, default=dict)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    people = relationship("Person", back_populates="tenant", cascade="all, delete-orphan")
+
+
+class Person(Base):
+    """Known people for facial recognition."""
+    
+    __tablename__ = "people"
+    
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(255), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    name = Column(String(255), nullable=False, index=True)
+    aliases = Column(JSONB, default=list)  # List of alternative names
+    face_embedding_ref = Column(String(255))  # Cloud Storage reference to face encodings
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    tenant = relationship("Tenant", back_populates="people")
+
+
 class ImageMetadata(Base):
     """Image metadata and processing state."""
     

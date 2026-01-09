@@ -16,7 +16,7 @@ import json
 
 from photocat.tenant import Tenant, TenantContext
 from photocat.settings import settings
-from photocat.metadata import ImageMetadata, ImageTag, DropboxCursor, Permatag
+from photocat.metadata import ImageMetadata, ImageTag, DropboxCursor, Permatag, Tenant as TenantModel, Person
 from photocat.image import ImageProcessor
 from photocat.config import TenantConfig
 from photocat.config.db_config import ConfigManager
@@ -108,6 +108,15 @@ async def get_tenant(x_tenant_id: Optional[str] = Header(None)) -> Tenant:
 async def root():
     """Serve the web interface."""
     html_file = static_dir / "index.html"
+    if html_file.exists():
+        return HTMLResponse(content=html_file.read_text())
+    return RedirectResponse(url="/health")
+
+
+@app.get("/admin")
+async def admin():
+    """Serve the admin interface."""
+    html_file = static_dir / "admin.html"
     if html_file.exists():
         return HTMLResponse(content=html_file.read_text())
     return RedirectResponse(url="/health")
@@ -1098,10 +1107,10 @@ async def trigger_sync(
 ):
     """Trigger Dropbox sync for tenant."""
     try:
-        # Get tenant's Dropbox token
+        # Get tenant's Dropbox credentials
         refresh_token = get_secret(f"dropbox-token-{tenant.id}")
-        app_key = get_secret("dropbox-app-key")
-        app_secret = get_secret("dropbox-app-secret")
+        app_key = tenant.dropbox_app_key
+        app_secret = get_secret(f"dropbox-app-secret-{tenant.id}")
         
         # Use Dropbox SDK directly with refresh token
         from dropbox import Dropbox
@@ -1322,9 +1331,14 @@ async def trigger_sync(
 
 
 @app.get("/oauth/dropbox/authorize")
-async def dropbox_authorize(tenant: str):
+async def dropbox_authorize(tenant: str, db: Session = Depends(get_db)):
     """Redirect user to Dropbox OAuth."""
-    app_key = get_secret("dropbox-app-key")
+    # Get tenant's app key from database
+    tenant_obj = db.query(TenantModel).filter(TenantModel.id == tenant).first()
+    if not tenant_obj or not tenant_obj.dropbox_app_key:
+        raise HTTPException(status_code=400, detail="Tenant not found or app key not configured")
+    
+    app_key = tenant_obj.dropbox_app_key
     redirect_uri = f"{settings.app_url}/oauth/dropbox/callback"
     
     oauth_url = (
@@ -1340,13 +1354,18 @@ async def dropbox_authorize(tenant: str):
 
 
 @app.get("/oauth/dropbox/callback")
-async def dropbox_callback(code: str, state: str):
+async def dropbox_callback(code: str, state: str, db: Session = Depends(get_db)):
     """Handle Dropbox OAuth callback."""
     tenant_id = state
     
+    # Get tenant's app key from database
+    tenant_obj = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
+    if not tenant_obj or not tenant_obj.dropbox_app_key:
+        raise HTTPException(status_code=400, detail="Tenant not found or app key not configured")
+    
     # Exchange code for tokens
-    app_key = get_secret("dropbox-app-key")
-    app_secret = get_secret("dropbox-app-secret")
+    app_key = tenant_obj.dropbox_app_key
+    app_secret = get_secret(f"dropbox-app-secret-{tenant_id}")
     redirect_uri = f"{settings.app_url}/oauth/dropbox/callback"
     
     import requests
@@ -1407,6 +1426,224 @@ async def dropbox_webhook(request: Request):
     print(f"Webhook received: {data}")
     
     return {"status": "ok"}
+
+
+# Admin API Endpoints
+
+@app.get("/api/v1/admin/tenants/{tenant_id}/photo_count")
+async def get_tenant_photo_count(
+    tenant_id: str,
+    db: Session = Depends(get_db)
+):
+    """Return the number of photos owned by a tenant."""
+    count = db.query(ImageMetadata).filter(ImageMetadata.tenant_id == tenant_id).count()
+    return {"count": count}
+
+
+@app.get("/api/v1/admin/tenants")
+async def list_tenants(db: Session = Depends(get_db)):
+    """List all tenants."""
+    tenants = db.query(TenantModel).all()
+    return [{
+        "id": t.id,
+        "name": t.name,
+        "active": t.active,
+        "dropbox_app_key": t.dropbox_app_key,
+        "dropbox_configured": bool(t.dropbox_app_key),  # Has app key configured
+        "settings": t.settings,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None
+    } for t in tenants]
+
+
+@app.post("/api/v1/admin/tenants")
+async def create_tenant(
+    tenant_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Create a new tenant."""
+    # Validate required fields
+    if not tenant_data.get("id") or not tenant_data.get("name"):
+        raise HTTPException(status_code=400, detail="id and name are required")
+    
+    # Check if tenant already exists
+    existing = db.query(TenantModel).filter(TenantModel.id == tenant_data["id"]).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="Tenant already exists")
+    
+    # Create tenant
+    tenant = TenantModel(
+        id=tenant_data["id"],
+        name=tenant_data["name"],
+        active=tenant_data.get("active", True),
+        dropbox_app_key=tenant_data.get("dropbox_app_key"),
+        settings=tenant_data.get("settings", {})
+    )
+    
+    db.add(tenant)
+    db.commit()
+    db.refresh(tenant)
+    
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "active": tenant.active,
+        "created_at": tenant.created_at.isoformat()
+    }
+
+
+@app.put("/api/v1/admin/tenants/{tenant_id}")
+async def update_tenant(
+    tenant_id: str,
+    tenant_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Update an existing tenant."""
+    tenant = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    # Update fields
+    if "name" in tenant_data:
+        tenant.name = tenant_data["name"]
+    if "active" in tenant_data:
+        tenant.active = tenant_data["active"]
+    if "dropbox_app_key" in tenant_data:
+        tenant.dropbox_app_key = tenant_data["dropbox_app_key"]
+    if "settings" in tenant_data:
+        tenant.settings = tenant_data["settings"]
+    
+    tenant.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(tenant)
+    
+    return {
+        "id": tenant.id,
+        "name": tenant.name,
+        "active": tenant.active,
+        "updated_at": tenant.updated_at.isoformat()
+    }
+
+
+@app.delete("/api/v1/admin/tenants/{tenant_id}")
+async def delete_tenant(
+    tenant_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete a tenant and all associated data."""
+    tenant = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    db.delete(tenant)
+    db.commit()
+    
+    return {"status": "deleted", "tenant_id": tenant_id}
+
+
+@app.get("/api/v1/admin/people")
+async def list_people(
+    tenant_id: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """List people (optionally filtered by tenant)."""
+    query = db.query(Person)
+    if tenant_id:
+        query = query.filter(Person.tenant_id == tenant_id)
+    
+    people = query.all()
+    return [{
+        "id": p.id,
+        "tenant_id": p.tenant_id,
+        "name": p.name,
+        "aliases": p.aliases,
+        "face_embedding_ref": p.face_embedding_ref,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None
+    } for p in people]
+
+
+@app.post("/api/v1/admin/people")
+async def create_person(
+    person_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Create a new person."""
+    # Validate required fields
+    if not person_data.get("tenant_id") or not person_data.get("name"):
+        raise HTTPException(status_code=400, detail="tenant_id and name are required")
+    
+    # Verify tenant exists
+    tenant = db.query(TenantModel).filter(TenantModel.id == person_data["tenant_id"]).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    
+    # Create person
+    person = Person(
+        tenant_id=person_data["tenant_id"],
+        name=person_data["name"],
+        aliases=person_data.get("aliases", []),
+        face_embedding_ref=person_data.get("face_embedding_ref")
+    )
+    
+    db.add(person)
+    db.commit()
+    db.refresh(person)
+    
+    return {
+        "id": person.id,
+        "tenant_id": person.tenant_id,
+        "name": person.name,
+        "aliases": person.aliases,
+        "created_at": person.created_at.isoformat()
+    }
+
+
+@app.put("/api/v1/admin/people/{person_id}")
+async def update_person(
+    person_id: int,
+    person_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Update an existing person."""
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    
+    # Update fields
+    if "name" in person_data:
+        person.name = person_data["name"]
+    if "aliases" in person_data:
+        person.aliases = person_data["aliases"]
+    if "face_embedding_ref" in person_data:
+        person.face_embedding_ref = person_data["face_embedding_ref"]
+    
+    person.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(person)
+    
+    return {
+        "id": person.id,
+        "name": person.name,
+        "aliases": person.aliases,
+        "updated_at": person.updated_at.isoformat()
+    }
+
+
+@app.delete("/api/v1/admin/people/{person_id}")
+async def delete_person(
+    person_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a person."""
+    person = db.query(Person).filter(Person.id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    
+    db.delete(person)
+    db.commit()
+    
+    return {"status": "deleted", "person_id": person_id}
 
 
 if __name__ == "__main__":
