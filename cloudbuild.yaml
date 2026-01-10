@@ -79,7 +79,7 @@ images:
   - 'gcr.io/$PROJECT_ID/photocat:$COMMIT_SHA'
 
 substitutions:
-  _CLOUDSQL_INSTANCE: 'project:region:instance'
+  _CLOUDSQL_INSTANCE: 'photocat-483622:us-central1:photocat-db'
 
 options:
   machineType: 'N1_HIGHCPU_8'
