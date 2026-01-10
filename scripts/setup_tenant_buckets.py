@@ -52,6 +52,27 @@ def create_bucket_if_not_exists(storage_client, bucket_name, make_public=False):
 def setup_tenant_buckets(tenant_id: str):
     """Setup thumbnail bucket for a tenant."""
 
+    # Verify DATABASE_URL is set and looks valid
+    db_url = settings.database_url
+    if db_url == "postgresql://localhost/photocat":
+        print("⚠️  Using LOCAL database (postgresql://localhost/photocat)")
+        confirm = input("Is this correct? Type 'yes' to continue: ")
+        if confirm.lower() != 'yes':
+            print("Aborted. Set DATABASE_URL environment variable to target the correct database.")
+            return False
+    elif "localhost:5432" in db_url or "127.0.0.1:5432" in db_url:
+        print(f"⚠️  Using database via Cloud SQL Proxy: {db_url}")
+        confirm = input("Is this PRODUCTION database? Type 'yes' to continue: ")
+        if confirm.lower() != 'yes':
+            print("Aborted.")
+            return False
+    else:
+        print(f"⚠️  Using database: {db_url}")
+        confirm = input("Confirm this is correct? Type 'yes' to continue: ")
+        if confirm.lower() != 'yes':
+            print("Aborted.")
+            return False
+
     # Initialize storage client
     storage_client = storage.Client(project=settings.gcp_project_id)
 
