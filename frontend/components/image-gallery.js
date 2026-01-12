@@ -7,11 +7,6 @@ class ImageGallery extends LitElement {
     :host {
       display: block;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 16px;
-    }
   `;
 
   static properties = {
@@ -19,6 +14,11 @@ class ImageGallery extends LitElement {
     filters: { type: Object },
     tenant: { type: String },
   };
+  
+  createRenderRoot() {
+      return this;
+  }
+  
 
   constructor() {
     super();
@@ -43,7 +43,7 @@ class ImageGallery extends LitElement {
 
   render() {
     return html`
-      <div class="grid">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         ${this.images.map((image) => html`<image-card .image=${image} .tenant=${this.tenant}></image-card>`)}
       </div>
     `;

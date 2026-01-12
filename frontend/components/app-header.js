@@ -2,11 +2,14 @@ import { LitElement, html, css } from 'lit';
 import { getTenants, sync, retagAll } from '../services/api.js';
 
 class AppHeader extends LitElement {
-  static styles = css`
-    :host {
-      display: block;
+    createRenderRoot() {
+        return this;
     }
-  `;
+    static styles = css`
+        :host {
+            display: block;
+        }
+    `;
 
   static properties = {
       tenants: { type: Array },

@@ -24,6 +24,9 @@ class ImageCard extends LitElement {
     super();
     this.image = {};
   }
+    createRenderRoot() {
+      return this;
+    }
 
   _handleRetag(e) {
     e.stopPropagation();

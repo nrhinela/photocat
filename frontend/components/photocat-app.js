@@ -24,6 +24,9 @@ class PhotoCatApp extends LitElement {
       showUploadModal: { type: Boolean },
   }
 
+  createRenderRoot() {
+    return this;
+  }
   constructor() {
       super();
       this.filters = {};
@@ -41,6 +44,7 @@ class PhotoCatApp extends LitElement {
   }
 
   _handleImageSelected(e) {
+      console.log('Image selected:', e.detail);
       this.selectedImage = e.detail;
   }
 
@@ -72,7 +76,7 @@ class PhotoCatApp extends LitElement {
             <filter-controls .tenant=${this.tenant} @filter-change=${this._handleFilterChange}></filter-controls>
             <image-gallery .tenant=${this.tenant} .filters=${this.filters} @image-selected=${this._handleImageSelected}></image-gallery>
         </div>
-        ${this.selectedImage ? html`<image-modal .image=${this.selectedImage} .tenant=${this.tenant} @close=${this._handleCloseModal} active></image-modal>` : ''}
+        ${this.selectedImage ? html`<image-modal .image=${this.selectedImage} .tenant=${this.tenant} .active=${true} @close=${this._handleCloseModal}></image-modal>` : ''}
         ${this.showUploadModal ? html`<upload-modal .tenant=${this.tenant} @close=${this._handleCloseUploadModal} @upload-complete=${this._handleUploadComplete} active></upload-modal>` : ''}
     `;
   }

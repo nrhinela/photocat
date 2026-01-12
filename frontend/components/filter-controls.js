@@ -39,6 +39,9 @@ class FilterControls extends LitElement {
     tenant: { type: String },
   };
 
+    createRenderRoot() {
+      return this;
+    }
   constructor() {
     super();
     this.keywords = {};

@@ -44,6 +44,7 @@ RUN mkdir -p /app/.cache/huggingface && \
 # Copy remaining files (config/, alembic/, etc.) - won't invalidate model cache
 COPY alembic/ ./alembic/
 COPY config/ ./config/
+COPY src/photocat/static/dist /app/src/photocat/static/dist
 COPY alembic.ini ./
 
 # Create non-root user and preserve cache ownership

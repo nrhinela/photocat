@@ -61,6 +61,9 @@ class ImageModal extends LitElement {
     }
   }
 
+          createRenderRoot() {
+            return this;
+          }
   async fetchDetails() {
       if (!this.image) return;
       try {
@@ -74,8 +77,9 @@ class ImageModal extends LitElement {
     if (!this.image) {
       return html``;
     }
+    const modalClass = `modal${this.active ? ' active' : ''}`;
     return html`
-      <div class="modal ${this.active ? 'active' : ''}" @click=${this._closeModal}>
+      <div class="${modalClass}" @click=${this._closeModal}>
         <div class="modal-content" @click=${e => e.stopPropagation()}>
           <span class="close" @click=${this._closeModal}>&times;</span>
           <h2 class="text-2xl font-bold text-gray-800">${this.image.filename}</h2>

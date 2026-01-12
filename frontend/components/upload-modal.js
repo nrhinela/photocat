@@ -51,6 +51,9 @@ class UploadModal extends LitElement {
     super();
     this.active = false;
   }
+    createRenderRoot() {
+      return this;
+    }
 
   render() {
     return html`
