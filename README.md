@@ -72,7 +72,24 @@ Each tenant requires:
 
 ## Deployment
 
-### Cloud Run
+The preferred method for deploying the application is using the provided `Makefile`, which simplifies the process and ensures all steps are followed correctly. For a comprehensive guide on deployment, database migrations, and other operational tasks, please see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+### Simplified Deployment (Makefile)
+
+The following commands are the recommended way to deploy the application:
+
+```bash
+# Deploy all services (API and worker) to production
+make deploy-all
+
+# Or, deploy services individually
+make deploy-api
+make deploy-worker
+```
+
+### Manual Deployment (gcloud)
+
+The `make` commands are wrappers around `gcloud` commands. If you need to deploy manually, you can use the following:
 
 ```bash
 # Deploy API service

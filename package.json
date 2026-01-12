@@ -1,0 +1,32 @@
+{
+  "name": "photocat",
+  "version": "1.0.0",
+  "description": "Multi-tenant image organization and search utility for Dropbox collections.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nrhinela/photocat.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nrhinela/photocat/issues"
+  },
+  "homepage": "https://github.com/nrhinela/photocat#readme",
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "lit": "^3.3.2",
+    "prettier": "^3.7.4",
+    "vite": "^7.3.1"
+  }
+}

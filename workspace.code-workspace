@@ -3,5 +3,8 @@
 		{
 			"path": "."
 		}
-	]
+	],
+	"settings": {
+		"geminicodeassist.agentYoloMode": true
+	}
 }

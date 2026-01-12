@@ -341,9 +341,6 @@ def store_secret(secret_id: str, value: str) -> None:
             "parent": parent_secret,
             "payload": {"data": value.encode('UTF-8')},
         }
-    )
-
-
 def get_db():
     """Get database session."""
     db = SessionLocal()
@@ -351,6 +348,14 @@ def get_db():
         yield db
     finally:
         db.close()
+
+@app.get("/api/v1/tenants")
+async def list_tenants(db: Session = Depends(get_db)):
+    """List all tenants."""
+    tenants = db.query(TenantModel).all()
+    return [{"id": t.id, "name": t.name} for t in tenants]
+
+
 
 
 async def get_tenant(
