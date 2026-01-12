@@ -54,6 +54,7 @@ help:
 install:
 	pip install --upgrade pip
 	pip install -e ".[dev]"
+	npm install
 
 test:
 	pytest -v --cov=photocat --cov-report=term-missing
@@ -73,9 +74,17 @@ clean:
 	find . -type f -name "*.pyo" -delete
 
 dev:
-	@echo "Starting development server..."
+	make dev-backend & make dev-frontend
+
+dev-backend:
+	@echo "Starting backend development server..."
 	@echo "Environment: $(ENV)"
-	TOKENIZERS_PARALLELISM=false python3 -m uvicorn photocat.api:app --reload --host 0.0.0.0 --port 8080
+	TOKENIZERS_PARALLELISM=false python3 -m uvicorn photocat.api:app --reload --host 0.0.0.0 --port 8000
+
+dev-frontend:
+	@echo "Starting frontend development server..."
+	npm run dev
+
 
 worker:
 	@echo "Starting background worker..."

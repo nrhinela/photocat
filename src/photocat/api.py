@@ -34,6 +34,15 @@ app = FastAPI(
     version="0.1.0"
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Add the endpoint after app = FastAPI(...)
 from pydantic import BaseModel
 # Request model for add-photo endpoint
@@ -300,7 +309,11 @@ app.add_middleware(
 
 # Mount static files
 static_dir = Path(__file__).parent / "static"
-if static_dir.exists():
+dist_dir = static_dir / "dist"
+
+if dist_dir.exists():
+    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="dist")
+elif static_dir.exists():
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Database setup
@@ -341,6 +354,7 @@ def store_secret(secret_id: str, value: str) -> None:
             "parent": parent_secret,
             "payload": {"data": value.encode('UTF-8')},
         }
+    )
 def get_db():
     """Get database session."""
     db = SessionLocal()
@@ -391,7 +405,7 @@ async def get_tenant(
 @app.get("/")
 async def root():
     """Serve the web interface."""
-    html_file = static_dir / "index.html"
+    html_file = dist_dir / "index.html"
     if html_file.exists():
         return HTMLResponse(content=html_file.read_text())
     return RedirectResponse(url="/health")

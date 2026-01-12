@@ -7,6 +7,11 @@ steps:
     args: ['-c', 'docker pull gcr.io/$PROJECT_ID/photocat:latest || echo "No cache found, building from scratch"']
     id: 'pull-cache'
   
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['install']
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['run', 'build']
+  
   # Build the container image with cache
   - name: 'gcr.io/cloud-builders/docker'
     args: [

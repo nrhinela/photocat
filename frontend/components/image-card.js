@@ -1,4 +1,5 @@
 import { LitElement, html, css } from 'lit';
+import { setRating, addToList, retagImage } from '../services/api.js';
 
 class ImageCard extends LitElement {
   static styles = css`
@@ -16,6 +17,7 @@ class ImageCard extends LitElement {
 
   static properties = {
     image: { type: Object },
+    tenant: { type: String },
   };
 
   constructor() {
@@ -25,17 +27,36 @@ class ImageCard extends LitElement {
 
   _handleRetag(e) {
     e.stopPropagation();
-    console.log('Retagging image:', this.image.id);
+    try {
+        retagImage(this.tenant, this.image.id);
+        // Maybe show a notification?
+    } catch (error) {
+        console.error('Failed to retag image:', error);
+    }
   }
 
-  _handleAddToList(e) {
+  async _handleAddToList(e) {
     e.stopPropagation();
-    console.log('Adding to list:', this.image.id);
+    try {
+        await addToList(this.tenant, this.image.id);
+        // Maybe show a notification?
+    } catch (error) {
+        console.error('Failed to add to list:', error);
+    }
   }
 
-  _handleRating(e, rating) {
+  async _handleRating(e, rating) {
     e.stopPropagation();
-    console.log('Rating image:', this.image.id, 'with', rating);
+    try {
+        const updatedImage = await setRating(this.tenant, this.image.id, rating);
+        this.image = { ...this.image, rating: updatedImage.rating };
+    } catch (error) {
+        console.error('Failed to set rating:', error);
+    }
+  }
+  
+  _handleCardClick() {
+      this.dispatchEvent(new CustomEvent('image-selected', { detail: this.image, bubbles: true, composed: true }));
   }
 
   render() {
@@ -46,7 +67,7 @@ class ImageCard extends LitElement {
     const tagsHTML = this._renderTags();
 
     return html`
-      <div class="image-card bg-white rounded-lg shadow overflow-hidden" @click=${() => console.log('Card clicked', this.image.id)}>
+      <div class="image-card bg-white rounded-lg shadow overflow-hidden" @click=${this._handleCardClick}>
         <div class="aspect-square bg-gray-200 relative">
           <img
             src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}"

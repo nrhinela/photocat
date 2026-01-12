@@ -74,3 +74,123 @@ export async function getTenants() {
     const data = await response.json();
     return data || [];
 }
+
+export async function setRating(tenantId, imageId, rating) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/rating`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify({ rating }),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to set rating');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function addToList(tenantId, photoId) {
+    const response = await fetch(`${API_BASE_URL}/lists/add-photo`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify({ photo_id: photoId }),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to add to list');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function retagImage(tenantId, imageId) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/retag`, {
+        method: 'POST',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to retag image');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function sync(tenantId) {
+    const response = await fetch(`${API_BASE_URL}/sync`, {
+        method: 'POST',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to sync');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function retagAll(tenantId) {
+    const response = await fetch(`${API_BASE_URL}/retag`, {
+        method: 'POST',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to retag all images');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function getImageDetails(tenantId, imageId) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch image details');
+    }
+
+    const data = await response.json();
+    return data;
+}
+
+export async function uploadImages(tenantId, files) {
+    const formData = new FormData();
+    for (let file of files) {
+        formData.append('files', file);
+    }
+    const response = await fetch(`${API_BASE_URL}/images/upload`, {
+        method: 'POST',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+        body: formData,
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to upload images');
+    }
+
+    const data = await response.json();
+    return data;
+}

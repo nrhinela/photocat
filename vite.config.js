@@ -1,9 +1,9 @@
-import { defineConfig } from 'vite';
+const { defineConfig } = require('vite');
 
-export default defineConfig({
+module.exports = defineConfig({
   root: 'frontend',
   build: {
-    outDir: '../dist',
+    outDir: '../src/photocat/static/dist',
     rollupOptions: {
       input: 'frontend/index.html',
     },

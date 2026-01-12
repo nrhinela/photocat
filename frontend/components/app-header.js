@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { getTenants } from '../services/api.js';
+import { getTenants, sync, retagAll } from '../services/api.js';
 
 class AppHeader extends LitElement {
   static styles = css`
@@ -10,6 +10,7 @@ class AppHeader extends LitElement {
 
   static properties = {
       tenants: { type: Array },
+      tenant: { type: String },
   }
 
   constructor() {
@@ -55,7 +56,7 @@ class AppHeader extends LitElement {
                         </button>
                         <div class="flex items-center space-x-2">
                             <label for="tenantSelect" class="text-gray-700 font-medium">Tenant:</label>
-                            <select id="tenantSelect" class="px-4 py-2 border rounded-lg" @change=${this._switchTenant}>
+                            <select .value=${this.tenant} id="tenantSelect" class="px-4 py-2 border rounded-lg" @change=${this._switchTenant}>
                                 ${this.tenants.map(tenant => html`<option value=${tenant.id}>${tenant.name}</option>`)}
                             </select>
                         </div>
@@ -72,20 +73,28 @@ class AppHeader extends LitElement {
     `;
   }
 
-  _sync() {
-    console.log('Syncing...');
+  async _sync() {
+    try {
+        await sync(this.tenant);
+    } catch (error) {
+        console.error('Failed to sync:', error);
+    }
   }
 
   _stopSync() {
     console.log('Stopping sync...');
   }
 
-    _retagAll() {
-        console.log('Retagging all images...');
+    async _retagAll() {
+        try {
+            await retagAll(this.tenant);
+        } catch (error) {
+            console.error('Failed to retag all:', error);
+        }
     }
 
     _upload() {
-        console.log('Uploading...');
+        this.dispatchEvent(new CustomEvent('open-upload-modal', { bubbles: true, composed: true }));
     }
 
     _switchTenant(e) {

@@ -44,7 +44,7 @@ class ImageGallery extends LitElement {
   render() {
     return html`
       <div class="grid">
-        ${this.images.map((image) => html`<image-card .image=${image}></image-card>`)}
+        ${this.images.map((image) => html`<image-card .image=${image} .tenant=${this.tenant}></image-card>`)}
       </div>
     `;
   }
