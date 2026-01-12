@@ -8,51 +8,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         .image-card {
-            /* ...existing code... */
-        }
-    </style>
-    <script>
-    // Add Photo to List handler
-    async function addPhotoToList(photoId, event) {
-        const btn = event && event.target ? event.target.closest('button') : null;
-        if (btn) {
-            btn.disabled = true;
-            const orig = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-        }
-        try {
-            const resp = await fetch('/api/v1/lists/add-photo', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Tenant-ID': currentTenant
-                },
-                body: JSON.stringify({ photo_id: photoId })
-            });
-            if (!resp.ok) throw new Error('Failed to add photo to list');
-            if (btn) {
-                btn.innerHTML = '<i class="fas fa-check"></i> Added!';
-                setTimeout(() => { btn.innerHTML = '<i class="fas fa-list"></i> Add to List'; btn.disabled = false; }, 1200);
-            }
-        } catch (err) {
-            if (btn) {
-                btn.innerHTML = '<i class="fas fa-times"></i> Error';
-                setTimeout(() => { btn.innerHTML = '<i class="fas fa-list"></i> Add to List'; btn.disabled = false; }, 1500);
-            }
-            alert('Failed to add photo to list.');
-        }
-    }
-    </script>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PhotoCat - Image Gallery</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .image-card {
             transition: transform 0.2s;
         }
         .image-card:hover {
@@ -67,6 +22,421 @@
     </style>
 </head>
 <body class="bg-gray-100">
+
+    <!-- Lists Screen (renders in imageGrid) -->
+        <script>
+            // Tab switching logic
+        window.addPhotoToList = async function addPhotoToList(photoId, event) {
+            const btn = event && event.target ? event.target.closest('button') : null;
+            if (btn) {
+                btn.disabled = true;
+                const orig = btn.innerHTML;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            }
+            try {
+                const resp = await fetch('/api/v1/lists/add-photo', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Tenant-ID': currentTenant
+                    },
+                    body: JSON.stringify({ photo_id: photoId })
+                });
+                if (!resp.ok) throw new Error('Failed to add photo to list');
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-check"></i> Added!';
+                    setTimeout(() => { btn.innerHTML = '<i class="fas fa-list"></i> Add to List'; btn.disabled = false; }, 1200);
+                }
+            } catch (err) {
+                if (btn) {
+                    btn.innerHTML = '<i class="fas fa-times"></i> Error';
+                    setTimeout(() => { btn.innerHTML = '<i class="fas fa-list"></i> Add to List'; btn.disabled = false; }, 1500);
+                }
+                alert('Failed to add photo to list.');
+            }
+        }
+        function showTab(tab) {
+            const imageGridContainer = document.getElementById('imageGrid')?.parentElement;
+            // Tab buttons
+            const searchBtn = document.getElementById('tab-search');
+            const listsBtn = document.getElementById('tab-lists');
+            // Tab content
+            const searchContent = document.getElementById('tab-search-content');
+            const listsContent = document.getElementById('tab-lists-content');
+
+            // Hide all tab contents first
+            if (searchContent) searchContent.classList.add('hidden');
+            if (listsContent) listsContent.classList.add('hidden');
+            // Remove active/selected styles from all tabs
+            if (searchBtn) {
+                searchBtn.classList.remove('text-blue-700', 'border-blue-600');
+                searchBtn.classList.add('text-gray-700', 'border-transparent');
+            }
+            if (listsBtn) {
+                listsBtn.classList.remove('text-blue-700', 'border-blue-600');
+                listsBtn.classList.add('text-gray-700', 'border-transparent');
+            }
+
+            // Show selected tab content and set active style
+            if (tab === 'search') {
+                if (searchBtn) {
+                    searchBtn.classList.add('text-blue-700', 'border-blue-600');
+                    searchBtn.classList.remove('text-gray-700', 'border-transparent');
+                }
+                if (searchContent) searchContent.classList.remove('hidden');
+                if (imageGridContainer) imageGridContainer.classList.remove('hidden');
+            } else if (tab === 'lists') {
+                if (listsBtn) {
+                    listsBtn.classList.add('text-blue-700', 'border-blue-600');
+                    listsBtn.classList.remove('text-gray-700', 'border-transparent');
+                }
+                if (listsContent) listsContent.classList.remove('hidden');
+                if (imageGridContainer) imageGridContainer.classList.add('hidden');
+            }
+        }
+        window.showListsScreen = async function showListsScreen() {
+            // Switch to Lists tab and load content
+            showTab('lists');
+            // Fetch lists
+            const resp = await fetch('/api/v1/lists', { headers: { 'X-Tenant-ID': currentTenant } });
+            const lists = await resp.json();
+            let html = `<div class='bg-white rounded-lg shadow p-6 mb-6'>`;
+            html += `<div class='flex justify-between items-center mb-4'>`;
+            html += `<h2 class='text-2xl font-bold flex items-center'><i class='fas fa-book mr-2'></i> Lists</h2>`;
+            html += `<button onclick='showListEditorModal()' class='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded'><i class="fas fa-plus mr-1"></i> New List</button>`;
+            html += `</div>`;
+            if (!lists.length) {
+                html += `<div class='text-gray-500'>No lists found. Click "New List" to create one.</div>`;
+            } else {
+                html += `<table class='min-w-full divide-y divide-gray-200 mb-4'><thead><tr><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Title</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Notes</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Items</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Active</th><th class='px-4 py-2'></th></tr></thead><tbody>`;
+                // Fetch item counts for all lists in parallel
+                const itemCounts = {};
+                await Promise.all(lists.map(async (list) => {
+                    try {
+                        const resp = await fetch(`/api/v1/lists/${list.id}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
+                        const items = await resp.json();
+                        itemCounts[list.id] = Array.isArray(items) ? items.length : 0;
+                    } catch { itemCounts[list.id] = 0; }
+                }));
+                for (const list of lists) {
+                    html += `<tr class='hover:bg-gray-50'>`;
+                    html += `<td class='px-4 py-2 font-semibold'>${list.title || '(Untitled)'}</td>`;
+                    html += `<td class='px-4 py-2 text-gray-600'>${list.notebox ? list.notebox.substring(0, 60) : ''}</td>`;
+                    html += `<td class='px-4 py-2 text-center'>${itemCounts[list.id] ?? ''}</td>`;
+                    html += `<td class='px-4 py-2'>${list.is_active ? `<span class='inline-block px-2 py-1 text-xs rounded bg-green-100 text-green-800'>Active</span>` : `<span class='inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600'>Inactive</span>`}</td>`;
+                    html += `<td class='px-4 py-2 text-right'>`;
+                    html += `<button onclick='viewList(${list.id})' class='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded mr-2'><i class=\"fas fa-eye mr-1\"></i>View</button>`;
+                    html += `<button onclick='editList(${list.id})' class='bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded mr-2'><i class=\"fas fa-edit mr-1\"></i>Edit</button>`;
+                    html += `<button onclick='deleteList(${list.id})' class='bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded'><i class=\"fas fa-trash mr-1\"></i>Delete</button>`;
+                    html += `</td></tr>`;
+                }
+                html += `</tbody></table>`;
+            }
+            html += `</div>`;
+            document.getElementById('listsMainArea').innerHTML = html;
+        }
+
+                // View list handler (classic view in main area)
+                async function viewList(listId) {
+                    // Fetch list details
+                    window.currentListViewId = listId;
+
+                    const resp = await fetch(`/api/v1/lists/${listId}`, { headers: { 'X-Tenant-ID': currentTenant } });
+                    if (!resp.ok) {
+                        alert('Failed to load list.');
+                        return;
+                    }
+                    const list = await resp.json();
+                    let html = `<div class='bg-white rounded-lg shadow-lg p-6 w-full max-w-5xl mx-auto'>`;
+                    html += `<button class='mb-4 text-blue-600 hover:underline' onclick='showListsScreen()'><i class="fas fa-arrow-left mr-1"></i>Back to Lists</button>`;
+                    html += `<h3 class='text-2xl font-bold mb-2 flex items-center'><i class="fas fa-book mr-2"></i> ${list.title || '(Untitled)'}</h3>`;
+                    html += `<div class='mb-2 text-gray-600'>${list.notebox ? list.notebox : ''}</div>`;
+                    html += `<div class='mb-4'><span class='font-semibold'>Photos in List:</span></div>`;
+                    html += `<div class='mb-4 flex items-center gap-2'>`;
+                    html += `<span class="mr-2 text-gray-600 font-medium">Display:</span>`;
+                    html += `<button id="listGridModeBtn" class="px-3 py-2 rounded-l-lg border border-gray-300 bg-white text-gray-700 hover:bg-blue-50 focus:outline-none"><i class="fas fa-th-large"></i></button>`;
+                    html += `<button id="listListModeBtn" class="px-3 py-2 border-t border-b border-gray-300 bg-white text-gray-700 hover:bg-blue-50 focus:outline-none"><i class="fas fa-list"></i></button>`;
+                    html += `</div>`;
+                    html += `<div id='listItemsContainer'></div>`;
+                    document.getElementById('listsMainArea').innerHTML = html;
+                    // Default to grid mode
+                    window.listDisplayMode = 'grid';
+                    document.getElementById('listGridModeBtn').onclick = function() {
+                        window.listDisplayMode = 'grid';
+                        renderListItems();
+                    };
+                    document.getElementById('listListModeBtn').onclick = function() {
+                        window.listDisplayMode = 'list';
+                        renderListItems();
+                    };
+                    // Load and render items immediately
+                    renderListItems();
+                    async function renderListItems() {
+                        const container = document.getElementById('listItemsContainer');
+                        container.innerHTML = '<div class="col-span-full text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i> Loading...</div>';
+                        const resp = await fetch(`/api/v1/lists/${listId}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
+                        const items = await resp.json();
+                        if (!items.length) {
+                            container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No photos in this list.</div>';
+                            return;
+                        }
+                        // Fetch image details
+                        const images = await Promise.all(items.map(async item => {
+                            const resp = await fetch(`/api/v1/images/${item.photo_id}`, { headers: { 'X-Tenant-ID': currentTenant } });
+                            const image = await resp.json();
+                            return { image, item };
+                        }));
+                        if (window.listDisplayMode === 'list') {
+                            container.className = '';
+                            const html = images.map(({image, item}) => renderListImageRow(image, item)).join('');
+                            container.innerHTML = html;
+                        } else {
+                            container.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
+                            const html = images.map(({image, item}) => renderListImageCard(image, item)).join('');
+                            container.innerHTML = html;
+                        }
+                        // Attach star rating event listeners for all images in the list
+                        container.querySelectorAll('.star-rating').forEach(starContainer => {
+                            const imageId = starContainer.getAttribute('data-image-id');
+                            starContainer.querySelectorAll('i[data-star]').forEach(starEl => {
+                                starEl.addEventListener('click', function(e) {
+                                    e.stopPropagation();
+                                    const newRating = parseInt(this.getAttribute('data-star'));
+                                    setImageRating(imageId, newRating, container);
+                                });
+                            });
+                        });
+                    }
+        
+        // Show modal for new/edit list
+        function showListEditorModal(list) {
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-40';
+            modal.innerHTML = `
+                <div class='bg-white rounded-lg shadow-lg p-6 w-full max-w-md relative'>
+                    <button class='absolute top-2 right-2 text-gray-400 hover:text-gray-700 text-xl' onclick='this.closest(".fixed").remove()'>&times;</button>
+                    <h3 class='text-xl font-bold mb-4'>${list ? 'Edit List' : 'New List'}</h3>
+                    <form id='listEditorForm'>
+                        <div class='mb-4'>
+                            <label class='block text-gray-700 font-semibold mb-1'>Title</label>
+                            <input type='text' id='listEditorTitle' class='border px-3 py-2 rounded w-full' value='${list ? list.title : ''}' required>
+                        </div>
+                        <div class='mb-4'>
+                            <label class='block text-gray-700 font-semibold mb-1'>Notes</label>
+                            <textarea id='listEditorNotes' class='border px-3 py-2 rounded w-full' rows='3'>${list ? list.notebox || '' : ''}</textarea>
+                        </div>
+                        <div class='flex justify-end gap-2'>
+                            <button type='button' class='bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded' onclick='this.closest(".fixed").remove()'>Cancel</button>
+                            <button type='submit' class='bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded'>Save</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            document.getElementById('listEditorForm').onsubmit = async function(e) {
+                e.preventDefault();
+                const title = document.getElementById('listEditorTitle').value;
+                const notebox = document.getElementById('listEditorNotes').value;
+                if (list) {
+                    // Edit existing
+                    const resp = await fetch(`/api/v1/lists/${list.id}`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
+                        body: JSON.stringify({ title, notebox })
+                    });
+                    if (resp.ok) {
+                        modal.remove();
+                        showListsScreen();
+                    } else {
+                        alert('Failed to update list.');
+                    }
+                } else {
+                    // New list
+                    const resp = await fetch('/api/v1/lists', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
+                        body: JSON.stringify({ title, notebox })
+                    });
+                    if (resp.ok) {
+                        modal.remove();
+                        showListsScreen();
+                    } else {
+                        alert('Failed to create list.');
+                    }
+                }
+            };
+        }
+
+        // Edit list handler
+        async function editList(listId) {
+            const resp = await fetch(`/api/v1/lists/${listId}`, { headers: { 'X-Tenant-ID': currentTenant } });
+            if (resp.ok) {
+                const list = await resp.json();
+                showListEditorModal(list);
+            } else {
+                alert('Failed to load list.');
+            }
+        }
+
+        // Delete list handler
+        async function deleteList(listId) {
+            if (!confirm('Delete this list? This cannot be undone.')) return;
+            const resp = await fetch(`/api/v1/lists/${listId}`, { method: 'DELETE', headers: { 'X-Tenant-ID': currentTenant } });
+            if (resp.ok) {
+                showListsScreen();
+            } else {
+                alert('Failed to delete list.');
+            }
+        }
+        
+        // Default to Search tab on load, or Lists if hash is #lists
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.location.hash === '#lists') {
+                showListsScreen();
+            } else {
+                showTab('search');
+            }
+        });
+
+        function showGallery() {
+            renderImages();
+        }
+
+        async function loadListItems(listId) {
+            console.log('loadListItems called with', listId);
+            const container = document.getElementById('listItemsContainer');
+            if (!container) {
+                console.log('listItemsContainer not found');
+                return;
+            }
+            container.innerHTML = '<div class="col-span-full text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i> Loading...</div>';
+            const resp = await fetch(`/api/v1/lists/${listId}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
+            console.log('list items fetch response', resp);
+            const items = await resp.json();
+            console.log('list items data', items);
+            if (!items.length) {
+                container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No photos in this list.</div>';
+                return;
+            }
+            // For each item, fetch image details (could be optimized with batch API)
+            const images = await Promise.all(items.map(async item => {
+                const resp = await fetch(`/api/v1/images/${item.photo_id}`, { headers: { 'X-Tenant-ID': currentTenant } });
+                const image = await resp.json();
+                return { image, item };
+            }));
+            console.log('list images', images);
+            if (window.listDisplayMode === 'list') {
+                container.className = '';
+                const html = images.map(({image, item}) => renderListImageRow(image, item)).join('');
+                console.log('list row HTML', html);
+                container.innerHTML = html;
+            } else {
+                container.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
+                const html = images.map(({image, item}) => renderListImageCard(image, item)).join('');
+                console.log('list card HTML', html);
+                container.innerHTML = html;
+            }
+        }
+
+        // ...existing code...
+        function renderListImageCard(image, item) {
+            // Use the same logic as the main page for thumbnails
+            const thumbUrl = image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`;
+            return `<div class='image-card bg-white rounded-lg shadow overflow-hidden relative'>
+                <img src='${thumbUrl}' alt='${image.filename}' class='w-full h-48 object-cover'>
+                <div class='p-3'>
+                    <div class='font-semibold text-gray-800 truncate'>${image.filename}</div>
+                    <div class='text-xs text-gray-500 truncate mb-2'>${image.dropbox_path}</div>
+                    <button onclick='removePhotoFromList(${item.id})' class='absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs'><i class='fas fa-trash'></i></button>
+                </div>
+            </div>`;
+        }
+
+        function renderListImageRow(image, item) {
+            // ...existing code...
+            const thumbUrl = image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`;
+            return `<div class="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b">
+                <img src="${thumbUrl}" alt="${image.filename}" class="w-20 h-20 object-cover rounded shadow mr-4 flex-shrink-0">
+                <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-gray-800 truncate">${image.filename}</div>
+                    <div class="text-xs text-gray-500 truncate">${image.dropbox_path}</div>
+                </div>
+                <button onclick="removePhotoFromList(${item.id})" class="ml-4 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded shadow text-xs flex items-center"><i class="fas fa-trash mr-1"></i> Remove</button>
+            </div>`;
+        }
+
+        // Returns the correct image URL for a given image and type ('thumbnail', 'full', etc.)
+        function getImageUrl(image, type) {
+            // If image has a cloud URL for the thumbnail, use it
+            if (type === 'thumbnail' && image.thumbnail_url) {
+                return image.thumbnail_url;
+            }
+            // If image has a GCS or HTTP(S) path for the thumbnail, use it
+            if (type === 'thumbnail' && image.thumbnail_path && (image.thumbnail_path.startsWith('http://') || image.thumbnail_path.startsWith('https://') || image.thumbnail_path.startsWith('gs://'))) {
+                return image.thumbnail_path.replace('gs://', 'https://storage.googleapis.com/');
+            }
+            // Fallback to API endpoint
+            return `/api/v1/images/${image.id}/thumbnail`;
+        }
+
+        // List display mode state and toggle
+        window.listDisplayMode = window.listDisplayMode || 'grid';
+        function setListDisplayMode(mode) {
+            window.listDisplayMode = mode;
+            // Update button active states
+            document.getElementById('listGridModeBtn').classList.toggle('bg-blue-100', mode === 'grid');
+            document.getElementById('listListModeBtn').classList.toggle('bg-blue-100', mode === 'list');
+            // Reload items
+            const activeListId = document.getElementById('listTitleInput') ? parseInt(document.getElementById('listTitleInput').closest('div.bg-white').querySelector('button[onclick^="saveListMeta"]').getAttribute('onclick').match(/\d+/)[0]) : null;
+            if (activeListId) loadListItems(activeListId);
+        }
+
+        async function removePhotoFromList(itemId) {
+
+            if (!confirm('Remove this photo from the list?')) return;
+            const resp = await fetch(`/api/v1/lists/items/${itemId}`, { method: 'DELETE', headers: { 'X-Tenant-ID': currentTenant } });
+            if (resp.ok) {
+                // Refresh the current list view if available
+                if (window.currentListViewId) {
+                    viewList(window.currentListViewId);
+                } else {
+                    showListsScreen();
+                }
+            } else {
+                alert('Failed to remove photo from list.');
+            }
+        }
+    }
+        
+        async function saveListMeta(listId) {
+            const title = document.getElementById('listTitleInput').value;
+            const notebox = document.getElementById('listNoteboxInput').value;
+            const resp = await fetch(`/api/v1/lists/${listId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
+                body: JSON.stringify({ title, notebox })
+            });
+            if (resp.ok) {
+                alert('List updated!');
+            } else {
+                alert('Failed to update list.');
+            }
+        }
+
+        async function createActiveList() {
+            const resp = await fetch('/api/v1/lists', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
+                body: JSON.stringify({ title: 'New List', is_active: true })
+            });
+            if (resp.ok) {
+                showListsScreen();
+            } else {
+                alert('Failed to create list.');
+            }
+        }
+        </script>
+
 
     <!-- Header -->
     <nav class="bg-white shadow-lg">
@@ -266,377 +636,7 @@
         <div id="listsMainArea"></div>
     </div>
 
-        <!-- Lists Screen (renders in imageGrid) -->
-        <script>
-        window.showListsScreen = async function showListsScreen() {
-            // Switch to Lists tab and load content
-            showTab('lists');
-            // Fetch lists
-            const resp = await fetch('/api/v1/lists', { headers: { 'X-Tenant-ID': currentTenant } });
-            const lists = await resp.json();
-            let html = `<div class='bg-white rounded-lg shadow p-6 mb-6'>`;
-            html += `<div class='flex justify-between items-center mb-4'>`;
-            html += `<h2 class='text-2xl font-bold flex items-center'><i class='fas fa-book mr-2'></i> Lists</h2>`;
-            html += `<button onclick='showListEditorModal()' class='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded'><i class="fas fa-plus mr-1"></i> New List</button>`;
-            html += `</div>`;
-            if (!lists.length) {
-                html += `<div class='text-gray-500'>No lists found. Click "New List" to create one.</div>`;
-            } else {
-                html += `<table class='min-w-full divide-y divide-gray-200 mb-4'><thead><tr><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Title</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Notes</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Items</th><th class='px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase'>Active</th><th class='px-4 py-2'></th></tr></thead><tbody>`;
-                // Fetch item counts for all lists in parallel
-                const itemCounts = {};
-                await Promise.all(lists.map(async (list) => {
-                    try {
-                        const resp = await fetch(`/api/v1/lists/${list.id}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
-                        const items = await resp.json();
-                        itemCounts[list.id] = Array.isArray(items) ? items.length : 0;
-                    } catch { itemCounts[list.id] = 0; }
-                }));
-                for (const list of lists) {
-                    html += `<tr class='hover:bg-gray-50'>`;
-                    html += `<td class='px-4 py-2 font-semibold'>${list.title || '(Untitled)'}</td>`;
-                    html += `<td class='px-4 py-2 text-gray-600'>${list.notebox ? list.notebox.substring(0, 60) : ''}</td>`;
-                    html += `<td class='px-4 py-2 text-center'>${itemCounts[list.id] ?? ''}</td>`;
-                    html += `<td class='px-4 py-2'>${list.is_active ? `<span class='inline-block px-2 py-1 text-xs rounded bg-green-100 text-green-800'>Active</span>` : `<span class='inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600'>Inactive</span>`}</td>`;
-                    html += `<td class='px-4 py-2 text-right'>`;
-                    html += `<button onclick='viewList(${list.id})' class='bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded mr-2'><i class=\"fas fa-eye mr-1\"></i>View</button>`;
-                    html += `<button onclick='editList(${list.id})' class='bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded mr-2'><i class=\"fas fa-edit mr-1\"></i>Edit</button>`;
-                    html += `<button onclick='deleteList(${list.id})' class='bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded'><i class=\"fas fa-trash mr-1\"></i>Delete</button>`;
-                    html += `</td></tr>`;
-                }
-                html += `</tbody></table>`;
-            }
-            html += `</div>`;
-            document.getElementById('listsMainArea').innerHTML = html;
-        }
-
-                // View list handler (classic view in main area)
-                async function viewList(listId) {
-                    // Fetch list details
-                    window.currentListViewId = listId;
-
-                    const resp = await fetch(`/api/v1/lists/${listId}`, { headers: { 'X-Tenant-ID': currentTenant } });
-                    if (!resp.ok) {
-                        alert('Failed to load list.');
-                        return;
-                    }
-                    const list = await resp.json();
-                    let html = `<div class='bg-white rounded-lg shadow-lg p-6 w-full max-w-5xl mx-auto'>`;
-                    html += `<button class='mb-4 text-blue-600 hover:underline' onclick='showListsScreen()'><i class="fas fa-arrow-left mr-1"></i>Back to Lists</button>`;
-                    html += `<h3 class='text-2xl font-bold mb-2 flex items-center'><i class="fas fa-book mr-2"></i> ${list.title || '(Untitled)'}</h3>`;
-                    html += `<div class='mb-2 text-gray-600'>${list.notebox ? list.notebox : ''}</div>`;
-                    html += `<div class='mb-4 flex justify-between items-center'>`;
-                    html += `<span class='font-semibold'>Photos in List:</span>`;
-                    html += `<span class='flex items-center gap-2'>`;
-                    html += `<span class="mr-2 text-gray-600 font-medium">Display:</span>`;
-                    html += `<button id="listGridModeBtn" class="px-3 py-2 rounded-l-lg border border-gray-300 bg-white text-gray-700 hover:bg-blue-50 focus:outline-none"><i class="fas fa-th-large"></i></button>`;
-                    html += `<button id="listListModeBtn" class="px-3 py-2 border-t border-b border-gray-300 bg-white text-gray-700 hover:bg-blue-50 focus:outline-none"><i class="fas fa-list"></i></button>`;
-                    html += `</span></div>`;
-                    html += `<div id='listItemsContainer'></div>`;
-                    html += `</div>`;
-                    document.getElementById('listsMainArea').innerHTML = html;
-                    // Default to grid mode
-                    window.listDisplayMode = 'grid';
-                    document.getElementById('listGridModeBtn').onclick = function() {
-                        window.listDisplayMode = 'grid';
-                        renderListItems();
-                    };
-                    document.getElementById('listListModeBtn').onclick = function() {
-                        window.listDisplayMode = 'list';
-                        renderListItems();
-                    };
-                    // Load and render items
-                    async function renderListItems() {
-                        const container = document.getElementById('listItemsContainer');
-                        container.innerHTML = '<div class="col-span-full text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i> Loading...</div>';
-                        const resp = await fetch(`/api/v1/lists/${listId}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
-                        const items = await resp.json();
-                        if (!items.length) {
-                            container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No photos in this list.</div>';
-                            return;
-                        }
-                        const images = await Promise.all(items.map(async item => {
-                            const resp = await fetch(`/api/v1/images/${item.photo_id}`, { headers: { 'X-Tenant-ID': currentTenant } });
-                            const image = await resp.json();
-                            return { image, item };
-                        }));
-                        if (window.listDisplayMode === 'list') {
-                            container.className = '';
-                            container.innerHTML = images.map(({image, item}) => renderListImageRow(image, item)).join('');
-                        } else {
-                            container.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
-                            container.innerHTML = images.map(({image, item}) => renderListImageCard(image, item)).join('');
-                        }
-                    }
-                    renderListItems();
-            }
-
-        // Show modal for new/edit list
-        function showListEditorModal(list) {
-            const modal = document.createElement('div');
-            modal.className = 'fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-40';
-            modal.innerHTML = `
-                <div class='bg-white rounded-lg shadow-lg p-6 w-full max-w-md relative'>
-                    <button class='absolute top-2 right-2 text-gray-400 hover:text-gray-700 text-xl' onclick='this.closest(".fixed").remove()'>&times;</button>
-                    <h3 class='text-xl font-bold mb-4'>${list ? 'Edit List' : 'New List'}</h3>
-                    <form id='listEditorForm'>
-                        <div class='mb-4'>
-                            <label class='block text-gray-700 font-semibold mb-1'>Title</label>
-                            <input type='text' id='listEditorTitle' class='border px-3 py-2 rounded w-full' value='${list ? list.title : ''}' required>
-                        </div>
-                        <div class='mb-4'>
-                            <label class='block text-gray-700 font-semibold mb-1'>Notes</label>
-                            <textarea id='listEditorNotes' class='border px-3 py-2 rounded w-full' rows='3'>${list ? list.notebox || '' : ''}</textarea>
-                        </div>
-                        <div class='flex justify-end gap-2'>
-                            <button type='button' class='bg-gray-300 hover:bg-gray-400 text-gray-800 px-4 py-2 rounded' onclick='this.closest(".fixed").remove()'>Cancel</button>
-                            <button type='submit' class='bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded'>Save</button>
-                        </div>
-                    </form>
-                </div>
-            `;
-            document.body.appendChild(modal);
-            document.getElementById('listEditorForm').onsubmit = async function(e) {
-                e.preventDefault();
-                const title = document.getElementById('listEditorTitle').value;
-                const notebox = document.getElementById('listEditorNotes').value;
-                if (list) {
-                    // Edit existing
-                    const resp = await fetch(`/api/v1/lists/${list.id}`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
-                        body: JSON.stringify({ title, notebox })
-                    });
-                    if (resp.ok) {
-                        modal.remove();
-                        showListsScreen();
-                    } else {
-                        alert('Failed to update list.');
-                    }
-                } else {
-                    // New list
-                    const resp = await fetch('/api/v1/lists', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
-                        body: JSON.stringify({ title, notebox })
-                    });
-                    if (resp.ok) {
-                        modal.remove();
-                        showListsScreen();
-                    } else {
-                        alert('Failed to create list.');
-                    }
-                }
-            };
-        }
-
-        // Edit list handler
-        async function editList(listId) {
-            const resp = await fetch(`/api/v1/lists/${listId}`, { headers: { 'X-Tenant-ID': currentTenant } });
-            if (resp.ok) {
-                const list = await resp.json();
-                showListEditorModal(list);
-            } else {
-                alert('Failed to load list.');
-            }
-        }
-
-        // Delete list handler
-        async function deleteList(listId) {
-            if (!confirm('Delete this list? This cannot be undone.')) return;
-            const resp = await fetch(`/api/v1/lists/${listId}`, { method: 'DELETE', headers: { 'X-Tenant-ID': currentTenant } });
-            if (resp.ok) {
-                showListsScreen();
-            } else {
-                alert('Failed to delete list.');
-            }
-        }
-        // Tab switching logic
-        function showTab(tab) {
-            const imageGridContainer = document.getElementById('imageGrid')?.parentElement;
-            // Tab buttons
-            const searchBtn = document.getElementById('tab-search');
-            const listsBtn = document.getElementById('tab-lists');
-            // Tab content
-            const searchContent = document.getElementById('tab-search-content');
-            const listsContent = document.getElementById('tab-lists-content');
-
-            // Hide all tab contents first
-            if (searchContent) searchContent.classList.add('hidden');
-            if (listsContent) listsContent.classList.add('hidden');
-            // Remove active/selected styles from all tabs
-            if (searchBtn) {
-                searchBtn.classList.remove('text-blue-700', 'border-blue-600');
-                searchBtn.classList.add('text-gray-700', 'border-transparent');
-            }
-            if (listsBtn) {
-                listsBtn.classList.remove('text-blue-700', 'border-blue-600');
-                listsBtn.classList.add('text-gray-700', 'border-transparent');
-            }
-
-            // Show selected tab content and set active style
-            if (tab === 'search') {
-                if (searchBtn) {
-                    searchBtn.classList.add('text-blue-700', 'border-blue-600');
-                    searchBtn.classList.remove('text-gray-700', 'border-transparent');
-                }
-                if (searchContent) searchContent.classList.remove('hidden');
-                if (imageGridContainer) imageGridContainer.classList.remove('hidden');
-            } else if (tab === 'lists') {
-                if (listsBtn) {
-                    listsBtn.classList.add('text-blue-700', 'border-blue-600');
-                    listsBtn.classList.remove('text-gray-700', 'border-transparent');
-                }
-                if (listsContent) listsContent.classList.remove('hidden');
-                if (imageGridContainer) imageGridContainer.classList.add('hidden');
-            }
-        }
-        // Default to Search tab on load, or Lists if hash is #lists
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.location.hash === '#lists') {
-                showListsScreen();
-            } else {
-                showTab('search');
-            }
-        });
-
-        function showGallery() {
-            renderImages();
-        }
-
-        async function loadListItems(listId) {
-            console.log('loadListItems called with', listId);
-            const container = document.getElementById('listItemsContainer');
-            if (!container) {
-                console.log('listItemsContainer not found');
-                return;
-            }
-            container.innerHTML = '<div class="col-span-full text-center py-8"><i class="fas fa-spinner fa-spin text-2xl text-blue-600"></i> Loading...</div>';
-            const resp = await fetch(`/api/v1/lists/${listId}/items`, { headers: { 'X-Tenant-ID': currentTenant } });
-            console.log('list items fetch response', resp);
-            const items = await resp.json();
-            console.log('list items data', items);
-            if (!items.length) {
-                container.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No photos in this list.</div>';
-                return;
-            }
-            // For each item, fetch image details (could be optimized with batch API)
-            const images = await Promise.all(items.map(async item => {
-                const resp = await fetch(`/api/v1/images/${item.photo_id}`, { headers: { 'X-Tenant-ID': currentTenant } });
-                const image = await resp.json();
-                return { image, item };
-            }));
-            console.log('list images', images);
-            if (window.listDisplayMode === 'list') {
-                container.className = '';
-                const html = images.map(({image, item}) => renderListImageRow(image, item)).join('');
-                console.log('list row HTML', html);
-                container.innerHTML = html;
-            } else {
-                container.className = 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4';
-                const html = images.map(({image, item}) => renderListImageCard(image, item)).join('');
-                console.log('list card HTML', html);
-                container.innerHTML = html;
-            }
-        }
-
-        // ...existing code...
-        function renderListImageCard(image, item) {
-            // Use the same logic as the main page for thumbnails
-            const thumbUrl = image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`;
-            return `<div class='image-card bg-white rounded-lg shadow overflow-hidden relative'>
-                <img src='${thumbUrl}' alt='${image.filename}' class='w-full h-48 object-cover'>
-                <div class='p-3'>
-                    <div class='font-semibold text-gray-800 truncate'>${image.filename}</div>
-                    <div class='text-xs text-gray-500 truncate mb-2'>${image.dropbox_path}</div>
-                    <button onclick='removePhotoFromList(${item.id})' class='absolute top-2 right-2 bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs'><i class='fas fa-trash'></i></button>
-                </div>
-            </div>`;
-        }
-
-        function renderListImageRow(image, item) {
-            // ...existing code...
-            const thumbUrl = image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`;
-            return `<div class="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b">
-                <img src="${thumbUrl}" alt="${image.filename}" class="w-20 h-20 object-cover rounded shadow mr-4 flex-shrink-0">
-                <div class="flex-1 min-w-0">
-                    <div class="font-semibold text-gray-800 truncate">${image.filename}</div>
-                    <div class="text-xs text-gray-500 truncate">${image.dropbox_path}</div>
-                </div>
-                <button onclick="removePhotoFromList(${item.id})" class="ml-4 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded shadow text-xs flex items-center"><i class="fas fa-trash mr-1"></i> Remove</button>
-            </div>`;
-        }
-
-        // Returns the correct image URL for a given image and type ('thumbnail', 'full', etc.)
-        function getImageUrl(image, type) {
-            // If image has a cloud URL for the thumbnail, use it
-            if (type === 'thumbnail' && image.thumbnail_url) {
-                return image.thumbnail_url;
-            }
-            // If image has a GCS or HTTP(S) path for the thumbnail, use it
-            if (type === 'thumbnail' && image.thumbnail_path && (image.thumbnail_path.startsWith('http://') || image.thumbnail_path.startsWith('https://') || image.thumbnail_path.startsWith('gs://'))) {
-                return image.thumbnail_path.replace('gs://', 'https://storage.googleapis.com/');
-            }
-            // Fallback to API endpoint
-            return `/api/v1/images/${image.id}/thumbnail`;
-        }
-
-        // List display mode state and toggle
-        window.listDisplayMode = window.listDisplayMode || 'grid';
-        function setListDisplayMode(mode) {
-            window.listDisplayMode = mode;
-            // Update button active states
-            document.getElementById('listGridModeBtn').classList.toggle('bg-blue-100', mode === 'grid');
-            document.getElementById('listListModeBtn').classList.toggle('bg-blue-100', mode === 'list');
-            // Reload items
-            const activeListId = document.getElementById('listTitleInput') ? parseInt(document.getElementById('listTitleInput').closest('div.bg-white').querySelector('button[onclick^="saveListMeta"]').getAttribute('onclick').match(/\d+/)[0]) : null;
-            if (activeListId) loadListItems(activeListId);
-        }
-
-        async function removePhotoFromList(itemId) {
-            if (!confirm('Remove this photo from the list?')) return;
-    const resp = await fetch(`/api/v1/lists/items/${itemId}`, { method: 'DELETE', headers: { 'X-Tenant-ID': currentTenant } });
-    if (resp.ok) {
-        // Refresh the current list view if available
-        if (window.currentListViewId) {
-            viewList(window.currentListViewId);
-        } else {
-            showListsScreen();
-        }
-    } else {
-        alert('Failed to remove photo from list.');
-    }
-}
         
-        async function saveListMeta(listId) {
-            const title = document.getElementById('listTitleInput').value;
-            const notebox = document.getElementById('listNoteboxInput').value;
-            const resp = await fetch(`/api/v1/lists/${listId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
-                body: JSON.stringify({ title, notebox })
-            });
-            if (resp.ok) {
-                alert('List updated!');
-            } else {
-                alert('Failed to update list.');
-            }
-        }
-
-        async function createActiveList() {
-            const resp = await fetch('/api/v1/lists', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Tenant-ID': currentTenant },
-                body: JSON.stringify({ title: 'New List', is_active: true })
-            });
-            if (resp.ok) {
-                showListsScreen();
-            } else {
-                alert('Failed to create list.');
-            }
-        }
-        </script>
-
         <!-- Sync Status -->
         <div id="syncStatus" class="hidden bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded">
             <div class="flex items-center">
@@ -1512,9 +1512,51 @@
                     <p class="text-xs text-gray-400"><i class="far fa-clock"></i> ${image.modified_time ? new Date(image.modified_time).toLocaleDateString() : 'Unknown'}</p>
                     ${image.capture_timestamp ? `<p class="text-xs text-gray-400"><i class="far fa-calendar"></i> Photo: ${new Date(image.capture_timestamp).toLocaleDateString()}</p>` : ''}
                     ${image.camera_model ? `<p class="text-xs text-gray-400 truncate">${image.camera_model}</p>` : ''}
+                    <div class="flex items-center mt-2 mb-1">
+                        <span class="mr-2 text-xs text-gray-500">Rating:</span>
+                        <span class="star-rating" data-image-id="${image.id}">
+                            ${[1,2,3].map(star => `
+                                <i class="fa${image.rating && image.rating >= star ? 's' : 'r'} fa-star text-yellow-400 cursor-pointer mx-0.5" data-star="${star}" title="${star} star${star>1?'s':''}"></i>
+                            `).join('')}
+                        </span>
+                    </div>
                     ${tagsHTML}
                 </div>
             `;
+            // Add event listeners for stars
+            const starContainer = div.querySelector('.star-rating');
+            if (starContainer) {
+                starContainer.querySelectorAll('i[data-star]').forEach(starEl => {
+                    starEl.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        const newRating = parseInt(this.getAttribute('data-star'));
+                        setImageRating(image.id, newRating, div);
+                    });
+                });
+            }
+                    // Set image rating via API and update UI
+                    async function setImageRating(imageId, rating, cardDiv) {
+                        try {
+                            const resp = await fetch(`/api/v1/images/${imageId}/rating`, {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Tenant-ID': currentTenant
+                                },
+                                body: JSON.stringify({ rating })
+                            });
+                            if (!resp.ok) throw new Error('Failed to set rating');
+                            // Update UI
+                            if (cardDiv) {
+                                cardDiv.querySelectorAll('.star-rating i[data-star]').forEach(starEl => {
+                                    const starVal = parseInt(starEl.getAttribute('data-star'));
+                                    starEl.className = `fa${rating >= starVal ? 's' : 'r'} fa-star text-yellow-400 cursor-pointer mx-0.5`;
+                                });
+                            }
+                        } catch (err) {
+                            alert('Failed to set rating.');
+                        }
+                    }
             
             return div;
         }

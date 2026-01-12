@@ -107,6 +107,9 @@ class ImageMetadata(Base):
     embedding_generated = Column(Boolean, default=False)
     faces_detected = Column(Boolean, default=False)
     tags_applied = Column(Boolean, default=False)
+
+    # User rating (0-3, optional)
+    rating = Column(Integer, nullable=True)
     
     # Relationships
     tags = relationship("ImageTag", back_populates="image", cascade="all, delete-orphan")

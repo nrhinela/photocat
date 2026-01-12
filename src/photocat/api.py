@@ -711,6 +711,7 @@ async def list_images(
                 "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
                 "tags_applied": img.tags_applied,
                 "faces_detected": img.faces_detected,
+                "rating": img.rating,
                 "tags": sorted(tags_by_image.get(img.id, []), key=lambda x: x['confidence'], reverse=True),
                 "permatags": permatags_by_image.get(img.id, [])
             }
@@ -810,11 +811,31 @@ async def get_image(
         "perceptual_hash": image.perceptual_hash,
         "thumbnail_path": image.thumbnail_path,
         "thumbnail_url": thumbnail_url,
+        "rating": image.rating,
         "tags": [{"keyword": t.keyword, "category": t.category, "confidence": round(t.confidence, 2), "created_at": t.created_at.isoformat() if t.created_at else None} for t in tags],
         "permatags": [{"id": p.id, "keyword": p.keyword, "category": p.category, "signum": p.signum, "created_at": p.created_at.isoformat() if p.created_at else None} for p in permatags],
         "exif_data": image.exif_data,
         "dropbox_properties": image.dropbox_properties,
     }
+# PATCH endpoint to update image rating
+from fastapi import Body
+
+@app.patch("/api/v1/images/{image_id}/rating")
+async def update_image_rating(
+    image_id: int,
+    rating: int = Body(..., embed=True),
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Update the rating for an image (0-3)."""
+    if rating is not None and (rating < 0 or rating > 3):
+        raise HTTPException(status_code=400, detail="Rating must be between 0 and 3.")
+    image = db.query(ImageMetadata).filter_by(id=image_id, tenant_id=tenant.id).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+    image.rating = rating
+    db.commit()
+    return {"id": image.id, "rating": image.rating}
 
 
 @app.get("/api/v1/images/{image_id}/thumbnail")
