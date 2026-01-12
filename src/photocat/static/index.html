@@ -999,7 +999,13 @@
             dropdown.innerHTML = '';
 
             const filter = filterText.toLowerCase();
-            const keywords = availableKeywords[category] || [];
+            let keywords = availableKeywords[category] || [];
+            // Alphabetize keywords by keyword string
+            keywords = keywords.slice().sort((a, b) => {
+                const ka = (a.keyword || a).toLowerCase();
+                const kb = (b.keyword || b).toLowerCase();
+                return ka.localeCompare(kb);
+            });
             const selectedInCategory = selectedKeywordsByCategory[category] || new Set();
 
             // Filter keywords by search text and exclude already selected
