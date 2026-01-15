@@ -90,12 +90,15 @@ class PhotoCatApp extends LitElement {
 
   render() {
     return html`
-        <app-header 
-            .tenant=${this.tenant} 
+        <app-header
+            .tenant=${this.tenant}
             @tenant-change=${this._handleTenantChange}
             @open-upload-modal=${this._handleOpenUploadModal}
             .activeTab=${this.activeTab}
             @tab-change=${(e) => this.activeTab = e.detail}
+            @sync-progress=${this._handleSyncProgress}
+            @sync-complete=${this._handleSyncComplete}
+            @sync-error=${this._handleSyncError}
         ></app-header>
         
         <tab-container .activeTab=${this.activeTab}>
@@ -238,6 +241,32 @@ class PhotoCatApp extends LitElement {
       const gallery = this.shadowRoot.querySelector('image-gallery');
       if (gallery && typeof gallery.fetchImages === 'function') {
           await gallery.fetchImages();
+      }
+  }
+
+  _handleSyncProgress(e) {
+      console.log(`Sync progress: ${e.detail.count} images processed`);
+      // Refresh gallery on each sync progress to show new images
+      this._refreshGallery();
+  }
+
+  _handleSyncComplete(e) {
+      console.log(`Sync complete: ${e.detail.count} total images processed`);
+      this._refreshGallery();
+  }
+
+  _handleSyncError(e) {
+      console.error('Sync error:', e.detail.error);
+      // Could show a toast/notification here
+  }
+
+  _refreshGallery() {
+      const tabContainer = this.shadowRoot.querySelector('tab-container');
+      if (tabContainer) {
+          const gallery = tabContainer.querySelector('image-gallery');
+          if (gallery && typeof gallery.fetchImages === 'function') {
+              gallery.fetchImages();
+          }
       }
   }
 }

@@ -1,4 +1,5 @@
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+// Use relative URL - works in both dev (via Vite proxy) and production
+const API_BASE_URL = '/api/v1';
 
 export async function getImages(tenantId, filters = {}) {
   const params = new URLSearchParams();

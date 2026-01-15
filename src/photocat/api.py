@@ -371,14 +371,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
+# Static file paths (mount happens at end of file to not override routes)
 static_dir = Path(__file__).parent / "static"
 dist_dir = static_dir / "dist"
-
-if dist_dir.exists():
-    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="dist")
-elif static_dir.exists():
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Database setup
 engine = create_engine(settings.database_url)
@@ -2702,6 +2697,30 @@ async def delete_keyword(
     db.commit()
 
     return {"status": "deleted", "keyword_id": keyword_id}
+
+
+# Mount static files for assets (JS, CSS, images) but NOT as SPA catch-all
+# The catch-all route below handles SPA routing
+if dist_dir.exists():
+    app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="assets")
+elif static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+# SPA catch-all route - must be LAST route defined
+# This serves index.html for any unmatched GET requests (client-side routing)
+@app.get("/{full_path:path}")
+async def spa_catch_all(full_path: str):
+    """Serve the SPA for any unmatched routes."""
+    # Serve index.html from dist for SPA routing
+    index_file = dist_dir / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text())
+    # Fallback to static index if no dist
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text())
+    return HTMLResponse(content="<h1>PhotoCat</h1><p>Frontend not built</p>", status_code=200)
 
 
 if __name__ == "__main__":
