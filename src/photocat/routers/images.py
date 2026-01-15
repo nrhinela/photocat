@@ -140,23 +140,21 @@ async def list_images(
                         permatag_map[p.image_id] = {}
                     permatag_map[p.image_id][p.keyword] = p.signum
 
-                # Compute current tags for each image
-                current_tags_by_image = {}
+                # Initialize current tags for ALL images (not just ones with tags)
+                current_tags_by_image = {img_id: [] for img_id in all_image_ids}
+
+                # Add machine tags for each image
                 for tag in all_tags:
                     # Include machine tag only if not negatively permatagged
                     if tag.image_id in permatag_map and permatag_map[tag.image_id].get(tag.keyword) == -1:
                         continue  # Skip negatively permatagged machine tags
-                    if tag.image_id not in current_tags_by_image:
-                        current_tags_by_image[tag.image_id] = []
                     current_tags_by_image[tag.image_id].append(tag.keyword)
 
                 # Add positive permatags
                 for p in all_permatags:
                     if p.signum == 1:
                         # Only add if not already in machine tags
-                        if p.image_id not in current_tags_by_image or p.keyword not in current_tags_by_image[p.image_id]:
-                            if p.image_id not in current_tags_by_image:
-                                current_tags_by_image[p.image_id] = []
+                        if p.keyword not in current_tags_by_image[p.image_id]:
                             current_tags_by_image[p.image_id].append(p.keyword)
 
                 # Now filter based on current tags
@@ -187,30 +185,32 @@ async def list_images(
                 total = len(unique_image_ids)
 
                 if total:
-                    # Query with relevance ordering (by sum of confidence scores)
-                    # First get the ordered image IDs, then apply limit/offset
-                    query = db.query(
-                        ImageMetadata.id,
+                    # For ordering by relevance, we need to calculate confidence scores
+                    # But we've already filtered to unique_image_ids, so just order those
+
+                    # Get tags for these images to calculate relevance scores
+                    image_tags = db.query(
+                        ImageTag.image_id,
                         func.sum(ImageTag.confidence).label('relevance_score')
-                    ).join(
-                        ImageTag,
-                        and_(
-                            ImageTag.image_id == ImageMetadata.id,
-                            ImageTag.keyword.in_(all_keywords),
-                            ImageTag.tenant_id == tenant.id
-                        )
                     ).filter(
-                        ImageMetadata.tenant_id == tenant.id,
-                        ImageMetadata.id.in_(unique_image_ids)
+                        ImageTag.image_id.in_(unique_image_ids),
+                        ImageTag.keyword.in_(all_keywords),
+                        ImageTag.tenant_id == tenant.id
                     ).group_by(
-                        ImageMetadata.id
-                    ).order_by(
-                        func.sum(ImageTag.confidence).desc(),
-                        ImageMetadata.id.desc()
+                        ImageTag.image_id
+                    ).all()
+
+                    # Create a score map for ordering
+                    score_map = {img_id: score for img_id, score in image_tags}
+
+                    # Sort unique_image_ids by relevance score (descending), then by ID (descending)
+                    sorted_ids = sorted(
+                        unique_image_ids,
+                        key=lambda img_id: (-(score_map.get(img_id) or 0), -img_id)
                     )
 
-                    # Apply pagination to the unique image IDs first
-                    paginated_ids = [row[0] for row in (query.limit(limit).offset(offset).all() if limit else query.offset(offset).all())]
+                    # Apply offset and limit
+                    paginated_ids = sorted_ids[offset:offset + limit] if limit else sorted_ids[offset:]
 
                     # Now fetch full ImageMetadata objects in order
                     if paginated_ids:
