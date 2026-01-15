@@ -7,6 +7,17 @@ from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, 
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.types import JSON
+
+@compiles(JSONB, "sqlite")
+def compile_jsonb_for_sqlite(element, compiler, **kw):
+    return compiler.visit_JSON(element, **kw)
+
+@compiles(ARRAY, "sqlite")
+def compile_array_for_sqlite(element, compiler, **kw):
+    return compiler.visit_JSON(element, **kw)
+
 
 Base = declarative_base()
 

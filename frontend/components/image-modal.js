@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { getImageDetails } from '../services/api.js';
 import { tailwind } from './tailwind-lit.js';
+import './permatag-editor.js';
 
 class ImageModal extends LitElement {
   static styles = [tailwind, css`
@@ -26,7 +27,7 @@ class ImageModal extends LitElement {
         padding: 20px;
         border: 1px solid #888;
         width: 80%;
-        max-width: 1024px;
+        max-width: 1280px;
         border-radius: 0.5rem;
     }
     .close {
@@ -54,6 +55,28 @@ class ImageModal extends LitElement {
     super();
     this.active = false;
     this.details = null;
+    this._handlePermatagEvent = (event) => {
+      if (this.active && event?.detail?.imageId === this.image?.id) {
+        this.fetchDetails();
+      }
+    };
+    this._handleRetagEvent = (event) => {
+      if (this.active && event?.detail?.imageId === this.image?.id) {
+        this.fetchDetails();
+      }
+    };
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener('permatags-changed', this._handlePermatagEvent);
+    window.addEventListener('image-retagged', this._handleRetagEvent);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('permatags-changed', this._handlePermatagEvent);
+    window.removeEventListener('image-retagged', this._handleRetagEvent);
+    super.disconnectedCallback();
   }
 
   willUpdate(changedProperties) {
@@ -83,9 +106,11 @@ class ImageModal extends LitElement {
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4">
             <div class="lg:col-span-2">
                 <img src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}" alt="${this.image.filename}" class="w-full rounded-lg shadow-lg">
+                <permatag-editor .tenant=${this.tenant} .imageId=${this.image.id} mode="grid"></permatag-editor>
             </div>
             <div>
                 ${this.details ? this._renderDetails() : html`<p>Loading...</p>`}
+                <permatag-editor .tenant=${this.tenant} .imageId=${this.image.id} mode="side"></permatag-editor>
             </div>
           </div>
         </div>
@@ -105,9 +130,11 @@ class ImageModal extends LitElement {
             </div>
         </div>
         <div class="mt-4">
-            <h3 class="font-semibold text-gray-700 mb-2">Tags</h3>
+            <h3 class="font-semibold text-gray-700 mb-2">Active Tags</h3>
             <div class="flex flex-wrap gap-2">
-                ${this.details.tags.map(tag => html`<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">${tag.keyword}</span>`)}
+                ${[...this.details.calculated_tags]
+                  .sort((a, b) => a.keyword.localeCompare(b.keyword))
+                  .map(tag => html`<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">${tag.keyword}</span>`)}
             </div>
         </div>
     `;

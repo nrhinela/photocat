@@ -19,6 +19,17 @@ export async function getImages(tenantId, filters = {}) {
     // The backend doesn't seem to have a date filter.
   }
 
+  if (filters.listId) {
+    params.append('list_id', filters.listId);
+  }
+
+  if (filters.rating !== undefined && filters.rating !== '') {
+    params.append('rating', filters.rating);
+    if (filters.ratingOperator) {
+      params.append('rating_operator', filters.ratingOperator);
+    }
+  }
+
   if (filters.keywords && Object.keys(filters.keywords).length > 0) {
       const categoryFilters = {};
       for (const [category, keywordsSet] of Object.entries(filters.keywords)) {
@@ -61,6 +72,12 @@ export async function getKeywords(tenantId) {
     }
 
     const data = await response.json();
+
+  // NEW LOG: Inspect the raw data and the specific property we're trying to return
+    console.log('API Service: Raw data from /keywords:', data);
+    console.log('API Service: data.keywords_by_category:', data.keywords_by_category);
+
+
     return data.keywords_by_category || {};
 }
 
@@ -208,4 +225,162 @@ export async function getLists(tenantId) {
 
     const data = await response.json();
     return data || []; // Return the data directly, or an empty array if data is null/undefined
+}
+
+export async function getActiveList(tenantId) {
+    const response = await fetch(`${API_BASE_URL}/lists/active`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch active list');
+    }
+
+    const data = await response.json();
+    return data || {};
+}
+
+export async function createList(tenantId, list) {
+    const response = await fetch(`${API_BASE_URL}/lists`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(list),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to create list');
+    }
+
+    return response.json();
+}
+
+export async function deleteList(tenantId, listId) {
+    const response = await fetch(`${API_BASE_URL}/lists/${listId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to delete list');
+    }
+
+    return response.json();
+}
+
+export async function getListItems(tenantId, listId) {
+    const response = await fetch(`${API_BASE_URL}/lists/${listId}/items`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch list items');
+    }
+
+    const data = await response.json();
+    return data || [];
+}
+
+export async function deleteListItem(tenantId, itemId) {
+    const response = await fetch(`${API_BASE_URL}/lists/items/${itemId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to delete list item');
+    }
+
+    return response.json();
+}
+
+export async function freezePermatags(tenantId, imageId) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/permatags/freeze`, {
+        method: 'POST',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to freeze permatags');
+    }
+
+    return response.json();
+}
+
+export async function addPermatag(tenantId, imageId, keyword, category, signum) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/permatags`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify({ keyword, category, signum }),
+    });
+
+    if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to add permanent tag');
+    }
+
+    return response.json();
+};
+
+export async function deletePermatag(tenantId, imageId, permatagId) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/permatags/${permatagId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to remove permanent tag');
+    }
+
+    // DELETE requests typically return a 204 No Content, so no data to parse
+    return null;
+}
+export async function getPermatags(tenantId, imageId) {
+    const response = await fetch(`${API_BASE_URL}/images/${imageId}/permatags`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch permanent tags');
+    }
+
+    const data = await response.json();
+    return data || []; // Return the data directly, or an empty array if data is null/undefined
+}
+
+export async function updateList(tenantId, list) {
+    const response = await fetch(`${API_BASE_URL}/lists/${list.id}`, {
+        method: 'PATCH',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(list),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to update list');
+    }
+
+    const data = await response.json();
+    return data;
 }

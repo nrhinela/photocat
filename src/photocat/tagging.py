@@ -318,3 +318,34 @@ def get_tagger(model_type: str = "siglip") -> ImageTagger:
             raise ValueError(f"Unknown model type: {model_type}. Currently only 'siglip' is supported")
 
     return _tagger_instances[model_type]
+
+def calculate_tags(machine_tags: list, permatags: list) -> list:
+    """
+    Calculates the final set of tags based on machine tags and permatags.
+
+    Args:
+        machine_tags: A list of dicts, e.g., [{"keyword": "dog", ...}, ...].
+        permatags: A list of dicts from the Permatag model, e.g., [{"keyword": "cat", "signum": -1}, ...].
+
+    Returns:
+        A list of dicts representing the final calculated tags.
+    """
+    calculated_tag_objects = {tag['keyword']: tag for tag in machine_tags}
+
+    # Apply permatags
+    for ptag in permatags:
+        keyword = ptag['keyword']
+        if ptag['signum'] == -1 and keyword in calculated_tag_objects:
+            # Negative permatag: remove from set
+            del calculated_tag_objects[keyword]
+        elif ptag['signum'] == 1 and keyword not in calculated_tag_objects:
+            # Positive permatag: add to set if not present
+            calculated_tag_objects[keyword] = {
+                "keyword": keyword,
+                "category": ptag['category'],
+                "confidence": 1.0, # Assign full confidence for manual tags
+                "manual": True # Add a flag to identify it
+            }
+
+    # Return as a sorted list
+    return sorted(list(calculated_tag_objects.values()), key=lambda x: x['keyword'])

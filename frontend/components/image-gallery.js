@@ -14,12 +14,18 @@ class ImageGallery extends LitElement {
     images: { type: Array },
     filters: { type: Object },
     tenant: { type: String },
+    activeListName: { type: String },
+    activeListItemIds: { type: Object },
+    keywords: { type: Array },
   };
   
   constructor() {
     super();
     this.images = [];
     this.filters = {};
+    this.activeListName = '';
+    this.activeListItemIds = new Set();
+    this.keywords = [];
   }
 
   willUpdate(changedProperties) {
@@ -40,7 +46,15 @@ class ImageGallery extends LitElement {
   render() {
     return html`
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        ${this.images.map((image) => html`<image-card .image=${image} .tenant=${this.tenant}></image-card>`)}
+        ${this.images.map((image) => html`
+          <image-card
+            .image=${image}
+            .tenant=${this.tenant}
+            .activeListName=${this.activeListName}
+            .isInActiveList=${this.activeListItemIds.has(image.id)}
+            .keywords=${this.keywords}
+          ></image-card>
+        `)}
       </div>
     `;
   }
