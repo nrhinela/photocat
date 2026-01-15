@@ -7,12 +7,15 @@ steps:
     args: ['-c', 'docker pull gcr.io/$PROJECT_ID/photocat:latest || echo "No cache found, building from scratch"']
     id: 'pull-cache'
   
-  - name: 'gcr.io/cloud-builders/npm'
-    args: ['install']
-  - name: 'gcr.io/cloud-builders/npm'
+  # Use Node 20 for Vite 7.x compatibility - clean install
+  - name: 'node:20'
+    entrypoint: 'npm'
+    args: ['ci', '--include=dev']
+  - name: 'node:20'
+    entrypoint: 'npm'
     args: ['run', 'build']
   
-  # Build the container image with cache
+  # Build the container image with BuildKit and cache
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
@@ -21,6 +24,8 @@ steps:
       '-t', 'gcr.io/$PROJECT_ID/photocat:latest',
       '.'
     ]
+    env:
+      - 'DOCKER_BUILDKIT=1'
   
   # Push the container image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
@@ -89,4 +94,4 @@ substitutions:
 options:
   machineType: 'N1_HIGHCPU_8'
 
-timeout: '1200s'
+timeout: '2400s'  # 40 minutes

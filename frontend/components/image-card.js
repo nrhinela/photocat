@@ -1,5 +1,5 @@
 import { LitElement, html, css } from 'lit';
-import { setRating, addToList, retagImage, addPermatag, getPermatags, deletePermatag } from '../services/api.js';
+import { enqueueCommand } from '../services/command-queue.js';
 import { tailwind } from './tailwind-lit.js';
 
 class ImageCard extends LitElement {
@@ -26,6 +26,7 @@ class ImageCard extends LitElement {
     isInActiveList: { type: Boolean },
     isRetagging: { type: Boolean },
     keywords: { type: Array },
+    listMode: { type: Boolean },
   };
 
   constructor() {
@@ -36,57 +37,79 @@ class ImageCard extends LitElement {
     this.isInActiveList = false;
     this.isRetagging = false;
     this.keywords = [];
-  }
-
-  async _handleRetag(e) {
-    e.stopPropagation();
-    try {
-        this.isRetagging = true;
-        await retagImage(this.tenant, this.image.id);
-        this.dispatchEvent(new CustomEvent('image-retagged', {
-          detail: { imageId: this.image.id },
-          bubbles: true,
-          composed: true,
-        }));
-    } catch (error) {
-        console.error('Failed to retag image:', error);
-    } finally {
+    this.listMode = false;
+    this._handleQueueComplete = (event) => {
+      const detail = event?.detail;
+      if (detail?.type === 'retag' && detail.imageId === this.image.id) {
         this.isRetagging = false;
-    }
+      }
+    };
+    this._handleQueueFailed = (event) => {
+      const detail = event?.detail;
+      if (detail?.type === 'retag' && detail.imageId === this.image.id) {
+        this.isRetagging = false;
+      }
+    };
   }
 
-  async _handleAddToList(e) {
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener('queue-command-complete', this._handleQueueComplete);
+    window.addEventListener('queue-command-failed', this._handleQueueFailed);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('queue-command-complete', this._handleQueueComplete);
+    window.removeEventListener('queue-command-failed', this._handleQueueFailed);
+    super.disconnectedCallback();
+  }
+
+  _handleRetag(e) {
     e.stopPropagation();
-    try {
-        const result = await addToList(this.tenant, this.image.id);
-        this.dispatchEvent(new CustomEvent('list-item-added', {
-          detail: { photoId: this.image.id, listId: result?.list_id },
-          bubbles: true,
-          composed: true,
-        }));
-    } catch (error) {
-        console.error('Failed to add to list:', error);
-    }
+    this.isRetagging = true;
+    enqueueCommand({
+      type: 'retag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+    });
   }
 
-  async _handleRemoveTag(e, tag) {
+  _handleAddToList(e) {
     e.stopPropagation();
-    try {
-      await addPermatag(this.tenant, this.image.id, tag.keyword, tag.category, -1);
-      window.dispatchEvent(new CustomEvent('permatags-changed', {
-        detail: { imageId: this.image.id }
-      }));
-      this.dispatchEvent(new CustomEvent('image-retagged', {
-        detail: { imageId: this.image.id },
-        bubbles: true,
-        composed: true,
-      }));
-    } catch (error) {
-      console.error('Failed to remove tag:', error);
-    }
+    enqueueCommand({
+      type: 'add-to-list',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+    });
+    this.isInActiveList = true;
+    this.dispatchEvent(new CustomEvent('list-item-added', {
+      detail: { photoId: this.image.id },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
-  async _handleAddTag(e) {
+  _handleRemoveTag(e, tag) {
+    e.stopPropagation();
+    enqueueCommand({
+      type: 'add-negative-permatag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      keyword: tag.keyword,
+      category: tag.category,
+    });
+    this.image = {
+      ...this.image,
+      calculated_tags: (this.image.calculated_tags || []).filter(
+        (item) => item.keyword !== tag.keyword
+      ),
+    };
+    window.dispatchEvent(new CustomEvent('permatags-changed', {
+      detail: { imageId: this.image.id }
+    }));
+  }
+
+  _handleAddTag(e) {
     e.stopPropagation();
     const input = this.shadowRoot.getElementById(`add-tag-${this.image.id}`);
     const value = input ? input.value.trim() : '';
@@ -95,37 +118,33 @@ class ImageCard extends LitElement {
     if (!keywordEntry) {
       return;
     }
-    try {
-      const permatags = await getPermatags(this.tenant, this.image.id);
-      const existingNegative = (permatags.permatags || []).find(
-        (ptag) => ptag.keyword === value && ptag.signum === -1
-      );
-      if (existingNegative) {
-        await deletePermatag(this.tenant, this.image.id, existingNegative.id);
-      }
-      await addPermatag(this.tenant, this.image.id, value, keywordEntry.category, 1);
-      if (input) input.value = '';
-      window.dispatchEvent(new CustomEvent('permatags-changed', {
-        detail: { imageId: this.image.id }
-      }));
-      this.dispatchEvent(new CustomEvent('image-retagged', {
-        detail: { imageId: this.image.id },
-        bubbles: true,
-        composed: true,
-      }));
-    } catch (error) {
-      console.error('Failed to add tag:', error);
-    }
+    enqueueCommand({
+      type: 'add-positive-permatag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      keyword: value,
+      category: keywordEntry.category,
+    });
+    if (input) input.value = '';
+    window.dispatchEvent(new CustomEvent('permatags-changed', {
+      detail: { imageId: this.image.id }
+    }));
   }
 
-  async _handleRating(e, rating) {
+  _handleRating(e, rating) {
     e.stopPropagation();
-    try {
-        const updatedImage = await setRating(this.tenant, this.image.id, rating);
-        this.image = { ...this.image, rating: updatedImage.rating };
-    } catch (error) {
-        console.error('Failed to set rating:', error);
-    }
+    this.image = { ...this.image, rating };
+    enqueueCommand({
+      type: 'set-rating',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      rating,
+    });
+    this.dispatchEvent(new CustomEvent('image-rating-updated', {
+      detail: { imageId: this.image.id, rating },
+      bubbles: true,
+      composed: true,
+    }));
   }
   
   _handleCardClick() {
@@ -140,16 +159,32 @@ class ImageCard extends LitElement {
     return html`
       <div class="flex flex-wrap items-center gap-1">
         ${sortedTags.map(tag => html`
-          <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-xs">
+          <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">
             ${tag.keyword}
             <button
               type="button"
-              class="text-gray-500 hover:text-red-600"
+              class="text-red-600 hover:text-red-700 text-base leading-none"
               title="Remove tag"
               @click=${(e) => this._handleRemoveTag(e, tag)}
             >
-              ×
+              ❌
             </button>
+          </span>
+        `)}
+      </div>
+    `;
+  }
+
+  _renderTagChips(tags) {
+    if (!tags || tags.length === 0) {
+      return html`<span class="text-xs text-gray-500">No tags yet.</span>`;
+    }
+    const sortedTags = [...tags].sort((a, b) => a.keyword.localeCompare(b.keyword));
+    return html`
+      <div class="flex flex-wrap items-center gap-2">
+        ${sortedTags.map(tag => html`
+          <span class="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
+            ${tag.keyword}
           </span>
         `)}
       </div>
@@ -164,6 +199,10 @@ class ImageCard extends LitElement {
   render() {
     if (!this.image.id) {
       return html`<div>Loading...</div>`;
+    }
+
+    if (this.listMode) {
+      return this._renderListMode();
     }
 
     const tagsText = this._renderTagText(this.image.calculated_tags);
@@ -188,7 +227,7 @@ class ImageCard extends LitElement {
           />
           ${this.image.tags_applied ? html`<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>` : ''}
         </div>
-        <div class="p-3 text-xs text-gray-600 space-y-1">
+        <div class="p-3 text-sm text-gray-700 space-y-2">
           <div>
             <span class="font-semibold text-gray-700">file:</span>
             ${dropboxHref ? html`
@@ -202,10 +241,6 @@ class ImageCard extends LitElement {
                 ${formattedPath}
               </a>
             ` : html`<span class="ml-1 text-gray-400">Unknown</span>`}
-          </div>
-          <div>
-            <span class="font-semibold text-gray-700">size:</span>
-            <span class="ml-1">${this.image.width} × ${this.image.height}</span>
           </div>
           <div>
             <span class="font-semibold text-gray-700">uploaded:</span>
@@ -251,7 +286,7 @@ class ImageCard extends LitElement {
             <span class="font-semibold text-gray-700">tags:</span>
             <button
               type="button"
-              class="text-purple-600 hover:text-purple-700 text-xs"
+              class="text-purple-600 hover:text-purple-700 text-sm"
               @click=${this._handleRetag}
             >
               [${this.isRetagging ? 'processing' : 'retag'}]
@@ -281,6 +316,60 @@ class ImageCard extends LitElement {
       <datalist id="keyword-list">
         ${this.keywords.map((kw) => html`<option value=${kw.keyword}></option>`)}
       </datalist>
+    `;
+  }
+
+  _renderListMode() {
+    const dropboxPath = this.image.dropbox_path || '';
+    const dropboxHref = dropboxPath
+      ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
+      : '';
+    const listName = this.activeListName || 'None';
+    const canAddToList = !!this.activeListName && this.showAddToList;
+    const addLabel = this.isInActiveList ? 'Added' : `Add to list: ${listName}`;
+    const tagsChips = this._renderTagChips(this.image.calculated_tags);
+
+    return html`
+      <div class="flex items-center gap-4 py-4">
+        <div class="w-20 h-20 flex-shrink-0">
+          <img
+            src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}"
+            alt="${this.image.filename}"
+            class="w-20 h-20 object-cover rounded"
+            loading="lazy"
+            @click=${this._handleCardClick}
+          />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-gray-800 truncate">${this.image.filename}</div>
+          ${dropboxHref ? html`
+            <a
+              href=${dropboxHref}
+              target="dropbox"
+              class="text-xs text-gray-500 hover:text-gray-700 break-all"
+              @click=${(e) => e.stopPropagation()}
+              title=${dropboxPath}
+            >
+              ${this._formatDropboxPath(dropboxPath)}
+            </a>
+          ` : html``}
+          <div class="mt-2">
+            ${tagsChips}
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-2">
+          ${this.showAddToList ? html`
+            <button
+              type="button"
+              class="px-3 py-1 rounded bg-green-600 text-white text-xs hover:bg-green-700"
+              @click=${this._handleAddToList}
+              ?disabled=${!canAddToList || this.isInActiveList}
+            >
+              ${addLabel}
+            </button>
+          ` : html``}
+        </div>
+      </div>
     `;
   }
 

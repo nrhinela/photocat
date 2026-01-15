@@ -14,6 +14,7 @@ from google.cloud import secretmanager
 import io
 import json
 import hashlib
+import base64
 
 from photocat.tenant import Tenant, TenantContext
 from photocat.settings import settings
@@ -510,6 +511,7 @@ async def list_images(
     list_id: Optional[int] = None,
     rating: Optional[int] = None,
     rating_operator: str = "eq",
+    hide_zero_rating: bool = False,
     db: Session = Depends(get_db)
 ):
     """List images for tenant with optional faceted search by keywords."""
@@ -543,6 +545,20 @@ async def list_images(
             filter_ids = rating_ids
         else:
             filter_ids = filter_ids.intersection(rating_ids)
+
+    if hide_zero_rating:
+        zero_rating_ids = db.query(ImageMetadata.id).filter(
+            ImageMetadata.tenant_id == tenant.id,
+            ImageMetadata.rating == 0
+        ).all()
+        zero_ids = {row[0] for row in zero_rating_ids}
+        if filter_ids is None:
+            all_image_ids = db.query(ImageMetadata.id).filter(
+                ImageMetadata.tenant_id == tenant.id
+            ).all()
+            filter_ids = {row[0] for row in all_image_ids} - zero_ids
+        else:
+            filter_ids = filter_ids - zero_ids
 
     if filter_ids is not None and not filter_ids:
         return {
@@ -1303,11 +1319,8 @@ async def upload_images(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Upload and process images in real-time."""
+    """Analyze uploaded images and return tag results without saving."""
     processor = ImageProcessor(thumbnail_size=(settings.thumbnail_size, settings.thumbnail_size))
-    storage_client = storage.Client(project=settings.gcp_project_id)
-    storage_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
-    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
     
     results = []
     
@@ -1325,73 +1338,10 @@ async def upload_images(
             # Read file data
             image_data = await file.read()
             
-            # Extract features
+            # Extract lightweight preview thumbnail for results display
             features = processor.extract_features(image_data)
+            thumbnail_b64 = base64.b64encode(features['thumbnail']).decode('utf-8')
 
-            # Generate unique dropbox_id using hash of filename + timestamp
-            timestamp = datetime.utcnow().isoformat()
-            unique_string = f"{file.filename}_{timestamp}_{tenant.id}"
-            dropbox_id = f"upload_{hashlib.sha256(unique_string.encode()).hexdigest()[:16]}"
-
-            # Check for duplicate based on perceptual hash only (not dropbox_id since it's always unique now)
-            existing = db.query(ImageMetadata).filter(
-                ImageMetadata.tenant_id == tenant.id,
-                ImageMetadata.perceptual_hash == features['perceptual_hash']
-            ).first()
-            
-            if existing:
-                # Delete old thumbnail from Cloud Storage
-                try:
-                    if existing.thumbnail_path:
-                        blob = thumbnail_bucket.blob(existing.thumbnail_path)
-                        if blob.exists():
-                            blob.delete()
-                except Exception as e:
-                    print(f"Error deleting old thumbnail: {e}")
-                
-                # Delete existing tags
-                db.query(ImageTag).filter(ImageTag.image_id == existing.id).delete()
-                
-                # Delete existing metadata
-                db.delete(existing)
-                db.commit()
-            
-            # Upload thumbnail to Cloud Storage with cache headers
-            thumbnail_filename = f"{Path(file.filename).stem}_thumb.jpg"
-            thumbnail_path = tenant.get_storage_path(thumbnail_filename, "thumbnails")
-            blob = thumbnail_bucket.blob(thumbnail_path)
-            blob.cache_control = "public, max-age=31536000, immutable"  # 1 year cache
-            blob.upload_from_string(features['thumbnail'], content_type='image/jpeg')
-            
-            # Create metadata record
-            exif = features['exif']
-            
-            metadata = ImageMetadata(
-                tenant_id=tenant.id,
-                dropbox_path=f"/uploads/{file.filename}",
-                dropbox_id=dropbox_id,
-                filename=file.filename,
-                file_size=len(image_data),
-                content_hash=None,
-                width=features['width'],
-                height=features['height'],
-                format=features['format'],
-                perceptual_hash=features['perceptual_hash'],
-                color_histogram=features['color_histogram'],
-                exif_data=exif,
-                camera_make=exif.get('Make'),
-                camera_model=exif.get('Model'),
-                lens_model=exif.get('LensModel'),
-                thumbnail_path=thumbnail_path,
-                embedding_generated=False,
-                faces_detected=False,
-                tags_applied=False,
-            )
-            
-            db.add(metadata)
-            db.commit()
-            db.refresh(metadata)
-            
             # Apply automatic tags from keywords using CLIP
             try:
                 config_mgr = ConfigManager(db, tenant.id)
@@ -1418,35 +1368,27 @@ async def upload_images(
                     all_tags.extend(category_tags)
                 
                 tags_with_confidence = all_tags
-                
-                # Create tags for matching keywords
+
+                # Map tags to category + confidence
                 keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
-                
-                for keyword, confidence in tags_with_confidence:
-                    tag = ImageTag(
-                        image_id=metadata.id,
-                        tenant_id=tenant.id,
-                        keyword=keyword,
-                        category=keyword_to_category[keyword],
-                        confidence=confidence,
-                        manual=False
-                    )
-                    db.add(tag)
-                
-                if tags_with_confidence:
-                    metadata.tags_applied = True
-                    
-                db.commit()
+
+                tag_results = [{
+                    "keyword": keyword,
+                    "category": keyword_to_category.get(keyword),
+                    "confidence": confidence,
+                } for keyword, confidence in tags_with_confidence]
+                tag_results.sort(key=lambda tag: tag["confidence"], reverse=True)
             except Exception as e:
                 print(f"Tagging error: {e}")
                 import traceback
                 traceback.print_exc()
+                tag_results = []
             
             results.append({
                 "filename": file.filename,
                 "status": "success",
-                "image_id": metadata.id,
-                "thumbnail_url": f"/api/v1/images/{metadata.id}/thumbnail"
+                "thumbnail_base64": thumbnail_b64,
+                "tags": tag_results
             })
             
         except Exception as e:

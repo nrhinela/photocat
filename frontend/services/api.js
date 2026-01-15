@@ -31,6 +31,10 @@ export async function getImages(tenantId, filters = {}) {
     }
   }
 
+  if (filters.hideZeroRating) {
+    params.append('hide_zero_rating', 'true');
+  }
+
   if (filters.keywords && Object.keys(filters.keywords).length > 0) {
       const categoryFilters = {};
       for (const [category, keywordsSet] of Object.entries(filters.keywords)) {
@@ -58,7 +62,7 @@ export async function getImages(tenantId, filters = {}) {
   }
 
   const data = await response.json();
-  return data.images || [];
+  return data;
 }
 
 export async function getKeywords(tenantId) {
@@ -241,6 +245,134 @@ export async function getActiveList(tenantId) {
 
     const data = await response.json();
     return data || {};
+}
+
+export async function getKeywordCategories(tenantId) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch keyword categories');
+    }
+
+    const data = await response.json();
+    return data || [];
+}
+
+export async function createKeywordCategory(tenantId, payload) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to create keyword category');
+    }
+
+    return await response.json();
+}
+
+export async function updateKeywordCategory(tenantId, categoryId, payload) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories/${categoryId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to update keyword category');
+    }
+
+    return await response.json();
+}
+
+export async function deleteKeywordCategory(tenantId, categoryId) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories/${categoryId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to delete keyword category');
+    }
+
+    return await response.json();
+}
+
+export async function getKeywordsInCategory(tenantId, categoryId) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories/${categoryId}/keywords`, {
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to fetch keywords');
+    }
+
+    const data = await response.json();
+    return data || [];
+}
+
+export async function createKeyword(tenantId, categoryId, payload) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/categories/${categoryId}/keywords`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to create keyword');
+    }
+
+    return await response.json();
+}
+
+export async function updateKeyword(tenantId, keywordId, payload) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/${keywordId}`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Tenant-ID': tenantId,
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to update keyword');
+    }
+
+    return await response.json();
+}
+
+export async function deleteKeyword(tenantId, keywordId) {
+    const response = await fetch(`${API_BASE_URL}/admin/keywords/${keywordId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Tenant-ID': tenantId,
+        },
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to delete keyword');
+    }
+
+    return await response.json();
 }
 
 export async function createList(tenantId, list) {

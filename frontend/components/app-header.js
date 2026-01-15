@@ -16,6 +16,9 @@ class AppHeader extends LitElement {
         isSyncing: { type: Boolean },
         syncCount: { type: Number },
         environment: { type: String },
+        syncStatus: { type: String },
+        lastSyncAt: { type: String },
+        lastSyncCount: { type: Number },
     }
 
     constructor() {
@@ -26,12 +29,22 @@ class AppHeader extends LitElement {
         this.syncCount = 0;
         this._stopRequested = false;
         this.environment = '...';
+        this.syncStatus = 'idle';
+        this.lastSyncAt = '';
+        this.lastSyncCount = 0;
     }
 
   connectedCallback() {
       super.connectedCallback();
       this.fetchTenants();
       this.fetchEnvironment();
+      this._loadSyncStatus();
+  }
+
+  willUpdate(changedProperties) {
+      if (changedProperties.has('tenant')) {
+          this._loadSyncStatus();
+      }
   }
 
   async fetchEnvironment() {
@@ -59,27 +72,27 @@ class AppHeader extends LitElement {
     return html`
         <nav class="bg-white shadow-lg">
             <div class="max-w-7xl mx-auto px-4 py-4">
-                <div class="flex justify-between items-center">
+                <div class="flex justify-between items-start">
                     <div class="flex items-center space-x-2">
                         <i class="fas fa-camera text-blue-600 text-2xl"></i>
                         <h1 class="text-2xl font-bold text-gray-800">PhotoCat</h1>
                         <span class="text-sm px-3 py-1 rounded font-semibold text-white" style="background-color: ${this.environment === 'PROD' ? '#b91c1c' : '#16a34a'}">${this.environment}</span>
                     </div>
-                    <div class="flex items-center space-x-4">
-                        ${this.isSyncing ? html`
-                            <button @click=${this._stopSync} class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
-                                <i class="fas fa-stop mr-2"></i>Stop (${this.syncCount})
-                            </button>
-                        ` : html`
-                            <button @click=${this._sync} class="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700">
-                                <i class="fas fa-sync mr-2"></i>Sync
-                            </button>
-                        `}
+                    <div class="flex items-start space-x-4">
+                        <div class="flex flex-col items-start">
+                            ${this.isSyncing ? html`
+                                <button @click=${this._stopSync} class="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
+                                    <i class="fas fa-stop mr-2"></i>Stop (${this.syncCount})
+                                </button>
+                            ` : html`
+                                <button @click=${this._sync} class="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700">
+                                    <i class="fas fa-sync mr-2"></i>Sync
+                                </button>
+                            `}
+                            <div class="text-xs text-gray-500 mt-1 leading-tight">${this._getSyncLabel()}</div>
+                        </div>
                         <button @click=${this._retagAll} class="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700">
                             <i class="fas fa-tags mr-2"></i>Retag All
-                        </button>
-                        <button @click=${this._upload} class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                            <i class="fas fa-upload mr-2"></i>Upload
                         </button>
                         <div class="flex items-center space-x-2">
                             <label for="tenantSelect" class="text-gray-700 font-medium">Tenant:</label>
@@ -87,9 +100,6 @@ class AppHeader extends LitElement {
                                 ${this.tenants.map(tenant => html`<option value=${tenant.id}>${tenant.name}</option>`)}
                             </select>
                         </div>
-                        <button @click=${this._openTaggingAdmin} class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700" title="Tagging Settings">
-                            <i class="fas fa-tags mr-2"></i>Tagging
-                        </button>
                         <button @click=${this._openAdmin} class="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700" title="System Administration">
                             <i class="fas fa-cog mr-2"></i>Admin
                         </button>
@@ -111,6 +121,12 @@ class AppHeader extends LitElement {
                     >
                         <i class="fas fa-list mr-2"></i>Lists
                     </button>
+                    <button
+                        @click=${() => this._handleTabChange('tagging')}
+                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'tagging' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
+                    >
+                        <i class="fas fa-tags mr-2"></i>Tagging
+                    </button>
                 </div>
             </div>
         </nav>
@@ -127,6 +143,10 @@ class AppHeader extends LitElement {
     this.isSyncing = true;
     this.syncCount = 0;
     this._stopRequested = false;
+    this.syncStatus = 'running';
+    this.lastSyncAt = '';
+    this.lastSyncCount = 0;
+    this._persistSyncStatus();
 
     try {
         let hasMore = true;
@@ -136,6 +156,8 @@ class AppHeader extends LitElement {
 
             if (result.processed > 0) {
                 this.syncCount += result.processed;
+                this.lastSyncCount = this.syncCount;
+                this._persistSyncStatus();
                 // Notify gallery to refresh
                 this.dispatchEvent(new CustomEvent('sync-progress', {
                     detail: { count: this.syncCount, status: result.status },
@@ -153,6 +175,7 @@ class AppHeader extends LitElement {
 
         if (this._stopRequested) {
             console.log(`Sync stopped by user. Processed: ${this.syncCount}`);
+            this.syncStatus = 'stopped';
         }
 
         // Final refresh notification
@@ -161,6 +184,10 @@ class AppHeader extends LitElement {
             bubbles: true,
             composed: true
         }));
+        this.syncStatus = 'complete';
+        this.lastSyncAt = new Date().toISOString();
+        this.lastSyncCount = this.syncCount;
+        this._persistSyncStatus();
 
     } catch (error) {
         console.error('Failed to sync:', error);
@@ -169,6 +196,8 @@ class AppHeader extends LitElement {
             bubbles: true,
             composed: true
         }));
+        this.syncStatus = 'error';
+        this._persistSyncStatus();
     } finally {
         this.isSyncing = false;
         this._stopRequested = false;
@@ -180,6 +209,64 @@ class AppHeader extends LitElement {
     this._stopRequested = true;
   }
 
+  _syncStorageKey() {
+      return `photocat_sync_status_${this.tenant || 'default'}`;
+  }
+
+  _persistSyncStatus() {
+      const payload = {
+          status: this.syncStatus,
+          lastSyncAt: this.lastSyncAt,
+          lastSyncCount: this.lastSyncCount,
+      };
+      try {
+          localStorage.setItem(this._syncStorageKey(), JSON.stringify(payload));
+      } catch (error) {
+          console.error('Failed to persist sync status:', error);
+      }
+  }
+
+  _loadSyncStatus() {
+      try {
+          const raw = localStorage.getItem(this._syncStorageKey());
+          if (!raw) {
+              this.syncStatus = 'idle';
+              this.lastSyncAt = '';
+              this.lastSyncCount = 0;
+              return;
+          }
+          const parsed = JSON.parse(raw);
+          this.syncStatus = parsed.status || 'idle';
+          this.lastSyncAt = parsed.lastSyncAt || '';
+          this.lastSyncCount = parsed.lastSyncCount || 0;
+          if (this.syncStatus === 'running') {
+              this.syncStatus = 'interrupted';
+          }
+      } catch (error) {
+          console.error('Failed to load sync status:', error);
+      }
+  }
+
+  _getSyncLabel() {
+      if (this.isSyncing || this.syncStatus === 'running') {
+          return `Syncing: ${this.syncCount}`;
+      }
+      if (this.syncStatus === 'interrupted') {
+          return `Sync interrupted (${this.lastSyncCount})`;
+      }
+      if (this.syncStatus === 'complete' && this.lastSyncAt) {
+          const date = new Date(this.lastSyncAt).toLocaleString();
+          return `Last sync: ${date} (${this.lastSyncCount})`;
+      }
+      if (this.syncStatus === 'stopped') {
+          return `Sync stopped (${this.lastSyncCount})`;
+      }
+      if (this.syncStatus === 'error') {
+          return 'Sync error';
+      }
+      return 'Sync idle';
+  }
+
     async _retagAll() {
         try {
             await retagAll(this.tenant);
@@ -188,20 +275,12 @@ class AppHeader extends LitElement {
         }
     }
 
-    _upload() {
-        this.dispatchEvent(new CustomEvent('open-upload-modal', { bubbles: true, composed: true }));
-    }
-
     _switchTenant(e) {
         this.dispatchEvent(new CustomEvent('tenant-change', { detail: e.target.value, bubbles: true, composed: true }));
     }
 
     _openAdmin() {
         window.location.href = '/admin';
-    }
-
-    _openTaggingAdmin() {
-        window.location.href = '/tagging-admin';
     }
 }
 

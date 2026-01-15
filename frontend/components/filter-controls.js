@@ -42,6 +42,7 @@ class FilterControls extends LitElement {
     listFilterId: { type: String },
     ratingFilter: { type: String },
     ratingOperator: { type: String },
+    hideZeroRating: { type: Boolean },
   };
   constructor() {
     super();
@@ -54,6 +55,11 @@ class FilterControls extends LitElement {
     this.listFilterId = '';
     this.ratingFilter = '';
     this.ratingOperator = 'gte';
+    this.hideZeroRating = true;
+  }
+
+  firstUpdated() {
+    this._emitFilterChangeEvent();
   }
 
   willUpdate(changedProperties) {
@@ -117,6 +123,17 @@ class FilterControls extends LitElement {
               <option value="gt">></option>
               <option value="eq">==</option>
             </select>
+          </div>
+          <div class="flex items-end">
+            <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
+              <input
+                type="checkbox"
+                class="h-4 w-4"
+                .checked=${this.hideZeroRating}
+                @change=${this._handleHideZeroChange}
+              >
+              hide 🗑
+            </label>
           </div>
         </div>
 
@@ -235,6 +252,7 @@ class FilterControls extends LitElement {
           listId: this.listFilterId,
           rating: this.ratingFilter,
           ratingOperator: this.ratingOperator,
+          hideZeroRating: this.hideZeroRating,
       };
       this.dispatchEvent(new CustomEvent('filter-change', { detail: filters }));
   }
@@ -258,6 +276,11 @@ class FilterControls extends LitElement {
     this._emitFilterChangeEvent();
   }
 
+  _handleHideZeroChange(e) {
+    this.hideZeroRating = e.target.checked;
+    this._emitFilterChangeEvent();
+  }
+
   _clearFilters() {
     Object.keys(this.keywords).forEach(category => {
         this.selectedKeywords[category].clear();
@@ -266,6 +289,7 @@ class FilterControls extends LitElement {
     this.listFilterId = '';
     this.ratingFilter = '';
     this.ratingOperator = 'gte';
+    this.hideZeroRating = true;
     this.requestUpdate();
     this._emitFilterChangeEvent();
   }

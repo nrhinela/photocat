@@ -188,12 +188,12 @@ class ListEditor extends LitElement {
           ${this.listItems.length === 0 ? html`
             <p class="text-sm text-gray-500">No items in this list yet.</p>
           ` : html`
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="divide-y divide-gray-200">
               ${this.listItems.map(item => html`
-                <div>
-                  <image-card .image=${item.image} .tenant=${this.tenant} .showAddToList=${false}></image-card>
-                  <div class="flex items-center justify-between mt-1">
-                    <p class="text-xs text-gray-500">Added: ${new Date(item.added_at).toLocaleString()}</p>
+                <div class="py-2">
+                  <image-card .image=${item.image} .tenant=${this.tenant} .showAddToList=${false} .listMode=${true}></image-card>
+                  <div class="flex items-center justify-between mt-1 text-xs text-gray-500">
+                    <span>Added: ${new Date(item.added_at).toLocaleString()}</span>
                     <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 hover:text-red-700">Remove</button>
                   </div>
                 </div>
