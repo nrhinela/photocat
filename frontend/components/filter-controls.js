@@ -38,6 +38,11 @@ class FilterControls extends LitElement {
     selectedKeywords: { type: Object },
     categoryOperators: { type: Object },
     tenant: { type: String },
+    lists: { type: Array },
+    listFilterId: { type: String },
+    ratingFilter: { type: String },
+    ratingOperator: { type: String },
+    hideZeroRating: { type: Boolean },
   };
   constructor() {
     super();
@@ -46,6 +51,15 @@ class FilterControls extends LitElement {
     this.showDropdown = {};
     this.selectedKeywords = {};
     this.categoryOperators = {};
+    this.lists = [];
+    this.listFilterId = '';
+    this.ratingFilter = '';
+    this.ratingOperator = 'gte';
+    this.hideZeroRating = true;
+  }
+
+  firstUpdated() {
+    this._emitFilterChangeEvent();
   }
 
   willUpdate(changedProperties) {
@@ -71,7 +85,7 @@ class FilterControls extends LitElement {
   render() {
     return html`
       <div class="bg-white rounded-lg shadow p-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div class="md:col-span-2">
             <input
               id="searchInput"
@@ -81,20 +95,45 @@ class FilterControls extends LitElement {
               @keyup=${this._handleSearch}
             >
           </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
           <div>
-            <select id="sortSelect" class="w-full px-4 py-2 border rounded-lg" @change=${this._handleSortChange}>
-              <option value="date_desc">Newest First</option>
-              <option value="date_asc">Oldest First</option>
-              <option value="name">By Name</option>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Filter by List</label>
+            <select class="w-full px-4 py-2 border rounded-lg" .value=${this.listFilterId} @change=${this._handleListFilterChange}>
+              <option value="">All lists</option>
+              ${this.lists.map((list) => html`
+                <option value=${String(list.id)}>${list.title}</option>
+              `)}
             </select>
           </div>
           <div>
-            <input
-              type="date"
-              id="dateFilter"
-              class="w-full px-4 py-2 border rounded-lg"
-              @change=${this._handleDateChange}
-            >
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Filter by Rating</label>
+            <select class="w-full px-4 py-2 border rounded-lg" .value=${this.ratingFilter} @change=${this._handleRatingFilterChange}>
+              <option value="">All ratings</option>
+              <option value="0">0</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Rating Operator</label>
+            <select class="w-full px-4 py-2 border rounded-lg" .value=${this.ratingOperator} @change=${this._handleRatingOperatorChange}>
+              <option value="gte">>=</option>
+              <option value="gt">></option>
+              <option value="eq">==</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
+              <input
+                type="checkbox"
+                class="h-4 w-4"
+                .checked=${this.hideZeroRating}
+                @change=${this._handleHideZeroChange}
+              >
+              hide 🗑
+            </label>
           </div>
         </div>
 
@@ -179,6 +218,7 @@ class FilterControls extends LitElement {
       this._emitFilterChangeEvent();
   }
 
+
   _handleCategoryInput(category, value) {
     this.filterInputs = { ...this.filterInputs, [category]: value };
     this._setDropdownVisibility(category, true);
@@ -204,15 +244,15 @@ class FilterControls extends LitElement {
 
   _emitFilterChangeEvent() {
       const searchInput = this.shadowRoot.querySelector('#searchInput');
-      const sortSelect = this.shadowRoot.querySelector('#sortSelect');
-      const dateFilter = this.shadowRoot.querySelector('#dateFilter');
 
       const filters = {
           search: searchInput ? searchInput.value : '',
-          sort: sortSelect ? sortSelect.value : 'date_desc',
-          date: dateFilter ? dateFilter.value : '',
           keywords: this.selectedKeywords,
           operators: this.categoryOperators,
+          listId: this.listFilterId,
+          rating: this.ratingFilter,
+          ratingOperator: this.ratingOperator,
+          hideZeroRating: this.hideZeroRating,
       };
       this.dispatchEvent(new CustomEvent('filter-change', { detail: filters }));
   }
@@ -221,11 +261,23 @@ class FilterControls extends LitElement {
     this._emitFilterChangeEvent();
   }
 
-  _handleSortChange(e) {
+  _handleListFilterChange(e) {
+    this.listFilterId = e.target.value;
     this._emitFilterChangeEvent();
   }
 
-  _handleDateChange(e) {
+  _handleRatingFilterChange(e) {
+    this.ratingFilter = e.target.value;
+    this._emitFilterChangeEvent();
+  }
+
+  _handleRatingOperatorChange(e) {
+    this.ratingOperator = e.target.value;
+    this._emitFilterChangeEvent();
+  }
+
+  _handleHideZeroChange(e) {
+    this.hideZeroRating = e.target.checked;
     this._emitFilterChangeEvent();
   }
 
@@ -234,8 +286,10 @@ class FilterControls extends LitElement {
         this.selectedKeywords[category].clear();
     });
     this.querySelector('#searchInput').value = '';
-    this.querySelector('#sortSelect').value = 'date_desc';
-    this.querySelector('#dateFilter').value = '';
+    this.listFilterId = '';
+    this.ratingFilter = '';
+    this.ratingOperator = 'gte';
+    this.hideZeroRating = true;
     this.requestUpdate();
     this._emitFilterChangeEvent();
   }

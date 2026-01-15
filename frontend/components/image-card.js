@@ -1,12 +1,11 @@
 import { LitElement, html, css } from 'lit';
-import { setRating, addToList, retagImage } from '../services/api.js';
+import { enqueueCommand } from '../services/command-queue.js';
 import { tailwind } from './tailwind-lit.js';
 
 class ImageCard extends LitElement {
   static styles = [tailwind, css`
     .image-card {
       transition: transform 0.2s;
-      cursor: pointer;
     }
     .image-card:hover {
       transform: scale(1.02);
@@ -14,50 +13,187 @@ class ImageCard extends LitElement {
     .image-card .fa-star {
       color: #fbbf24; /* text-yellow-400 */
     }
+    .image-link {
+      cursor: pointer;
+    }
   `];
 
   static properties = {
     image: { type: Object },
     tenant: { type: String },
+    showAddToList: { type: Boolean },
+    activeListName: { type: String },
+    isInActiveList: { type: Boolean },
+    isRetagging: { type: Boolean },
+    keywords: { type: Array },
+    listMode: { type: Boolean },
   };
 
   constructor() {
     super();
     this.image = {};
+    this.showAddToList = true;
+    this.activeListName = '';
+    this.isInActiveList = false;
+    this.isRetagging = false;
+    this.keywords = [];
+    this.listMode = false;
+    this._handleQueueComplete = (event) => {
+      const detail = event?.detail;
+      if (detail?.type === 'retag' && detail.imageId === this.image.id) {
+        this.isRetagging = false;
+      }
+    };
+    this._handleQueueFailed = (event) => {
+      const detail = event?.detail;
+      if (detail?.type === 'retag' && detail.imageId === this.image.id) {
+        this.isRetagging = false;
+      }
+    };
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    window.addEventListener('queue-command-complete', this._handleQueueComplete);
+    window.addEventListener('queue-command-failed', this._handleQueueFailed);
+  }
+
+  disconnectedCallback() {
+    window.removeEventListener('queue-command-complete', this._handleQueueComplete);
+    window.removeEventListener('queue-command-failed', this._handleQueueFailed);
+    super.disconnectedCallback();
   }
 
   _handleRetag(e) {
     e.stopPropagation();
-    try {
-        retagImage(this.tenant, this.image.id);
-        // Maybe show a notification?
-    } catch (error) {
-        console.error('Failed to retag image:', error);
-    }
+    this.isRetagging = true;
+    enqueueCommand({
+      type: 'retag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+    });
   }
 
-  async _handleAddToList(e) {
+  _handleAddToList(e) {
     e.stopPropagation();
-    try {
-        await addToList(this.tenant, this.image.id);
-        // Maybe show a notification?
-    } catch (error) {
-        console.error('Failed to add to list:', error);
-    }
+    enqueueCommand({
+      type: 'add-to-list',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+    });
+    this.isInActiveList = true;
+    this.dispatchEvent(new CustomEvent('list-item-added', {
+      detail: { photoId: this.image.id },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
-  async _handleRating(e, rating) {
+  _handleRemoveTag(e, tag) {
     e.stopPropagation();
-    try {
-        const updatedImage = await setRating(this.tenant, this.image.id, rating);
-        this.image = { ...this.image, rating: updatedImage.rating };
-    } catch (error) {
-        console.error('Failed to set rating:', error);
+    enqueueCommand({
+      type: 'add-negative-permatag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      keyword: tag.keyword,
+      category: tag.category,
+    });
+    this.image = {
+      ...this.image,
+      calculated_tags: (this.image.calculated_tags || []).filter(
+        (item) => item.keyword !== tag.keyword
+      ),
+    };
+    window.dispatchEvent(new CustomEvent('permatags-changed', {
+      detail: { imageId: this.image.id }
+    }));
+  }
+
+  _handleAddTag(e) {
+    e.stopPropagation();
+    const input = this.shadowRoot.getElementById(`add-tag-${this.image.id}`);
+    const value = input ? input.value.trim() : '';
+    if (!value) return;
+    const keywordEntry = this.keywords.find((kw) => kw.keyword === value);
+    if (!keywordEntry) {
+      return;
     }
+    enqueueCommand({
+      type: 'add-positive-permatag',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      keyword: value,
+      category: keywordEntry.category,
+    });
+    if (input) input.value = '';
+    window.dispatchEvent(new CustomEvent('permatags-changed', {
+      detail: { imageId: this.image.id }
+    }));
+  }
+
+  _handleRating(e, rating) {
+    e.stopPropagation();
+    this.image = { ...this.image, rating };
+    enqueueCommand({
+      type: 'set-rating',
+      tenantId: this.tenant,
+      imageId: this.image.id,
+      rating,
+    });
+    this.dispatchEvent(new CustomEvent('image-rating-updated', {
+      detail: { imageId: this.image.id, rating },
+      bubbles: true,
+      composed: true,
+    }));
   }
   
   _handleCardClick() {
       this.dispatchEvent(new CustomEvent('image-selected', { detail: this.image, bubbles: true, composed: true }));
+  }
+
+  _renderTagText(tags) {
+    if (!tags || tags.length === 0) {
+      return html`<span class="text-xs text-gray-500">No tags yet.</span>`;
+    }
+    const sortedTags = [...tags].sort((a, b) => a.keyword.localeCompare(b.keyword));
+    return html`
+      <div class="flex flex-wrap items-center gap-1">
+        ${sortedTags.map(tag => html`
+          <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">
+            ${tag.keyword}
+            <button
+              type="button"
+              class="text-red-600 hover:text-red-700 text-base leading-none"
+              title="Remove tag"
+              @click=${(e) => this._handleRemoveTag(e, tag)}
+            >
+              ❌
+            </button>
+          </span>
+        `)}
+      </div>
+    `;
+  }
+
+  _renderTagChips(tags) {
+    if (!tags || tags.length === 0) {
+      return html`<span class="text-xs text-gray-500">No tags yet.</span>`;
+    }
+    const sortedTags = [...tags].sort((a, b) => a.keyword.localeCompare(b.keyword));
+    return html`
+      <div class="flex flex-wrap items-center gap-2">
+        ${sortedTags.map(tag => html`
+          <span class="inline-flex items-center gap-2 bg-blue-100 text-blue-700 px-2 py-1 rounded-full text-xs">
+            ${tag.keyword}
+          </span>
+        `)}
+      </div>
+    `;
+  }
+
+  _formatDropboxPath(path) {
+    if (!path) return '';
+    return path.replace(/_/g, '_\u200b');
   }
 
   render() {
@@ -65,11 +201,23 @@ class ImageCard extends LitElement {
       return html`<div>Loading...</div>`;
     }
 
-    const tagsHTML = this._renderTags();
+    if (this.listMode) {
+      return this._renderListMode();
+    }
+
+    const tagsText = this._renderTagText(this.image.calculated_tags);
+    const dropboxPath = this.image.dropbox_path || '';
+    const dropboxHref = dropboxPath
+      ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
+      : '';
+    const formattedPath = this._formatDropboxPath(dropboxPath);
+    const listName = this.activeListName || 'None';
+    const canAddToList = !!this.activeListName && this.showAddToList;
+    const addLabel = this.isInActiveList ? 'Added' : 'Add';
 
     return html`
-      <div class="image-card bg-white rounded-lg shadow overflow-hidden" @click=${this._handleCardClick}>
-        <div class="aspect-square bg-gray-200 relative">
+      <div class="image-card bg-white rounded-lg shadow overflow-hidden">
+        <div class="aspect-square bg-gray-200 relative image-link" @click=${this._handleCardClick}>
           <img
             src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}"
             alt="${this.image.filename}"
@@ -77,62 +225,154 @@ class ImageCard extends LitElement {
             loading="lazy"
             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 400%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22400%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Image%3C/text%3E%3C/svg%3E';"
           />
-          <a
-            href="https://www.dropbox.com/home${encodeURIComponent(this.image.dropbox_path)}"
-            target="dropbox"
-            @click=${(e) => e.stopPropagation()}
-            class="absolute top-2 left-2 bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-full shadow-lg transition-colors"
-            title="Open in Dropbox"
-          >
-            <i class="fab fa-dropbox"></i>
-          </a>
-          <button
-            @click=${this._handleRetag}
-            class="absolute bottom-2 right-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded shadow-lg transition-colors text-xs"
-            title="Reprocess this image with current keywords"
-          >
-            <i class="fas fa-sync-alt"></i> Retag
-          </button>
-          <button
-            @click=${this._handleAddToList}
-            class="absolute bottom-2 left-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded shadow-lg transition-colors text-xs"
-            title="Add to List"
-          >
-            <i class="fas fa-list"></i> Add to List
-          </button>
           ${this.image.tags_applied ? html`<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>` : ''}
         </div>
-        <div class="p-3">
-          <p class="font-semibold text-gray-800 truncate">${this.image.filename}</p>
-          <p class="text-sm text-gray-500">${this.image.width} × ${this.image.height}</p>
-          <p class="text-xs text-gray-400">
-            <i class="far fa-clock"></i> ${this.image.modified_time ? new Date(this.image.modified_time).toLocaleDateString() : 'Unknown'}
-          </p>
-          ${this.image.capture_timestamp ? html`<p class="text-xs text-gray-400"><i class="far fa-calendar"></i> Photo: ${new Date(this.image.capture_timestamp).toLocaleDateString()}</p>` : ''}
-          ${this.image.camera_model ? html`<p class="text-xs text-gray-400 truncate">${this.image.camera_model}</p>` : ''}
-          <div class="flex items-center mt-2 mb-1">
-            <span class="mr-2 text-xs text-gray-500">Rating:</span>
+        <div class="p-3 text-sm text-gray-700 space-y-2">
+          <div>
+            <span class="font-semibold text-gray-700">file:</span>
+            ${dropboxHref ? html`
+              <a
+                href=${dropboxHref}
+                target="dropbox"
+                class="ml-1 text-blue-600 hover:text-blue-700 break-all whitespace-normal"
+                @click=${(e) => e.stopPropagation()}
+                title=${dropboxPath}
+              >
+                ${formattedPath}
+              </a>
+            ` : html`<span class="ml-1 text-gray-400">Unknown</span>`}
+          </div>
+          <div>
+            <span class="font-semibold text-gray-700">uploaded:</span>
+            <span class="ml-1">${this.image.modified_time ? new Date(this.image.modified_time).toLocaleDateString() : 'Unknown'}</span>
+          </div>
+          <div>
+            <span class="font-semibold text-gray-700">list [${listName}]:</span>
+            ${this.showAddToList ? html`
+              <button
+                type="button"
+                class="ml-1 ${this.isInActiveList ? 'text-gray-500' : 'text-green-700 hover:text-green-800'}"
+                @click=${this._handleAddToList}
+                ?disabled=${!canAddToList || this.isInActiveList}
+              >
+                ${addLabel}
+              </button>
+            ` : html`<span class="ml-1 text-gray-400">Unavailable</span>`}
+          </div>
+          <div class="flex items-center">
+            <span class="font-semibold text-gray-700 mr-1">rating:</span>
             <span class="star-rating" data-image-id="${this.image.id}">
+              <button
+                type="button"
+                class="cursor-pointer mx-0.5 ${this.image.rating == 0 ? 'text-gray-700' : 'text-gray-600 hover:text-gray-800'}"
+                title="0 stars"
+                @click=${(e) => this._handleRating(e, 0)}
+              >
+                ${this.image.rating == 0 ? '❌' : '🗑'}
+              </button>
               ${[1, 2, 3].map((star) => html`
-                <i
-                  class="fa${this.image.rating && this.image.rating >= star ? 's' : 'r'} fa-star cursor-pointer mx-0.5"
-                  data-star="${star}"
+                <button
+                  type="button"
+                  class="cursor-pointer mx-0.5 text-yellow-500 hover:text-yellow-600"
                   title="${star} star${star > 1 ? 's' : ''}"
                   @click=${(e) => this._handleRating(e, star)}
-                ></i>
+                >
+                  ${this.image.rating && this.image.rating >= star ? '★' : '☆'}
+                </button>
               `)}
             </span>
           </div>
-          ${tagsHTML}
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold text-gray-700">tags:</span>
+            <button
+              type="button"
+              class="text-purple-600 hover:text-purple-700 text-sm"
+              @click=${this._handleRetag}
+            >
+              [${this.isRetagging ? 'processing' : 'retag'}]
+            </button>
+            ${tagsText}
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-xs font-semibold text-gray-700" for="add-tag-${this.image.id}">Add tag:</label>
+            <input
+              id="add-tag-${this.image.id}"
+              list="keyword-list"
+              class="flex-1 min-w-[120px] border rounded px-2 py-1 text-xs"
+              type="text"
+              placeholder="Start typing..."
+              @click=${(e) => e.stopPropagation()}
+            >
+            <button
+              type="button"
+              class="text-xs text-blue-600 hover:text-blue-700"
+              @click=${this._handleAddTag}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+      <datalist id="keyword-list">
+        ${this.keywords.map((kw) => html`<option value=${kw.keyword}></option>`)}
+      </datalist>
+    `;
+  }
+
+  _renderListMode() {
+    const dropboxPath = this.image.dropbox_path || '';
+    const dropboxHref = dropboxPath
+      ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
+      : '';
+    const listName = this.activeListName || 'None';
+    const canAddToList = !!this.activeListName && this.showAddToList;
+    const addLabel = this.isInActiveList ? 'Added' : `Add to list: ${listName}`;
+    const tagsChips = this._renderTagChips(this.image.calculated_tags);
+
+    return html`
+      <div class="flex items-center gap-4 py-4">
+        <div class="w-20 h-20 flex-shrink-0">
+          <img
+            src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}"
+            alt="${this.image.filename}"
+            class="w-20 h-20 object-cover rounded"
+            loading="lazy"
+            @click=${this._handleCardClick}
+          />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-gray-800 truncate">${this.image.filename}</div>
+          ${dropboxHref ? html`
+            <a
+              href=${dropboxHref}
+              target="dropbox"
+              class="text-xs text-gray-500 hover:text-gray-700 break-all"
+              @click=${(e) => e.stopPropagation()}
+              title=${dropboxPath}
+            >
+              ${this._formatDropboxPath(dropboxPath)}
+            </a>
+          ` : html``}
+          <div class="mt-2">
+            ${tagsChips}
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-2">
+          ${this.showAddToList ? html`
+            <button
+              type="button"
+              class="px-3 py-1 rounded bg-green-600 text-white text-xs hover:bg-green-700"
+              @click=${this._handleAddToList}
+              ?disabled=${!canAddToList || this.isInActiveList}
+            >
+              ${addLabel}
+            </button>
+          ` : html``}
         </div>
       </div>
     `;
   }
 
-  _renderTags() {
-    // This logic is complex and will be implemented later.
-    return html``;
-  }
 }
 
 customElements.define('image-card', ImageCard);

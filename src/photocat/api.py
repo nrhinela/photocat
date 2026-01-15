@@ -14,6 +14,7 @@ from google.cloud import secretmanager
 import io
 import json
 import hashlib
+import base64
 
 from photocat.tenant import Tenant, TenantContext
 from photocat.settings import settings
@@ -102,7 +103,25 @@ async def get_tenant(
 
 # --- Photo List Management API ---
 
-@app.get("/api/v1/lists/{list_id}", response_model=dict)
+@app.get("/api/v1/lists/active", response_model=dict)
+async def get_active_list_api(
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Get the current active list for the tenant (if any)."""
+    active = get_active_list(db, tenant.id)
+    if not active:
+        return {}
+    return {
+        "id": active.id,
+        "title": active.title,
+        "notebox": active.notebox,
+        "is_active": active.is_active,
+        "created_at": active.created_at,
+        "updated_at": active.updated_at
+    }
+
+@app.get("/api/v1/lists/{list_id:int}", response_model=dict)
 async def get_list(
     list_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -118,7 +137,8 @@ async def get_list(
         "notebox": lst.notebox,
         "is_active": lst.is_active,
         "created_at": lst.created_at,
-        "updated_at": lst.updated_at
+        "updated_at": lst.updated_at,
+        "item_count": len(lst.items)
     }
 
 # Remove a photo from a list by item ID
@@ -174,29 +194,12 @@ async def list_lists(
             "notebox": l.notebox,
             "is_active": l.is_active,
             "created_at": l.created_at,
-            "updated_at": l.updated_at
+            "updated_at": l.updated_at,
+            "item_count": len(l.items)
         } for l in lists
     ]
 
-@app.get("/api/v1/lists/active", response_model=dict)
-async def get_active_list_api(
-    tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
-):
-    """Get the current active list for the tenant (if any)."""
-    active = get_active_list(db, tenant.id)
-    if not active:
-        return {}
-    return {
-        "id": active.id,
-        "title": active.title,
-        "notebox": active.notebox,
-        "is_active": active.is_active,
-        "created_at": active.created_at,
-        "updated_at": active.updated_at
-    }
-
-@app.patch("/api/v1/lists/{list_id}", response_model=dict)
+@app.patch("/api/v1/lists/{list_id:int}", response_model=dict)
 async def edit_list(
     list_id: int,
     title: Optional[str] = Body(None),
@@ -225,10 +228,11 @@ async def edit_list(
         "notebox": lst.notebox,
         "is_active": lst.is_active,
         "created_at": lst.created_at,
-        "updated_at": lst.updated_at
+        "updated_at": lst.updated_at,
+        "item_count": len(lst.items)
     }
 
-@app.delete("/api/v1/lists/{list_id}", response_model=dict)
+@app.delete("/api/v1/lists/{list_id:int}", response_model=dict)
 async def delete_list(
     list_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -243,7 +247,7 @@ async def delete_list(
     db.commit()
     return {"deleted": True, "was_active": was_active}
 
-@app.get("/api/v1/lists/{list_id}/items", response_model=list)
+@app.get("/api/v1/lists/{list_id:int}/items", response_model=list)
 async def get_list_items(
     list_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -253,14 +257,75 @@ async def get_list_items(
     lst = db.query(PhotoList).filter_by(id=list_id, tenant_id=tenant.id).first()
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
-    items = db.query(PhotoListItem).filter_by(list_id=list_id).order_by(PhotoListItem.added_at.asc()).all()
-    return [
-        {
+    items = (
+        db.query(PhotoListItem, ImageMetadata)
+        .join(ImageMetadata, PhotoListItem.photo_id == ImageMetadata.id)
+        .filter(
+            PhotoListItem.list_id == list_id,
+            ImageMetadata.tenant_id == tenant.id
+        )
+        .order_by(PhotoListItem.added_at.asc())
+        .all()
+    )
+    image_ids = [img.id for _, img in items]
+    tags = db.query(ImageTag).filter(
+        ImageTag.image_id.in_(image_ids),
+        ImageTag.tenant_id == tenant.id
+    ).all()
+    permatags = db.query(Permatag).filter(
+        Permatag.image_id.in_(image_ids),
+        Permatag.tenant_id == tenant.id
+    ).all()
+    tags_by_image = {}
+    for tag in tags:
+        tags_by_image.setdefault(tag.image_id, []).append({
+            "keyword": tag.keyword,
+            "category": tag.category,
+            "confidence": round(tag.confidence, 2)
+        })
+    permatags_by_image = {}
+    for permatag in permatags:
+        permatags_by_image.setdefault(permatag.image_id, []).append({
+            "id": permatag.id,
+            "keyword": permatag.keyword,
+            "category": permatag.category,
+            "signum": permatag.signum
+        })
+    response_items = []
+    for item, img in items:
+        machine_tags = sorted(tags_by_image.get(img.id, []), key=lambda x: x['confidence'], reverse=True)
+        image_permatags = permatags_by_image.get(img.id, [])
+        calculated_tags = calculate_tags(machine_tags, image_permatags)
+        response_items.append({
             "id": item.id,
             "photo_id": item.photo_id,
-            "added_at": item.added_at
-        } for item in items
-    ]
+            "added_at": item.added_at,
+            "image": {
+                "id": img.id,
+                "filename": img.filename,
+                "width": img.width,
+                "height": img.height,
+                "format": img.format,
+                "file_size": img.file_size,
+                "dropbox_path": img.dropbox_path,
+                "camera_make": img.camera_make,
+                "camera_model": img.camera_model,
+                "lens_model": img.lens_model,
+                "iso": img.iso,
+                "aperture": img.aperture,
+                "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
+                "modified_time": img.modified_time.isoformat() if img.modified_time else None,
+                "thumbnail_path": img.thumbnail_path,
+                "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
+                "tags_applied": img.tags_applied,
+                "faces_detected": img.faces_detected,
+                "rating": img.rating,
+                "tags": machine_tags,
+                "permatags": image_permatags,
+                "calculated_tags": calculated_tags
+            }
+        })
+    return response_items
 
 @app.post("/api/v1/lists/add-photo", response_model=dict)
 async def add_photo_to_list(
@@ -294,7 +359,7 @@ async def add_photo_to_list(
 from photocat.image import ImageProcessor
 from photocat.config import TenantConfig
 from photocat.config.db_config import ConfigManager
-from photocat.tagging import get_tagger
+from photocat.tagging import get_tagger, calculate_tags
 from photocat.dropbox import DropboxClient, DropboxWebhookValidator
 
 
@@ -307,14 +372,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
+# Static file paths (mount happens at end of file to not override routes)
 static_dir = Path(__file__).parent / "static"
 dist_dir = static_dir / "dist"
-
-if dist_dir.exists():
-    app.mount("/", StaticFiles(directory=dist_dir, html=True), name="dist")
-elif static_dir.exists():
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # Database setup
 engine = create_engine(settings.database_url)
@@ -448,12 +508,66 @@ async def list_images(
     keywords: Optional[str] = None,  # Comma-separated keywords (deprecated)
     operator: str = "OR",  # "AND" or "OR" (deprecated)
     category_filters: Optional[str] = None,  # JSON string with per-category filters
+    list_id: Optional[int] = None,
+    rating: Optional[int] = None,
+    rating_operator: str = "eq",
+    hide_zero_rating: bool = False,
     db: Session = Depends(get_db)
 ):
     """List images for tenant with optional faceted search by keywords."""
     from sqlalchemy import func, distinct, and_
     from sqlalchemy.orm import aliased
     import json
+
+    filter_ids = None
+    if list_id is not None:
+        lst = db.query(PhotoList).filter_by(id=list_id, tenant_id=tenant.id).first()
+        if not lst:
+            raise HTTPException(status_code=404, detail="List not found")
+        list_image_ids = db.query(PhotoListItem.photo_id).filter(
+            PhotoListItem.list_id == list_id
+        ).all()
+        filter_ids = {row[0] for row in list_image_ids}
+
+    if rating is not None:
+        rating_query = db.query(ImageMetadata.id).filter(
+            ImageMetadata.tenant_id == tenant.id
+        )
+        if rating_operator == "gte":
+            rating_query = rating_query.filter(ImageMetadata.rating >= rating)
+        elif rating_operator == "gt":
+            rating_query = rating_query.filter(ImageMetadata.rating > rating)
+        else:
+            rating_query = rating_query.filter(ImageMetadata.rating == rating)
+        rating_image_ids = rating_query.all()
+        rating_ids = {row[0] for row in rating_image_ids}
+        if filter_ids is None:
+            filter_ids = rating_ids
+        else:
+            filter_ids = filter_ids.intersection(rating_ids)
+
+    if hide_zero_rating:
+        zero_rating_ids = db.query(ImageMetadata.id).filter(
+            ImageMetadata.tenant_id == tenant.id,
+            ImageMetadata.rating == 0
+        ).all()
+        zero_ids = {row[0] for row in zero_rating_ids}
+        if filter_ids is None:
+            all_image_ids = db.query(ImageMetadata.id).filter(
+                ImageMetadata.tenant_id == tenant.id
+            ).all()
+            filter_ids = {row[0] for row in all_image_ids} - zero_ids
+        else:
+            filter_ids = filter_ids - zero_ids
+
+    if filter_ids is not None and not filter_ids:
+        return {
+            "tenant_id": tenant.id,
+            "images": [],
+            "total": 0,
+            "limit": limit,
+            "offset": offset
+        }
 
     # Handle per-category filters if provided
     if category_filters:
@@ -534,6 +648,8 @@ async def list_images(
             if category_image_ids:
                 # Remove duplicates
                 unique_image_ids = list(set(category_image_ids))
+                if filter_ids is not None:
+                    unique_image_ids = [image_id for image_id in unique_image_ids if image_id in filter_ids]
 
                 # Get all keywords for relevance counting
                 all_keywords = []
@@ -562,8 +678,11 @@ async def list_images(
                 )
 
                 total = len(unique_image_ids)
-                results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
-                images = [img for img, _ in results]
+                if total:
+                    results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+                    images = [img for img, _ in results]
+                else:
+                    images = []
             else:
                 # No matches
                 total = 0
@@ -609,10 +728,18 @@ async def list_images(
                 ImageMetadata.id.desc()
             )
 
-            total = db.query(ImageMetadata).filter(
-                ImageMetadata.tenant_id == tenant.id,
-                ImageMetadata.id.in_(matching_image_ids)
-            ).count()
+            if filter_ids is not None:
+                query = query.filter(ImageMetadata.id.in_(filter_ids))
+                total = db.query(ImageMetadata).filter(
+                    ImageMetadata.tenant_id == tenant.id,
+                    ImageMetadata.id.in_(matching_image_ids),
+                    ImageMetadata.id.in_(filter_ids)
+                ).count()
+            else:
+                total = db.query(ImageMetadata).filter(
+                    ImageMetadata.tenant_id == tenant.id,
+                    ImageMetadata.id.in_(matching_image_ids)
+                ).count()
 
             results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
             images = [img for img, _ in results]
@@ -630,6 +757,9 @@ async def list_images(
                 ).subquery()
 
                 base_query = base_query.filter(ImageMetadata.id.in_(subquery))
+
+            if filter_ids is not None:
+                base_query = base_query.filter(ImageMetadata.id.in_(filter_ids))
 
             # Get matching image IDs
             matching_image_ids = base_query.subquery()
@@ -665,11 +795,15 @@ async def list_images(
         else:
             # No valid keywords, return all
             query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+            if filter_ids is not None:
+                query = query.filter(ImageMetadata.id.in_(filter_ids))
             total = query.count()
             images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
     else:
         # No keywords filter, return all
         query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+        if filter_ids is not None:
+            query = query.filter(ImageMetadata.id.in_(filter_ids))
         total = query.count()
         images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
     
@@ -703,39 +837,45 @@ async def list_images(
         if permatag.image_id not in permatags_by_image:
             permatags_by_image[permatag.image_id] = []
         permatags_by_image[permatag.image_id].append({
+            "id": permatag.id,
             "keyword": permatag.keyword,
             "category": permatag.category,
             "signum": permatag.signum
         })
-    
+
+    images_list = []
+    for img in images:
+        machine_tags = sorted(tags_by_image.get(img.id, []), key=lambda x: x['confidence'], reverse=True)
+        image_permatags = permatags_by_image.get(img.id, [])
+        calculated_tags = calculate_tags(machine_tags, image_permatags)
+        images_list.append({
+            "id": img.id,
+            "filename": img.filename,
+            "width": img.width,
+            "height": img.height,
+            "format": img.format,
+            "file_size": img.file_size,
+            "dropbox_path": img.dropbox_path,
+            "camera_make": img.camera_make,
+            "camera_model": img.camera_model,
+            "lens_model": img.lens_model,
+            "iso": img.iso,
+            "aperture": img.aperture,
+            "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
+            "modified_time": img.modified_time.isoformat() if img.modified_time else None,
+            "thumbnail_path": img.thumbnail_path,
+            "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
+            "tags_applied": img.tags_applied,
+            "faces_detected": img.faces_detected,
+            "rating": img.rating,
+            "tags": machine_tags,
+            "permatags": image_permatags,
+            "calculated_tags": calculated_tags
+        })
+
     return {
         "tenant_id": tenant.id,
-        "images": [
-            {
-                "id": img.id,
-                "filename": img.filename,
-                "width": img.width,
-                "height": img.height,
-                "format": img.format,
-                "file_size": img.file_size,
-                "dropbox_path": img.dropbox_path,
-                "camera_make": img.camera_make,
-                "camera_model": img.camera_model,
-                "lens_model": img.lens_model,
-                "iso": img.iso,
-                "aperture": img.aperture,
-                "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
-                "modified_time": img.modified_time.isoformat() if img.modified_time else None,
-                "thumbnail_path": img.thumbnail_path,
-                "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
-                "tags_applied": img.tags_applied,
-                "faces_detected": img.faces_detected,
-                "rating": img.rating,
-                "tags": sorted(tags_by_image.get(img.id, []), key=lambda x: x['confidence'], reverse=True),
-                "permatags": permatags_by_image.get(img.id, [])
-            }
-            for img in images
-        ],
+        "images": images_list,
         "total": total,
         "limit": limit,
         "offset": offset
@@ -811,6 +951,12 @@ async def get_image(
         Permatag.image_id == image_id,
         Permatag.tenant_id == tenant.id
     ).all()
+
+    machine_tags_list = [{"keyword": t.keyword, "category": t.category, "confidence": round(t.confidence, 2), "created_at": t.created_at.isoformat() if t.created_at else None} for t in tags]
+    permatags_list = [{"id": p.id, "keyword": p.keyword, "category": p.category, "signum": p.signum, "created_at": p.created_at.isoformat() if p.created_at else None} for p in permatags]
+    
+    from photocat.tagging import calculate_tags
+    calculated_tags = calculate_tags(machine_tags_list, permatags_list)
     
     # Compute thumbnail_url as in the batch endpoint
     if image.thumbnail_path:
@@ -831,8 +977,9 @@ async def get_image(
         "thumbnail_path": image.thumbnail_path,
         "thumbnail_url": thumbnail_url,
         "rating": image.rating,
-        "tags": [{"keyword": t.keyword, "category": t.category, "confidence": round(t.confidence, 2), "created_at": t.created_at.isoformat() if t.created_at else None} for t in tags],
-        "permatags": [{"id": p.id, "keyword": p.keyword, "category": p.category, "signum": p.signum, "created_at": p.created_at.isoformat() if p.created_at else None} for p in permatags],
+        "tags": machine_tags_list,
+        "permatags": permatags_list,
+        "calculated_tags": calculated_tags,
         "exif_data": image.exif_data,
         "dropbox_properties": image.dropbox_properties,
     }
@@ -1105,17 +1252,75 @@ async def accept_all_tags(
     }
 
 
+@app.post("/api/v1/images/{image_id}/permatags/freeze")
+async def freeze_permatags(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Create permatags for all keywords without existing permatags."""
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    config_manager = ConfigManager(db, tenant.id)
+    all_keywords = config_manager.get_all_keywords()
+    keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
+    all_keyword_names = set(keyword_to_category.keys())
+
+    machine_tags = db.query(ImageTag).filter(
+        ImageTag.image_id == image_id,
+        ImageTag.tenant_id == tenant.id
+    ).all()
+    machine_tag_names = {tag.keyword for tag in machine_tags}
+
+    existing_permatags = db.query(Permatag).filter(
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id,
+        Permatag.keyword.in_(all_keyword_names)
+    ).all()
+    existing_keywords = {p.keyword for p in existing_permatags}
+
+    positive_count = 0
+    negative_count = 0
+    for keyword in all_keyword_names:
+        if keyword in existing_keywords:
+            continue
+        signum = 1 if keyword in machine_tag_names else -1
+        permatag = Permatag(
+            image_id=image_id,
+            tenant_id=tenant.id,
+            keyword=keyword,
+            category=keyword_to_category.get(keyword),
+            signum=signum,
+            created_by=None
+        )
+        db.add(permatag)
+        if signum == 1:
+            positive_count += 1
+        else:
+            negative_count += 1
+
+    db.commit()
+
+    return {
+        "success": True,
+        "positive_permatags": positive_count,
+        "negative_permatags": negative_count
+    }
+
+
 @app.post("/api/v1/images/upload")
 async def upload_images(
     files: List[UploadFile] = File(...),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Upload and process images in real-time."""
+    """Analyze uploaded images and return tag results without saving."""
     processor = ImageProcessor(thumbnail_size=(settings.thumbnail_size, settings.thumbnail_size))
-    storage_client = storage.Client(project=settings.gcp_project_id)
-    storage_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
-    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
     
     results = []
     
@@ -1133,73 +1338,10 @@ async def upload_images(
             # Read file data
             image_data = await file.read()
             
-            # Extract features
+            # Extract lightweight preview thumbnail for results display
             features = processor.extract_features(image_data)
+            thumbnail_b64 = base64.b64encode(features['thumbnail']).decode('utf-8')
 
-            # Generate unique dropbox_id using hash of filename + timestamp
-            timestamp = datetime.utcnow().isoformat()
-            unique_string = f"{file.filename}_{timestamp}_{tenant.id}"
-            dropbox_id = f"upload_{hashlib.sha256(unique_string.encode()).hexdigest()[:16]}"
-
-            # Check for duplicate based on perceptual hash only (not dropbox_id since it's always unique now)
-            existing = db.query(ImageMetadata).filter(
-                ImageMetadata.tenant_id == tenant.id,
-                ImageMetadata.perceptual_hash == features['perceptual_hash']
-            ).first()
-            
-            if existing:
-                # Delete old thumbnail from Cloud Storage
-                try:
-                    if existing.thumbnail_path:
-                        blob = thumbnail_bucket.blob(existing.thumbnail_path)
-                        if blob.exists():
-                            blob.delete()
-                except Exception as e:
-                    print(f"Error deleting old thumbnail: {e}")
-                
-                # Delete existing tags
-                db.query(ImageTag).filter(ImageTag.image_id == existing.id).delete()
-                
-                # Delete existing metadata
-                db.delete(existing)
-                db.commit()
-            
-            # Upload thumbnail to Cloud Storage with cache headers
-            thumbnail_filename = f"{Path(file.filename).stem}_thumb.jpg"
-            thumbnail_path = tenant.get_storage_path(thumbnail_filename, "thumbnails")
-            blob = thumbnail_bucket.blob(thumbnail_path)
-            blob.cache_control = "public, max-age=31536000, immutable"  # 1 year cache
-            blob.upload_from_string(features['thumbnail'], content_type='image/jpeg')
-            
-            # Create metadata record
-            exif = features['exif']
-            
-            metadata = ImageMetadata(
-                tenant_id=tenant.id,
-                dropbox_path=f"/uploads/{file.filename}",
-                dropbox_id=dropbox_id,
-                filename=file.filename,
-                file_size=len(image_data),
-                content_hash=None,
-                width=features['width'],
-                height=features['height'],
-                format=features['format'],
-                perceptual_hash=features['perceptual_hash'],
-                color_histogram=features['color_histogram'],
-                exif_data=exif,
-                camera_make=exif.get('Make'),
-                camera_model=exif.get('Model'),
-                lens_model=exif.get('LensModel'),
-                thumbnail_path=thumbnail_path,
-                embedding_generated=False,
-                faces_detected=False,
-                tags_applied=False,
-            )
-            
-            db.add(metadata)
-            db.commit()
-            db.refresh(metadata)
-            
             # Apply automatic tags from keywords using CLIP
             try:
                 config_mgr = ConfigManager(db, tenant.id)
@@ -1226,35 +1368,27 @@ async def upload_images(
                     all_tags.extend(category_tags)
                 
                 tags_with_confidence = all_tags
-                
-                # Create tags for matching keywords
+
+                # Map tags to category + confidence
                 keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
-                
-                for keyword, confidence in tags_with_confidence:
-                    tag = ImageTag(
-                        image_id=metadata.id,
-                        tenant_id=tenant.id,
-                        keyword=keyword,
-                        category=keyword_to_category[keyword],
-                        confidence=confidence,
-                        manual=False
-                    )
-                    db.add(tag)
-                
-                if tags_with_confidence:
-                    metadata.tags_applied = True
-                    
-                db.commit()
+
+                tag_results = [{
+                    "keyword": keyword,
+                    "category": keyword_to_category.get(keyword),
+                    "confidence": confidence,
+                } for keyword, confidence in tags_with_confidence]
+                tag_results.sort(key=lambda tag: tag["confidence"], reverse=True)
             except Exception as e:
                 print(f"Tagging error: {e}")
                 import traceback
                 traceback.print_exc()
+                tag_results = []
             
             results.append({
                 "filename": file.filename,
                 "status": "success",
-                "image_id": metadata.id,
-                "thumbnail_url": f"/api/v1/images/{metadata.id}/thumbnail"
+                "thumbnail_base64": thumbnail_b64,
+                "tags": tag_results
             })
             
         except Exception as e:
@@ -2507,6 +2641,30 @@ async def delete_keyword(
     return {"status": "deleted", "keyword_id": keyword_id}
 
 
+# Mount static files for assets (JS, CSS, images) but NOT as SPA catch-all
+# The catch-all route below handles SPA routing
+if dist_dir.exists():
+    app.mount("/assets", StaticFiles(directory=dist_dir / "assets"), name="assets")
+elif static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+# SPA catch-all route - must be LAST route defined
+# This serves index.html for any unmatched GET requests (client-side routing)
+@app.get("/{full_path:path}")
+async def spa_catch_all(full_path: str):
+    """Serve the SPA for any unmatched routes."""
+    # Serve index.html from dist for SPA routing
+    index_file = dist_dir / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text())
+    # Fallback to static index if no dist
+    index_file = static_dir / "index.html"
+    if index_file.exists():
+        return HTMLResponse(content=index_file.read_text())
+    return HTMLResponse(content="<h1>PhotoCat</h1><p>Frontend not built</p>", status_code=200)
+
+
 if __name__ == "__main__":
     import uvicorn
     from photocat.settings import settings
@@ -2518,4 +2676,3 @@ if __name__ == "__main__":
         workers=settings.api_workers,
         reload=settings.debug
     )
-

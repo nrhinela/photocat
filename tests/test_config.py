@@ -20,13 +20,12 @@ def test_keyword_structure(test_config: TenantConfig):
     assert len(category.subcategories) == 1
 
 
-def test_get_all_keywords(test_config: TenantConfig):
-    """Test flattening keyword hierarchy."""
-    all_keywords = test_config.get_all_keywords()
-    assert "test1" in all_keywords
-    assert "test2" in all_keywords
-    assert "subtest1" in all_keywords
-
+    def test_get_all_keywords(test_config: TenantConfig):
+        """Test flattening keyword hierarchy."""
+        all_keywords = test_config.get_all_keywords()
+        assert {"category": "Test Category", "keyword": "test1"} in all_keywords
+        assert {"category": "Test Category", "keyword": "test2"} in all_keywords
+        assert {"category": "Test Category/Subcategory", "keyword": "subtest1"} in all_keywords
 
 def test_get_person_by_name(test_config: TenantConfig):
     """Test finding person by name or alias."""
