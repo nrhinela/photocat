@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from photocat.dependencies import get_db
+from photocat.dependencies import get_db, get_tenant
 from photocat.models.config import KeywordCategory, Keyword
+from photocat.tenant import Tenant
 
 router = APIRouter(
     prefix="/api/v1/admin/keywords",
@@ -21,15 +22,12 @@ router = APIRouter(
 
 @router.get("/categories", response_model=list)
 async def list_keyword_categories(
-    tenant_id: str = None,
+    tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
     """List all keyword categories for a tenant."""
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="X-Tenant-ID header required")
-
     categories = db.query(KeywordCategory).filter(
-        KeywordCategory.tenant_id == tenant_id
+        KeywordCategory.tenant_id == tenant.id
     ).order_by(KeywordCategory.sort_order).all()
 
     return [{
@@ -45,23 +43,20 @@ async def list_keyword_categories(
 @router.post("/categories", response_model=dict)
 async def create_keyword_category(
     category_data: dict,
-    tenant_id: str = None,
+    tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
     """Create a new keyword category."""
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="X-Tenant-ID header required")
-
     if not category_data.get("name"):
         raise HTTPException(status_code=400, detail="name is required")
 
     # Get max sort_order for this tenant
     max_sort = db.query(func.max(KeywordCategory.sort_order)).filter(
-        KeywordCategory.tenant_id == tenant_id
+        KeywordCategory.tenant_id == tenant.id
     ).scalar() or -1
 
     category = KeywordCategory(
-        tenant_id=tenant_id,
+        tenant_id=tenant.id,
         name=category_data["name"],
         parent_id=category_data.get("parent_id"),
         sort_order=category_data.get("sort_order", max_sort + 1)
