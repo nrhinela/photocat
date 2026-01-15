@@ -183,31 +183,46 @@ async def list_images(
                 for filter_data in filters.values():
                     all_keywords.extend(filter_data.get('keywords', []))
 
-                # Query with relevance ordering (by sum of confidence scores)
-                query = db.query(
-                    ImageMetadata,
-                    func.sum(ImageTag.confidence).label('relevance_score')
-                ).join(
-                    ImageTag,
-                    and_(
-                        ImageTag.image_id == ImageMetadata.id,
-                        ImageTag.keyword.in_(all_keywords),
-                        ImageTag.tenant_id == tenant.id
-                    )
-                ).filter(
-                    ImageMetadata.tenant_id == tenant.id,
-                    ImageMetadata.id.in_(unique_image_ids)
-                ).group_by(
-                    ImageMetadata.id
-                ).order_by(
-                    func.sum(ImageTag.confidence).desc(),
-                    ImageMetadata.id.desc()
-                )
-
+                # Total count of matching images
                 total = len(unique_image_ids)
+
                 if total:
-                    results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
-                    images = [img for img, _ in results]
+                    # Query with relevance ordering (by sum of confidence scores)
+                    # First get the ordered image IDs, then apply limit/offset
+                    query = db.query(
+                        ImageMetadata.id,
+                        func.sum(ImageTag.confidence).label('relevance_score')
+                    ).join(
+                        ImageTag,
+                        and_(
+                            ImageTag.image_id == ImageMetadata.id,
+                            ImageTag.keyword.in_(all_keywords),
+                            ImageTag.tenant_id == tenant.id
+                        )
+                    ).filter(
+                        ImageMetadata.tenant_id == tenant.id,
+                        ImageMetadata.id.in_(unique_image_ids)
+                    ).group_by(
+                        ImageMetadata.id
+                    ).order_by(
+                        func.sum(ImageTag.confidence).desc(),
+                        ImageMetadata.id.desc()
+                    )
+
+                    # Apply pagination to the unique image IDs first
+                    paginated_ids = [row[0] for row in (query.limit(limit).offset(offset).all() if limit else query.offset(offset).all())]
+
+                    # Now fetch full ImageMetadata objects in order
+                    if paginated_ids:
+                        # Preserve order from pagination
+                        images = db.query(ImageMetadata).filter(
+                            ImageMetadata.id.in_(paginated_ids)
+                        ).all()
+                        # Re-sort to match paginated_ids order
+                        id_to_image = {img.id: img for img in images}
+                        images = [id_to_image[img_id] for img_id in paginated_ids if img_id in id_to_image]
+                    else:
+                        images = []
                 else:
                     images = []
             else:
