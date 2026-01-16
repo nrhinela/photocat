@@ -43,6 +43,7 @@ class FilterControls extends LitElement {
     ratingFilter: { type: String },
     ratingOperator: { type: String },
     hideZeroRating: { type: Boolean },
+    reviewedFilter: { type: String },
   };
   constructor() {
     super();
@@ -56,6 +57,7 @@ class FilterControls extends LitElement {
     this.ratingFilter = '';
     this.ratingOperator = 'gte';
     this.hideZeroRating = true;
+    this.reviewedFilter = '';
   }
 
   firstUpdated() {
@@ -70,7 +72,8 @@ class FilterControls extends LitElement {
       if (changedProperties.has('ratingFilter') ||
           changedProperties.has('ratingOperator') ||
           changedProperties.has('hideZeroRating') ||
-          changedProperties.has('listFilterId')) {
+          changedProperties.has('listFilterId') ||
+          changedProperties.has('reviewedFilter')) {
           this.fetchKeywords();
       }
   }
@@ -83,6 +86,7 @@ class FilterControls extends LitElement {
         ratingOperator: this.ratingOperator,
         hideZeroRating: this.hideZeroRating,
         listId: this.listFilterId,
+        reviewed: this.reviewedFilter,
       };
       this.keywords = await getKeywords(this.tenant, filters);
       Object.keys(this.keywords).forEach(category => {
@@ -98,15 +102,25 @@ class FilterControls extends LitElement {
   render() {
     return html`
       <div class="bg-white rounded-lg shadow p-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div class="md:col-span-2">
-            <input
-              id="searchInput"
-              type="text"
-              placeholder="Search tags..."
-              class="w-full px-4 py-2 border rounded-lg"
-              @keyup=${this._handleSearch}
-            >
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+          <div class="flex items-end">
+            <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
+              <input
+                type="checkbox"
+                class="h-4 w-4"
+                .checked=${this.hideZeroRating}
+                @change=${this._handleHideZeroChange}
+              >
+              🗑 hide deleted
+            </label>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-1">Reviewed?</label>
+            <select class="w-full px-4 py-2 border rounded-lg" .value=${this.reviewedFilter} @change=${this._handleReviewedChange}>
+              <option value="">All</option>
+              <option value="true">Reviewed</option>
+              <option value="false">Unreviewed</option>
+            </select>
           </div>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
@@ -137,17 +151,6 @@ class FilterControls extends LitElement {
               <option value="eq">==</option>
             </select>
           </div>
-          <div class="flex items-end">
-            <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
-              <input
-                type="checkbox"
-                class="h-4 w-4"
-                .checked=${this.hideZeroRating}
-                @change=${this._handleHideZeroChange}
-              >
-              hide 🗑
-            </label>
-          </div>
         </div>
 
         <!-- Faceted Search -->
@@ -174,7 +177,7 @@ class FilterControls extends LitElement {
   _renderCategoryFilter(category, keywords) {
     const filterText = this.filterInputs[category] || '';
     const selected = this.selectedKeywords[category] || new Set();
-    const filteredKeywords = keywords.filter(kw => 
+    const filteredKeywords = [...keywords].sort((a, b) => a.keyword.localeCompare(b.keyword)).filter(kw => 
         !selected.has(kw.keyword) &&
         kw.keyword.toLowerCase().includes(filterText.toLowerCase())
     );
@@ -213,9 +216,10 @@ class FilterControls extends LitElement {
   }
 
   _renderDropdown(category, keywords) {
+    const sortedKeywords = [...keywords].sort((a, b) => a.keyword.localeCompare(b.keyword));
     return html`
         <div class="dropdown">
-            ${keywords.map(kw => html`
+            ${sortedKeywords.map(kw => html`
                 <div class="px-3 py-2 hover:bg-blue-50 cursor-pointer flex justify-between" @click=${() => this._selectKeyword(category, kw.keyword)}>
                     <span class="text-sm">${kw.keyword}</span>
                     <span class="text-xs text-gray-400">(${kw.count})</span>
@@ -266,6 +270,7 @@ class FilterControls extends LitElement {
           rating: this.ratingFilter,
           ratingOperator: this.ratingOperator,
           hideZeroRating: this.hideZeroRating,
+          reviewed: this.reviewedFilter,
       };
       this.dispatchEvent(new CustomEvent('filter-change', { detail: filters }));
   }
@@ -291,6 +296,13 @@ class FilterControls extends LitElement {
 
   _handleHideZeroChange(e) {
     this.hideZeroRating = e.target.checked;
+    this.fetchKeywords();
+    this._emitFilterChangeEvent();
+  }
+
+  _handleReviewedChange(e) {
+    this.reviewedFilter = e.target.value;
+    this.fetchKeywords();
     this._emitFilterChangeEvent();
   }
 

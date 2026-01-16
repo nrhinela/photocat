@@ -15,6 +15,12 @@ from photocat.settings import settings
 from photocat.image import ImageProcessor
 from photocat.config.db_config import ConfigManager
 from photocat.tagging import get_tagger
+from photocat.learning import (
+    ensure_image_embedding,
+    load_keyword_models,
+    score_image_with_models,
+    score_keywords_for_categories,
+)
 
 router = APIRouter(
     prefix="/api/v1",
@@ -329,14 +335,34 @@ async def trigger_sync(
                     db.commit()
                     db.refresh(metadata)
 
-                    # Tag with CLIP (per category)
+                    # Tag with model (per category)
                     status_messages.append(f"Running {model.upper()} inference for tagging")
                     db.query(ImageTag).filter(ImageTag.image_id == metadata.id).delete()
 
-                    all_tags = []
-                    for category, keywords in by_category.items():
-                        category_tags = tagger.tag_image(image_data, keywords, threshold=0.15)
-                        all_tags.extend(category_tags)
+                    model_name = getattr(tagger, "model_name", model)
+                    model_version = getattr(tagger, "model_version", model_name)
+                    model_scores = None
+
+                    if settings.use_keyword_models:
+                        embedding_record = ensure_image_embedding(
+                            db,
+                            tenant.id,
+                            metadata.id,
+                            image_data,
+                            model_name,
+                            model_version
+                        )
+                        keyword_models = load_keyword_models(db, tenant.id, model_name)
+                        model_scores = score_image_with_models(embedding_record.embedding, keyword_models)
+
+                    all_tags = score_keywords_for_categories(
+                        image_data=image_data,
+                        keywords_by_category=by_category,
+                        model_type=model,
+                        threshold=0.15,
+                        model_scores=model_scores,
+                        model_weight=settings.keyword_model_weight
+                    )
 
                     keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
 

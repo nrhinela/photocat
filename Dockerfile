@@ -45,7 +45,6 @@ COPY src/ ./src/
 
 # Copy remaining files (config/, alembic/, etc.)
 COPY alembic/ ./alembic/
-COPY config/ ./config/
 COPY alembic.ini ./
 
 # Reinstall package with actual source code (ensures photocat module is importable)

@@ -1,13 +1,14 @@
 """Router for keyword operations."""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from photocat.dependencies import get_db, get_tenant
+from photocat.config.db_config import ConfigManager
 from photocat.tenant import Tenant
-from photocat.metadata import ImageTag, ImageMetadata, Permatag
+from photocat.metadata import ImageTag, ImageMetadata, Permatag, TrainedImageTag, KeywordModel
 from photocat.models.config import PhotoList, PhotoListItem
 from photocat.config.db_config import ConfigManager
 
@@ -24,7 +25,8 @@ async def get_available_keywords(
     list_id: Optional[int] = None,
     rating: Optional[int] = None,
     rating_operator: str = "eq",
-    hide_zero_rating: bool = False
+    hide_zero_rating: bool = False,
+    reviewed: Optional[bool] = None
 ):
     """Get all available keywords from config for faceted search with counts.
 
@@ -74,6 +76,20 @@ async def get_available_keywords(
             filter_ids = {row[0] for row in all_image_ids} - zero_ids
         else:
             filter_ids = filter_ids - zero_ids
+
+    if reviewed is not None:
+        reviewed_rows = db.query(Permatag.image_id).filter(
+            Permatag.tenant_id == tenant.id
+        ).distinct().all()
+        reviewed_ids = {row[0] for row in reviewed_rows}
+        if filter_ids is None:
+            all_image_ids = db.query(ImageMetadata.id).filter(
+                ImageMetadata.tenant_id == tenant.id
+            ).all()
+            base_ids = {row[0] for row in all_image_ids}
+            filter_ids = reviewed_ids if reviewed else (base_ids - reviewed_ids)
+        else:
+            filter_ids = filter_ids.intersection(reviewed_ids) if reviewed else (filter_ids - reviewed_ids)
 
     # Apply permatag filtering to get "current keywords" for each image
     # This matches the logic in the images endpoint
@@ -146,4 +162,87 @@ async def get_available_keywords(
         "tenant_id": tenant.id,
         "keywords_by_category": by_category,
         "all_keywords": [kw['keyword'] for kw in all_keywords]
+    }
+
+
+@router.get("/tag-stats")
+async def get_tag_stats(
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Get tag counts by category for different tag sources."""
+    zero_shot_rows = db.query(
+        ImageTag.category,
+        ImageTag.keyword,
+        func.count(distinct(ImageTag.image_id)).label("count")
+    ).filter(
+        ImageTag.tenant_id == tenant.id
+    ).group_by(
+        ImageTag.category,
+        ImageTag.keyword
+    ).all()
+
+    model_row = db.query(KeywordModel.model_name).filter(
+        KeywordModel.tenant_id == tenant.id
+    ).order_by(
+        func.coalesce(KeywordModel.updated_at, KeywordModel.created_at).desc()
+    ).first()
+
+    keyword_model_rows = []
+    if model_row:
+        keyword_model_rows = db.query(
+            TrainedImageTag.category,
+            TrainedImageTag.keyword,
+            func.count(distinct(TrainedImageTag.image_id)).label("count")
+        ).filter(
+            TrainedImageTag.tenant_id == tenant.id,
+            TrainedImageTag.model_name == model_row.model_name
+        ).group_by(
+            TrainedImageTag.category,
+            TrainedImageTag.keyword
+        ).all()
+
+    permatag_rows = db.query(
+        Permatag.keyword,
+        func.count(distinct(Permatag.image_id)).label("count")
+    ).filter(
+        Permatag.tenant_id == tenant.id,
+        Permatag.signum == 1
+    ).group_by(
+        Permatag.keyword
+    ).all()
+
+    config_mgr = ConfigManager(db, tenant.id)
+    keyword_to_category = {
+        kw["keyword"]: kw["category"]
+        for kw in config_mgr.get_all_keywords()
+    }
+
+    def to_by_category(rows):
+        by_category = {}
+        for category, keyword, count in rows:
+            label = category or "uncategorized"
+            by_category.setdefault(label, []).append({
+                "keyword": keyword,
+                "count": int(count or 0)
+            })
+        return by_category
+
+    def permatags_to_by_category(rows):
+        by_category = {}
+        for keyword, count in rows:
+            label = keyword_to_category.get(keyword, "uncategorized")
+            by_category.setdefault(label, []).append({
+                "keyword": keyword,
+                "count": int(count or 0)
+            })
+        return by_category
+
+    return {
+        "tenant_id": tenant.id,
+        "sources": {
+            "zero_shot": to_by_category(zero_shot_rows),
+            "keyword_model": to_by_category(keyword_model_rows),
+            "permatags": permatags_to_by_category(permatag_rows)
+        }
     }

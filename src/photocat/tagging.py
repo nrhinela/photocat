@@ -109,8 +109,10 @@ class SigLIPTagger:
         """Initialize SigLIP model (better accuracy than CLIP)."""
         from transformers import SiglipProcessor, SiglipModel
 
+        self.model_name = model_name
+        self.model_version = model_name
         self.model = SiglipModel.from_pretrained(model_name)
-        self.processor = SiglipProcessor.from_pretrained(model_name)
+        self.processor = SiglipProcessor.from_pretrained(model_name, use_fast=False)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model.to(self.device)
         self.model.eval()
@@ -194,6 +196,23 @@ class SigLIPTagger:
         # Sort by confidence
         results.sort(key=lambda x: x[1], reverse=True)
         return results
+
+    def image_embedding(self, image_data: bytes) -> List[float]:
+        """Return a normalized image embedding for downstream models."""
+        image = Image.open(io.BytesIO(image_data))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        with torch.no_grad():
+            inputs = self.processor(images=image, return_tensors="pt")
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # SigLIP requires text inputs for full forward; use image-only helper instead.
+            image_embeds = self.model.get_image_features(**inputs)
+
+            image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
+            embedding = image_embeds[0].cpu().numpy().tolist()
+
+        return embedding
 
 
 # Commented out - using SigLIP instead
@@ -318,6 +337,14 @@ def get_tagger(model_type: str = "siglip") -> ImageTagger:
             raise ValueError(f"Unknown model type: {model_type}. Currently only 'siglip' is supported")
 
     return _tagger_instances[model_type]
+
+
+def get_image_embedding(image_data: bytes, model_type: str = "siglip") -> List[float]:
+    """Compute an image embedding using the configured tagger."""
+    tagger = get_tagger(model_type=model_type)
+    if hasattr(tagger, "image_embedding"):
+        return tagger.image_embedding(image_data)
+    raise ValueError(f"Tagger {model_type} does not support image embeddings")
 
 def calculate_tags(machine_tags: list, permatags: list) -> list:
     """

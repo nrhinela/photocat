@@ -17,13 +17,20 @@ from photocat.dependencies import get_db, get_tenant
 from photocat.tenant import Tenant
 from photocat.metadata import (
     ImageMetadata, ImageTag, Permatag,
-    Tenant as TenantModel
+    Tenant as TenantModel, TrainedImageTag, KeywordModel, ImageEmbedding
 )
 from photocat.models.config import PhotoList, PhotoListItem
 from photocat.settings import settings
 from photocat.image import ImageProcessor
 from photocat.config.db_config import ConfigManager
 from photocat.tagging import calculate_tags, get_tagger
+from photocat.learning import (
+    ensure_image_embedding,
+    load_keyword_models,
+    score_image_with_models,
+    score_keywords_for_categories,
+    recompute_trained_tags_for_image,
+)
 
 router = APIRouter(
     prefix="/api/v1",
@@ -43,6 +50,7 @@ async def list_images(
     rating: Optional[int] = None,
     rating_operator: str = "eq",
     hide_zero_rating: bool = False,
+    reviewed: Optional[bool] = None,
     db: Session = Depends(get_db)
 ):
     """List images for tenant with optional faceted search by keywords."""
@@ -86,6 +94,20 @@ async def list_images(
             filter_ids = {row[0] for row in all_image_ids} - zero_ids
         else:
             filter_ids = filter_ids - zero_ids
+
+    if reviewed is not None:
+        reviewed_rows = db.query(Permatag.image_id).filter(
+            Permatag.tenant_id == tenant.id
+        ).distinct().all()
+        reviewed_ids = {row[0] for row in reviewed_rows}
+        if filter_ids is None:
+            all_image_ids = db.query(ImageMetadata.id).filter(
+                ImageMetadata.tenant_id == tenant.id
+            ).all()
+            base_ids = {row[0] for row in all_image_ids}
+            filter_ids = reviewed_ids if reviewed else (base_ids - reviewed_ids)
+        else:
+            filter_ids = filter_ids.intersection(reviewed_ids) if reviewed else (filter_ids - reviewed_ids)
 
     if filter_ids is not None and not filter_ids:
         return {
@@ -379,6 +401,7 @@ async def list_images(
 
     # Group permatags by image_id
     permatags_by_image = {}
+    reviewed_at_by_image = {}
     for permatag in permatags:
         if permatag.image_id not in permatags_by_image:
             permatags_by_image[permatag.image_id] = []
@@ -388,6 +411,10 @@ async def list_images(
             "category": permatag.category,
             "signum": permatag.signum
         })
+        if permatag.created_at:
+            current_latest = reviewed_at_by_image.get(permatag.image_id)
+            if current_latest is None or permatag.created_at > current_latest:
+                reviewed_at_by_image[permatag.image_id] = permatag.created_at
 
     images_list = []
     for img in images:
@@ -414,6 +441,7 @@ async def list_images(
             "tags_applied": img.tags_applied,
             "faces_detected": img.faces_detected,
             "rating": img.rating,
+            "reviewed_at": reviewed_at_by_image.get(img.id).isoformat() if reviewed_at_by_image.get(img.id) else None,
             "tags": machine_tags,
             "permatags": image_permatags,
             "calculated_tags": calculated_tags
@@ -425,6 +453,32 @@ async def list_images(
         "total": total,
         "limit": limit,
         "offset": offset
+    }
+
+
+@router.get("/images/stats", response_model=dict)
+async def get_image_stats(
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Return image summary stats for a tenant."""
+    image_count = db.query(func.count(ImageMetadata.id)).filter(
+        ImageMetadata.tenant_id == tenant.id
+    ).scalar() or 0
+
+    reviewed_image_count = db.query(func.count(distinct(Permatag.image_id))).filter(
+        Permatag.tenant_id == tenant.id
+    ).scalar() or 0
+
+    ml_tag_count = db.query(func.count(distinct(ImageTag.image_id))).filter(
+        ImageTag.tenant_id == tenant.id
+    ).scalar() or 0
+
+    return {
+        "tenant_id": tenant.id,
+        "image_count": int(image_count),
+        "reviewed_image_count": int(reviewed_image_count),
+        "ml_tag_count": int(ml_tag_count)
     }
 
 
@@ -459,6 +513,10 @@ async def get_image(
     permatags_list = [{"id": p.id, "keyword": p.keyword, "category": p.category, "signum": p.signum, "created_at": p.created_at.isoformat() if p.created_at else None} for p in permatags]
 
     calculated_tags = calculate_tags(machine_tags_list, permatags_list)
+    reviewed_at = db.query(func.max(Permatag.created_at)).filter(
+        Permatag.tenant_id == tenant.id,
+        Permatag.image_id == image_id
+    ).scalar()
 
     # Compute thumbnail_url as in the batch endpoint
     if image.thumbnail_path:
@@ -479,6 +537,7 @@ async def get_image(
         "thumbnail_path": image.thumbnail_path,
         "thumbnail_url": thumbnail_url,
         "rating": image.rating,
+        "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
         "tags": machine_tags_list,
         "permatags": permatags_list,
         "calculated_tags": calculated_tags,
@@ -554,6 +613,186 @@ async def get_thumbnail(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching thumbnail: {str(e)}")
+
+
+@router.get("/ml-training/images", response_model=dict)
+async def list_ml_training_images(
+    tenant: Tenant = Depends(get_tenant),
+    limit: int = 50,
+    offset: int = 0,
+    refresh: bool = False,
+    db: Session = Depends(get_db)
+):
+    """List images with permatags, ML tags, and trained-ML tags for comparison."""
+    images_query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+    total = images_query.count()
+    images = images_query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all()
+
+    image_ids = [img.id for img in images]
+    if not image_ids:
+        return {"tenant_id": tenant.id, "images": [], "total": total, "limit": limit, "offset": offset}
+
+    tags = db.query(ImageTag).filter(
+        ImageTag.tenant_id == tenant.id,
+        ImageTag.image_id.in_(image_ids)
+    ).all()
+
+    permatags = db.query(Permatag).filter(
+        Permatag.tenant_id == tenant.id,
+        Permatag.image_id.in_(image_ids)
+    ).all()
+
+    cached_trained = db.query(TrainedImageTag).filter(
+        TrainedImageTag.tenant_id == tenant.id,
+        TrainedImageTag.image_id.in_(image_ids)
+    ).all()
+
+    tags_by_image = {}
+    for tag in tags:
+        tags_by_image.setdefault(tag.image_id, []).append({
+            "keyword": tag.keyword,
+            "category": tag.category,
+            "confidence": round(tag.confidence, 2)
+        })
+
+    permatags_by_image = {}
+    for tag in permatags:
+        permatags_by_image.setdefault(tag.image_id, []).append(tag)
+
+    trained_by_image = {}
+    for tag in cached_trained:
+        trained_by_image.setdefault(tag.image_id, []).append({
+            "keyword": tag.keyword,
+            "category": tag.category,
+            "confidence": round(tag.confidence or 0, 2)
+        })
+
+    config_mgr = ConfigManager(db, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
+    keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
+    by_category = {}
+    for kw in all_keywords:
+        by_category.setdefault(kw['category'], []).append(kw)
+
+    tagger = get_tagger(model_type=settings.tagging_model)
+    model_name = getattr(tagger, "model_name", settings.tagging_model)
+    model_version = getattr(tagger, "model_version", model_name)
+    keyword_models = load_keyword_models(db, tenant.id, model_name)
+
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+    trained_by_model = {
+        tag.image_id
+        for tag in cached_trained
+        if tag.model_name == model_name
+    }
+
+    images_list = []
+    for image in images:
+        positive_permatags = sorted(
+            [tag.keyword for tag in permatags_by_image.get(image.id, []) if tag.signum == 1]
+        )
+        machine_tags = sorted(
+            tags_by_image.get(image.id, []),
+            key=lambda x: x["confidence"],
+            reverse=True
+        )
+
+        trained_tags = trained_by_image.get(image.id, [])
+        if refresh and keyword_models and image.thumbnail_path and image.id not in trained_by_model:
+            blob = thumbnail_bucket.blob(image.thumbnail_path)
+            if blob.exists():
+                image_data = blob.download_as_bytes()
+                trained_tags = recompute_trained_tags_for_image(
+                    db=db,
+                    tenant_id=tenant.id,
+                    image_id=image.id,
+                    image_data=image_data,
+                    keywords_by_category=by_category,
+                    keyword_models=keyword_models,
+                    keyword_to_category=keyword_to_category,
+                    model_name=model_name,
+                    model_version=model_version,
+                    model_type=settings.tagging_model,
+                    threshold=0.15,
+                    model_weight=settings.keyword_model_weight
+                )
+                trained_by_image[image.id] = trained_tags
+
+        images_list.append({
+            "id": image.id,
+            "filename": image.filename,
+            "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{image.thumbnail_path}" if image.thumbnail_path else None,
+            "positive_permatags": positive_permatags,
+            "ml_tags": machine_tags,
+            "trained_tags": trained_tags
+        })
+
+    if refresh:
+        db.commit()
+
+    return {
+        "tenant_id": tenant.id,
+        "images": images_list,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+
+
+@router.get("/ml-training/stats", response_model=dict)
+async def get_ml_training_stats(
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Return ML training summary stats for a tenant."""
+    image_count = db.query(func.count(ImageMetadata.id)).filter(
+        ImageMetadata.tenant_id == tenant.id
+    ).scalar() or 0
+
+    embedding_count = db.query(func.count(ImageEmbedding.id)).filter(
+        ImageEmbedding.tenant_id == tenant.id
+    ).scalar() or 0
+
+    zero_shot_image_count = db.query(func.count(distinct(ImageTag.image_id))).filter(
+        ImageTag.tenant_id == tenant.id
+    ).scalar() or 0
+
+    model_count = db.query(func.count(KeywordModel.id)).filter(
+        KeywordModel.tenant_id == tenant.id
+    ).scalar() or 0
+
+    last_trained = db.query(func.max(func.coalesce(
+        KeywordModel.updated_at,
+        KeywordModel.created_at
+    ))).filter(
+        KeywordModel.tenant_id == tenant.id
+    ).scalar()
+
+    trained_count, trained_oldest, trained_newest = db.query(
+        func.count(TrainedImageTag.id),
+        func.min(TrainedImageTag.created_at),
+        func.max(TrainedImageTag.created_at)
+    ).filter(
+        TrainedImageTag.tenant_id == tenant.id
+    ).one()
+
+    trained_image_count = db.query(func.count(distinct(TrainedImageTag.image_id))).filter(
+        TrainedImageTag.tenant_id == tenant.id
+    ).scalar() or 0
+
+    return {
+        "tenant_id": tenant.id,
+        "image_count": int(image_count),
+        "embedding_count": int(embedding_count),
+        "zero_shot_image_count": int(zero_shot_image_count),
+        "trained_image_count": int(trained_image_count),
+        "keyword_model_count": int(model_count),
+        "keyword_model_last_trained": last_trained.isoformat() if last_trained else None,
+        "trained_tag_count": int(trained_count or 0),
+        "trained_tag_oldest": trained_oldest.isoformat() if trained_oldest else None,
+        "trained_tag_newest": trained_newest.isoformat() if trained_newest else None
+    }
 
 
 @router.get("/images/{image_id}/permatags", response_model=dict)
@@ -1008,6 +1247,8 @@ async def retag_single_image(
     # Setup CLIP tagger and storage
     model_type = model or settings.tagging_model
     tagger = get_tagger(model_type=model_type)
+    model_name = getattr(tagger, "model_name", model_type)
+    model_version = getattr(tagger, "model_version", model_name)
     storage_client = storage.Client(project=settings.gcp_project_id)
     thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
 
@@ -1022,15 +1263,27 @@ async def retag_single_image(
 
         image_data = blob.download_as_bytes()
 
-        # Run CLIP separately for each category
-        all_tags = []
-        for category, keywords in by_category.items():
-            category_tags = tagger.tag_image(
+        model_scores = None
+        if settings.use_keyword_models:
+            embedding_record = ensure_image_embedding(
+                db,
+                tenant.id,
+                image.id,
                 image_data,
-                keywords,
-                threshold=0.15
+                model_name,
+                model_version
             )
-            all_tags.extend(category_tags)
+            keyword_models = load_keyword_models(db, tenant.id, model_name)
+            model_scores = score_image_with_models(embedding_record.embedding, keyword_models)
+
+        all_tags = score_keywords_for_categories(
+            image_data=image_data,
+            keywords_by_category=by_category,
+            model_type=model_type,
+            threshold=0.15,
+            model_scores=model_scores,
+            model_weight=settings.keyword_model_weight
+        )
 
         # Create new tags
         keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
@@ -1094,6 +1347,8 @@ async def retag_all_images(
     # Setup CLIP tagger and storage
     model_type = model or settings.tagging_model
     tagger = get_tagger(model_type=model_type)
+    model_name = getattr(tagger, "model_name", model_type)
+    model_version = getattr(tagger, "model_version", model_name)
     storage_client = storage.Client(project=settings.gcp_project_id)
     thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
 
@@ -1113,15 +1368,27 @@ async def retag_all_images(
 
             image_data = blob.download_as_bytes()
 
-            # Run CLIP separately for each category
-            all_tags = []
-            for category, keywords in by_category.items():
-                category_tags = tagger.tag_image(
+            model_scores = None
+            if settings.use_keyword_models:
+                embedding_record = ensure_image_embedding(
+                    db,
+                    tenant.id,
+                    image.id,
                     image_data,
-                    keywords,
-                    threshold=0.15
+                    model_name,
+                    model_version
                 )
-                all_tags.extend(category_tags)
+                keyword_models = load_keyword_models(db, tenant.id, model_name)
+                model_scores = score_image_with_models(embedding_record.embedding, keyword_models)
+
+            all_tags = score_keywords_for_categories(
+                image_data=image_data,
+                keywords_by_category=by_category,
+                model_type=model_type,
+                threshold=0.15,
+                model_scores=model_scores,
+                model_weight=settings.keyword_model_weight
+            )
 
             # Create new tags
             keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}

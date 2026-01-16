@@ -1,15 +1,20 @@
 """Application settings and environment configuration."""
 
 from typing import Optional
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BASE_DIR / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False
     )
@@ -51,6 +56,10 @@ class Settings(BaseSettings):
     face_detection_model: str = "hog"  # 'hog' or 'cnn'
     embedding_model: str = "clip-vit-base-patch32"
     tagging_model: str = "siglip"  # Currently only 'siglip' is active (clip and siglip2 are commented out)
+    use_keyword_models: bool = False
+    keyword_model_weight: float = 0.6
+    keyword_model_min_positive: int = 2
+    keyword_model_min_negative: int = 2
     
     # API
     api_host: str = "0.0.0.0"

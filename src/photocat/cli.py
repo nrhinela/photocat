@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 import click
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from google.cloud import storage
 
@@ -12,7 +12,15 @@ from photocat.settings import settings
 from photocat.tenant import Tenant, TenantContext
 from photocat.config import TenantConfig
 from photocat.image import ImageProcessor
-from photocat.metadata import ImageMetadata
+from photocat.metadata import ImageMetadata, KeywordModel, TrainedImageTag
+from photocat.learning import (
+    build_keyword_models,
+    ensure_image_embedding,
+    recompute_trained_tags_for_image,
+    load_keyword_models
+)
+from photocat.tagging import get_tagger
+from photocat.config.db_config import ConfigManager
 
 
 @click.group()
@@ -107,6 +115,24 @@ def ingest(directory: str, tenant_id: str, recursive: bool):
     click.echo(f"\n✓ Successfully processed {len(image_files)} images")
 
 
+def _load_tenant(session, tenant_id: str) -> Tenant:
+    from sqlalchemy import text
+    result = session.execute(
+        text("SELECT id, name, storage_bucket, thumbnail_bucket FROM tenants WHERE id = :tenant_id"),
+        {"tenant_id": tenant_id}
+    ).first()
+
+    if not result:
+        raise click.ClickException(f"Tenant {tenant_id} not found in database")
+
+    return Tenant(
+        id=result[0],
+        name=result[1],
+        storage_bucket=result[2],
+        thumbnail_bucket=result[3]
+    )
+
+
 def process_image(
     image_path: Path,
     tenant: Tenant,
@@ -155,6 +181,186 @@ def process_image(
     )
     
     session.add(metadata)
+
+
+@cli.command()
+@click.option('--tenant-id', required=True, help='Tenant ID')
+@click.option('--limit', default=None, type=int, help='Limit number of images to process')
+@click.option('--force/--no-force', default=False, help='Recompute embeddings even if present')
+def build_embeddings(tenant_id: str, limit: Optional[int], force: bool):
+    """Compute and store image embeddings for a tenant."""
+    engine = create_engine(settings.database_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    tenant = _load_tenant(session, tenant_id)
+    TenantContext.set(tenant)
+
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+
+    tagger = get_tagger(model_type=settings.tagging_model)
+    model_name = getattr(tagger, "model_name", settings.tagging_model)
+    model_version = getattr(tagger, "model_version", model_name)
+
+    query = session.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+    if not force:
+        query = query.filter(ImageMetadata.embedding_generated.is_(False))
+    if limit:
+        query = query.limit(limit)
+
+    images = query.all()
+    if not images:
+        click.echo("No images need embeddings.")
+        return
+
+    click.echo(f"Computing embeddings for {len(images)} images...")
+    with click.progressbar(images, label='Embedding images') as bar:
+        for image in bar:
+            if not image.thumbnail_path:
+                continue
+            blob = thumbnail_bucket.blob(image.thumbnail_path)
+            if not blob.exists():
+                continue
+            image_data = blob.download_as_bytes()
+            ensure_image_embedding(session, tenant.id, image.id, image_data, model_name, model_version)
+
+    session.commit()
+    click.echo("✓ Embeddings stored")
+
+
+@cli.command()
+@click.option('--tenant-id', required=True, help='Tenant ID')
+@click.option('--min-positive', default=None, type=int, help='Minimum positive examples')
+@click.option('--min-negative', default=None, type=int, help='Minimum negative examples')
+def train_keyword_models(tenant_id: str, min_positive: Optional[int], min_negative: Optional[int]):
+    """Train keyword centroid models from verified tags."""
+    engine = create_engine(settings.database_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    _ = _load_tenant(session, tenant_id)
+    tagger = get_tagger(model_type=settings.tagging_model)
+    model_name = getattr(tagger, "model_name", settings.tagging_model)
+    model_version = getattr(tagger, "model_version", model_name)
+
+    result = build_keyword_models(
+        session,
+        tenant_id=tenant_id,
+        model_name=model_name,
+        model_version=model_version,
+        min_positive=min_positive or settings.keyword_model_min_positive,
+        min_negative=min_negative or settings.keyword_model_min_negative
+    )
+    session.commit()
+    click.echo(f"✓ Trained: {result['trained']} · Skipped: {result['skipped']}")
+
+
+@cli.command()
+@click.option('--tenant-id', required=True, help='Tenant ID')
+@click.option('--batch-size', default=50, type=int, help='Batch size for processing')
+@click.option('--limit', default=None, type=int, help='Limit number of images')
+@click.option('--offset', default=0, type=int, help='Offset into image list')
+@click.option('--replace', is_flag=True, default=False, help='Replace existing keyword-model tags instead of backfilling missing ones.')
+def recompute_trained_tags(tenant_id: str, batch_size: int, limit: Optional[int], offset: int, replace: bool):
+    """Recompute trained-ML tags for all images in batches."""
+    engine = create_engine(settings.database_url)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+
+    tenant = _load_tenant(session, tenant_id)
+    TenantContext.set(tenant)
+
+    config_mgr = ConfigManager(session, tenant.id)
+    all_keywords = config_mgr.get_all_keywords()
+    keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
+    by_category = {}
+    for kw in all_keywords:
+        by_category.setdefault(kw['category'], []).append(kw)
+
+    model_row = session.query(
+        KeywordModel.model_name,
+        KeywordModel.model_version
+    ).filter(
+        KeywordModel.tenant_id == tenant.id
+    ).order_by(
+        func.coalesce(KeywordModel.updated_at, KeywordModel.created_at).desc()
+    ).first()
+
+    if not model_row:
+        click.echo("No keyword models found. Train models before recomputing.")
+        return
+
+    model_name, model_version = model_row
+
+    keyword_models = load_keyword_models(session, tenant.id, model_name)
+    if not keyword_models:
+        click.echo("No keyword models found. Train models before recomputing.")
+        return
+
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+
+    base_query = session.query(ImageMetadata).filter_by(tenant_id=tenant.id).order_by(ImageMetadata.id.desc())
+    total = base_query.count()
+
+    processed = 0
+    skipped = 0
+    current_offset = offset
+    while True:
+        batch = base_query.offset(current_offset).limit(batch_size).all()
+        if not batch:
+            break
+
+        reached_limit = False
+        for image in batch:
+            if limit is not None and processed >= limit:
+                reached_limit = True
+                break
+            if not image.thumbnail_path:
+                skipped += 1
+                continue
+            if not replace:
+                existing = session.query(TrainedImageTag.id).filter(
+                    TrainedImageTag.tenant_id == tenant.id,
+                    TrainedImageTag.image_id == image.id,
+                    TrainedImageTag.model_name == model_name
+                ).first()
+                if existing:
+                    skipped += 1
+                    continue
+            blob = thumbnail_bucket.blob(image.thumbnail_path)
+            if not blob.exists():
+                skipped += 1
+                continue
+            image_data = blob.download_as_bytes()
+            recompute_trained_tags_for_image(
+                db=session,
+                tenant_id=tenant.id,
+                image_id=image.id,
+                image_data=image_data,
+                keywords_by_category=by_category,
+                keyword_models=keyword_models,
+                keyword_to_category=keyword_to_category,
+                model_name=model_name,
+                model_version=model_version,
+                model_type=settings.tagging_model,
+                threshold=0.15,
+                model_weight=settings.keyword_model_weight
+            )
+            processed += 1
+            if limit is not None and processed >= limit:
+                reached_limit = True
+                break
+
+        session.commit()
+
+        if reached_limit:
+            break
+
+        current_offset += len(batch)
+
+    click.echo(f"✓ Trained tags recomputed: {processed} · Skipped: {skipped} · Total: {total}")
 
 
 @cli.command()

@@ -4,8 +4,6 @@ const API_BASE_URL = '/api/v1';
 export async function getImages(tenantId, filters = {}) {
   const params = new URLSearchParams();
 
-  // Set a reasonable default limit to control pagination
-  params.append('limit', '100');
 
   if (filters.search) {
       // The backend doesn't seem to have a direct text search endpoint,
@@ -38,6 +36,18 @@ export async function getImages(tenantId, filters = {}) {
     params.append('hide_zero_rating', 'true');
   }
 
+  if (filters.reviewed !== undefined && filters.reviewed !== '') {
+    params.append('reviewed', filters.reviewed);
+  }
+
+  if (filters.limit !== undefined && filters.limit !== null && filters.limit !== '') {
+    params.append('limit', String(filters.limit));
+  }
+
+  if (filters.offset !== undefined && filters.offset !== null && filters.offset !== '') {
+    params.append('offset', String(filters.offset));
+  }
+
   if (filters.keywords && Object.keys(filters.keywords).length > 0) {
       const categoryFilters = {};
       for (const [category, keywordsSet] of Object.entries(filters.keywords)) {
@@ -68,6 +78,76 @@ export async function getImages(tenantId, filters = {}) {
   return data;
 }
 
+export async function getImageStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/images/stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch image stats');
+  }
+
+  return await response.json();
+}
+
+export async function getTagStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/tag-stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch tag stats');
+  }
+
+  return await response.json();
+}
+
+export async function getMlTrainingImages(tenantId, { limit = 50, offset = 0, refresh = false } = {}) {
+  const params = new URLSearchParams();
+  if (limit !== undefined && limit !== null) {
+    params.append('limit', String(limit));
+  }
+  if (offset) {
+    params.append('offset', String(offset));
+  }
+  if (refresh) {
+    params.append('refresh', 'true');
+  }
+  const url = params.toString()
+    ? `${API_BASE_URL}/ml-training/images?${params.toString()}`
+    : `${API_BASE_URL}/ml-training/images`;
+
+  const response = await fetch(url, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ML training images');
+  }
+
+  return await response.json();
+}
+
+export async function getMlTrainingStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/ml-training/stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ML training stats');
+  }
+
+  return await response.json();
+}
+
 export async function getKeywords(tenantId, filters = {}) {
     const params = new URLSearchParams();
 
@@ -85,6 +165,10 @@ export async function getKeywords(tenantId, filters = {}) {
 
     if (filters.listId) {
         params.append('list_id', filters.listId);
+    }
+
+    if (filters.reviewed !== undefined && filters.reviewed !== '') {
+        params.append('reviewed', filters.reviewed);
     }
 
     const url = params.toString() ? `${API_BASE_URL}/keywords?${params.toString()}` : `${API_BASE_URL}/keywords`;
