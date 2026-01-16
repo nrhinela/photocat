@@ -126,7 +126,11 @@ class ImageModal extends LitElement {
                 <div><strong>Size:</strong> ${this.details.width} × ${this.details.height}</div>
                 <div><strong>Format:</strong> ${this.details.format || 'Unknown'}</div>
                 <div><strong>File Size:</strong> ${this.details.file_size}</div>
-                <div><strong>Path:</strong> ${this.details.dropbox_path}</div>
+                <div>
+                  <strong>Path:</strong>
+                  ${this._renderDropboxLink(this.details.dropbox_path)}
+                </div>
+                <div><strong>Last Review:</strong> ${this.details.reviewed_at ? new Date(this.details.reviewed_at).toLocaleString() : 'Unreviewed'}</div>
             </div>
         </div>
         <div class="mt-4">
@@ -137,6 +141,26 @@ class ImageModal extends LitElement {
                   .map(tag => html`<span class="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">${tag.keyword}</span>`)}
             </div>
         </div>
+    `;
+  }
+
+  _renderDropboxLink(dropboxPath) {
+    if (!dropboxPath) {
+      return html`<span class="ml-1 text-gray-400">Unknown</span>`;
+    }
+    const trimmed = dropboxPath.startsWith('/') ? dropboxPath.slice(1) : dropboxPath;
+    const dropboxHref = `https://www.dropbox.com/home/${trimmed}`;
+    const formattedPath = dropboxPath.replace(/_/g, '_\u200b');
+    return html`
+      <a
+        href=${dropboxHref}
+        target="dropbox"
+        class="ml-1 text-blue-600 hover:text-blue-700 break-all whitespace-normal"
+        @click=${(e) => e.stopPropagation()}
+        title=${dropboxPath}
+      >
+        ${formattedPath}
+      </a>
     `;
   }
 

@@ -239,3 +239,48 @@ class ImageEmbedding(Base):
     model_version = Column(String(50))
     
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class KeywordModel(Base):
+    """Store lightweight keyword models based on verified tags."""
+
+    __tablename__ = "keyword_models"
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(String(255), nullable=False, index=True)
+    keyword = Column(String(255), nullable=False)
+    model_name = Column(String(100), nullable=False)
+    model_version = Column(String(50))
+
+    positive_centroid = Column(ARRAY(Float), nullable=False)
+    negative_centroid = Column(ARRAY(Float), nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_keyword_models_tenant_keyword", "tenant_id", "keyword", "model_name", unique=True),
+    )
+
+
+class TrainedImageTag(Base):
+    """Cache trained-ML tag outputs per image."""
+
+    __tablename__ = "trained_image_tags"
+
+    id = Column(Integer, primary_key=True)
+    image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String(255), nullable=False, index=True)
+
+    keyword = Column(String(255), nullable=False)
+    category = Column(String(255))
+    confidence = Column(Float)
+    model_name = Column(String(100))
+    model_version = Column(String(50))
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_trained_tags_tenant_image", "tenant_id", "image_id"),
+        Index("idx_trained_tags_unique", "tenant_id", "image_id", "keyword", "model_name", unique=True),
+    )

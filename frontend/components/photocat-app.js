@@ -8,9 +8,10 @@ import './tab-container.js'; // Import the new tab container
 import './list-editor.js'; // Import the new list editor
 import './permatag-editor.js';
 import './tagging-admin.js';
+import './ml-training.js';
 
 import { tailwind } from './tailwind-lit.js';
-import { getLists, getActiveList, getListItems, updateList, getKeywords } from '../services/api.js';
+import { getLists, getActiveList, getListItems, updateList, getKeywords, getImageStats, getMlTrainingStats, getTagStats } from '../services/api.js';
 import { subscribeQueue, retryFailedCommand } from '../services/command-queue.js';
 
 class PhotoCatApp extends LitElement {
@@ -22,6 +23,60 @@ class PhotoCatApp extends LitElement {
         max-width: 1280px;
         margin: 0 auto;
         padding: 16px;
+    }
+    .home-top-row {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+        align-items: stretch;
+    }
+    @media (min-width: 1024px) {
+        .home-top-row {
+            grid-template-columns: 1fr 1fr;
+            align-items: stretch;
+        }
+    }
+    .home-panel {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+    .home-panel-right {
+        overflow: hidden;
+    }
+    .tag-carousel {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        overflow-y: auto;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+        flex: 1;
+        align-items: stretch;
+        min-height: 0;
+    }
+    .tag-card {
+        min-width: 180px;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    .tag-card-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
+    .tag-bar {
+        height: 6px;
+        border-radius: 9999px;
+        background: #e5e7eb;
+        overflow: hidden;
+    }
+    .tag-bar-fill {
+        height: 100%;
+        background: #2563eb;
     }
   `];
 
@@ -39,6 +94,10 @@ class PhotoCatApp extends LitElement {
       queueState: { type: Object },
       showQueuePanel: { type: Boolean },
       displayMode: { type: String },
+      imageStats: { type: Object },
+      mlTrainingStats: { type: Object },
+      tagStatsBySource: { type: Object },
+      activeTagSource: { type: String },
   }
 
   constructor() {
@@ -57,7 +116,18 @@ class PhotoCatApp extends LitElement {
       this._unsubscribeQueue = null;
       this.showQueuePanel = false;
       this.displayMode = 'grid';
+      this.imageStats = null;
+      this.mlTrainingStats = null;
+      this.tagStatsBySource = {};
+      this.activeTagSource = 'zero_shot';
       this._queueRefreshTimer = null;
+      this._statsRefreshTimer = null;
+      this._homePanelObserver = null;
+      this._homePanelLeftEl = null;
+      this._homePanelRightEl = null;
+      this._handleWindowResize = () => {
+        this._syncHomePanelHeights();
+      };
       this._handleQueueCommandComplete = (event) => {
         const detail = event?.detail;
         if (!detail) return;
@@ -67,6 +137,7 @@ class PhotoCatApp extends LitElement {
           detail.type === 'add-negative-permatag'
         ) {
           this._scheduleGalleryRefresh();
+          this._scheduleStatsRefresh();
         }
       };
       this._handleQueueToggle = () => {
@@ -78,10 +149,12 @@ class PhotoCatApp extends LitElement {
       super.connectedCallback();
       this.fetchLists();
       this.fetchKeywords();
+      this.fetchStats();
       this._unsubscribeQueue = subscribeQueue((state) => {
         this.queueState = state;
       });
       window.addEventListener('queue-command-complete', this._handleQueueCommandComplete);
+      window.addEventListener('resize', this._handleWindowResize);
   }
 
   disconnectedCallback() {
@@ -89,6 +162,15 @@ class PhotoCatApp extends LitElement {
         this._unsubscribeQueue();
       }
       window.removeEventListener('queue-command-complete', this._handleQueueCommandComplete);
+      window.removeEventListener('resize', this._handleWindowResize);
+      if (this._statsRefreshTimer) {
+        clearTimeout(this._statsRefreshTimer);
+        this._statsRefreshTimer = null;
+      }
+      if (this._homePanelObserver) {
+        this._homePanelObserver.disconnect();
+        this._homePanelObserver = null;
+      }
       super.disconnectedCallback();
   }
 
@@ -100,6 +182,7 @@ class PhotoCatApp extends LitElement {
       this.tenant = e.detail;
       this.fetchLists();
       this.fetchKeywords();
+      this.fetchStats();
   }
 
   _handleImageSelected(e) {
@@ -121,6 +204,7 @@ class PhotoCatApp extends LitElement {
     
     _handleUploadComplete() {
         this.shadowRoot.querySelector('tab-container').querySelector('image-gallery').fetchImages();
+        this.fetchStats();
         this.showUploadModal = false;
     }
 
@@ -128,6 +212,25 @@ class PhotoCatApp extends LitElement {
     const fallbackActive = this.lists.find((list) => list.is_active);
     const activeId = this.activeListId || (fallbackActive ? String(fallbackActive.id) : '');
     const activeName = this.activeListName || (fallbackActive ? fallbackActive.title : 'None');
+    const imageCount = this._formatStatNumber(this.imageStats?.image_count);
+    const reviewedCount = this._formatStatNumber(this.imageStats?.reviewed_image_count);
+    const mlTagCount = this._formatStatNumber(this.imageStats?.ml_tag_count);
+    const trainedTagCount = this._formatStatNumber(this.mlTrainingStats?.trained_image_count);
+    const sourceStats = this.tagStatsBySource?.[this.activeTagSource] || {};
+    const categoryCards = Object.entries(sourceStats)
+      .map(([category, keywords]) => {
+        const keywordRows = (keywords || [])
+          .filter((kw) => (kw.count || 0) > 0)
+          .sort((a, b) => (b.count || 0) - (a.count || 0));
+        if (!keywordRows.length) {
+          return null;
+        }
+        const maxCount = keywordRows.reduce((max, kw) => Math.max(max, kw.count || 0), 0);
+        const totalCount = keywordRows.reduce((sum, kw) => sum + (kw.count || 0), 0);
+        return { category, keywordRows, maxCount, totalCount };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.totalCount - a.totalCount);
     return html`
         <app-header
             .tenant=${this.tenant}
@@ -142,7 +245,83 @@ class PhotoCatApp extends LitElement {
         
         <tab-container .activeTab=${this.activeTab}>
             <div slot="search" class="container">
-                <filter-controls .tenant=${this.tenant} .lists=${this.lists} @filter-change=${this._handleFilterChange}></filter-controls>
+                <div class="flex flex-wrap gap-4 mb-4">
+                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase">Images</div>
+                        <div class="text-2xl font-semibold text-gray-900">${imageCount}</div>
+                    </div>
+                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase">Reviewed</div>
+                        <div class="text-2xl font-semibold text-gray-900">${reviewedCount}</div>
+                    </div>
+                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase">Zero-Shot</div>
+                        <div class="text-2xl font-semibold text-gray-900">${mlTagCount}</div>
+                    </div>
+                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase">Keyword-Model</div>
+                        <div class="text-2xl font-semibold text-gray-900">${trainedTagCount}</div>
+                    </div>
+                </div>
+                <div class="home-top-row">
+                    <div class="home-panel home-panel-left border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase font-semibold mb-2">Search</div>
+                        <filter-controls
+                          .tenant=${this.tenant}
+                          .lists=${this.lists}
+                          @filter-change=${this._handleFilterChange}
+                        ></filter-controls>
+                    </div>
+                    <div class="home-panel home-panel-right border border-gray-200 rounded-lg p-3 bg-white shadow">
+                        <div class="text-xs text-gray-500 uppercase font-semibold mb-2">Tag Counts</div>
+                        <div class="flex items-center gap-2 mb-3 text-xs font-semibold text-gray-600">
+                          ${[
+                            { key: 'permatags', label: 'Permatags' },
+                            { key: 'keyword_model', label: 'Keyword-Model' },
+                            { key: 'zero_shot', label: 'Zero-Shot' },
+                          ].map((tab) => html`
+                            <button
+                              class="px-2 py-1 rounded border ${this.activeTagSource === tab.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
+                              @click=${() => this.activeTagSource = tab.key}
+                            >
+                              ${tab.label}
+                            </button>
+                          `)}
+                        </div>
+                        ${categoryCards.length ? html`
+                          <div class="tag-carousel">
+                            ${categoryCards.map((item) => {
+                              const label = item.category.replace(/_/g, ' ');
+                              return html`
+                                <div class="tag-card border border-gray-200 rounded-lg p-2">
+                                  <div class="text-xs font-semibold text-gray-700 truncate" title=${label}>${label}</div>
+                                  <div class="tag-card-body mt-2 space-y-2">
+                                    ${item.keywordRows.map((kw) => {
+                                      const width = item.maxCount
+                                        ? Math.round((kw.count / item.maxCount) * 100)
+                                        : 0;
+                                      return html`
+                                        <div>
+                                          <div class="flex items-center justify-between gap-2 text-xs text-gray-600">
+                                            <span class="truncate" title=${kw.keyword}>${kw.keyword}</span>
+                                            <span class="text-gray-500">${this._formatStatNumber(kw.count)}</span>
+                                          </div>
+                                          <div class="tag-bar mt-1">
+                                            <div class="tag-bar-fill" style="width: ${width}%"></div>
+                                          </div>
+                                        </div>
+                                      `;
+                                    })}
+                                  </div>
+                                </div>
+                              `;
+                            })}
+                          </div>
+                        ` : html`
+                          <div class="text-xs text-gray-400">No tag data yet.</div>
+                        `}
+                    </div>
+                </div>
                 <div class="flex items-center gap-3 mb-4">
                     <div class="text-sm text-gray-700 font-semibold">
                         Active List: ${activeName}
@@ -237,6 +416,9 @@ class PhotoCatApp extends LitElement {
             <div slot="tagging" class="container p-4">
                 <tagging-admin .tenant=${this.tenant} @open-upload-modal=${this._handleOpenUploadModal}></tagging-admin>
             </div>
+            <div slot="ml-training" class="container p-4">
+                <ml-training .tenant=${this.tenant}></ml-training>
+            </div>
         </tab-container>
 
         ${this.selectedImage ? html`
@@ -290,9 +472,9 @@ class PhotoCatApp extends LitElement {
       try {
           const keywordsByCategory = await getKeywords(this.tenant);
           const flat = [];
-          Object.values(keywordsByCategory || {}).forEach((list) => {
+          Object.entries(keywordsByCategory || {}).forEach(([category, list]) => {
               list.forEach((kw) => {
-                  flat.push({ keyword: kw.keyword, category: kw.category });
+                  flat.push({ keyword: kw.keyword, category });
               });
           });
           this.keywords = flat.sort((a, b) => a.keyword.localeCompare(b.keyword));
@@ -313,6 +495,36 @@ class PhotoCatApp extends LitElement {
       } catch (error) {
           console.error('Error fetching active list items:', error);
           this.activeListItemIds = new Set();
+      }
+  }
+
+  async fetchStats() {
+      if (!this.tenant) return;
+      const results = await Promise.allSettled([
+          getImageStats(this.tenant),
+          getMlTrainingStats(this.tenant),
+          getTagStats(this.tenant),
+      ]);
+      const imageResult = results[0];
+      const mlResult = results[1];
+      const tagResult = results[2];
+      if (imageResult.status === 'fulfilled') {
+          this.imageStats = imageResult.value;
+      } else {
+          console.error('Error fetching image stats:', imageResult.reason);
+          this.imageStats = null;
+      }
+      if (mlResult.status === 'fulfilled') {
+          this.mlTrainingStats = mlResult.value;
+      } else {
+          console.error('Error fetching ML training stats:', mlResult.reason);
+          this.mlTrainingStats = null;
+      }
+      if (tagResult.status === 'fulfilled') {
+          this.tagStatsBySource = tagResult.value?.sources || {};
+      } else {
+          console.error('Error fetching tag stats:', tagResult.reason);
+          this.tagStatsBySource = {};
       }
   }
 
@@ -371,6 +583,7 @@ class PhotoCatApp extends LitElement {
   _handleSyncComplete(e) {
       console.log(`Sync complete: ${e.detail.count} total images processed`);
       this._refreshGallery();
+      this.fetchStats();
   }
 
   _handleSyncError(e) {
@@ -396,6 +609,60 @@ class PhotoCatApp extends LitElement {
           this._queueRefreshTimer = null;
           this._refreshGallery();
       }, 400);
+  }
+
+  _scheduleStatsRefresh() {
+      if (this._statsRefreshTimer) {
+          clearTimeout(this._statsRefreshTimer);
+      }
+      this._statsRefreshTimer = setTimeout(() => {
+          this._statsRefreshTimer = null;
+          this.fetchStats();
+      }, 400);
+  }
+
+  _formatStatNumber(value) {
+      if (value === null || value === undefined) return '--';
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) return '--';
+      return numericValue.toLocaleString();
+  }
+
+  firstUpdated() {
+      this._ensureHomePanelSync();
+  }
+
+  updated() {
+      this._ensureHomePanelSync();
+  }
+
+  _ensureHomePanelSync() {
+      const leftPanel = this.shadowRoot?.querySelector('.home-panel-left');
+      const rightPanel = this.shadowRoot?.querySelector('.home-panel-right');
+      if (!leftPanel || !rightPanel) return;
+      if (this._homePanelLeftEl !== leftPanel || this._homePanelRightEl !== rightPanel) {
+          if (this._homePanelObserver) {
+              this._homePanelObserver.disconnect();
+          }
+          this._homePanelLeftEl = leftPanel;
+          this._homePanelRightEl = rightPanel;
+          this._homePanelObserver = new ResizeObserver(() => {
+              this._syncHomePanelHeights();
+          });
+          this._homePanelObserver.observe(leftPanel);
+      }
+      this._syncHomePanelHeights();
+  }
+
+  _syncHomePanelHeights() {
+      if (!this._homePanelLeftEl || !this._homePanelRightEl) return;
+      const isWide = window.matchMedia('(min-width: 1024px)').matches;
+      if (!isWide) {
+          this._homePanelRightEl.style.height = '';
+          return;
+      }
+      const height = this._homePanelLeftEl.getBoundingClientRect().height;
+      this._homePanelRightEl.style.height = height ? `${height}px` : '';
   }
 }
 

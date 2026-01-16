@@ -17,9 +17,9 @@ class UploadModal extends LitElement {
     }
     .modal.active {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: center;
-        padding: 24px 0;
+        padding: 24px;
     }
     .modal-content {
         background-color: #fefefe;
@@ -29,8 +29,15 @@ class UploadModal extends LitElement {
         width: min(96vw, 1280px);
         max-width: 1280px;
         border-radius: 0.5rem;
-        max-height: none;
-        overflow: visible;
+        height: calc(100vh - 48px);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .results {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
     }
     .close {
         color: #aaaaaa;
@@ -80,7 +87,7 @@ class UploadModal extends LitElement {
               `}
           </div>
           ${this.results.length ? html`
-            <div class="mt-6 space-y-4 max-h-64 overflow-auto">
+            <div class="results mt-6 space-y-4">
               ${this.results.map((result) => html`
                 <div class="border border-gray-200 rounded-lg p-3">
                   <div class="font-semibold text-gray-700">${result.filename}</div>
@@ -91,7 +98,7 @@ class UploadModal extends LitElement {
                       <div class="w-40 flex-shrink-0">
                         ${result.thumbnail_base64 ? html`
                           <img
-                            class="w-40 h-40 rounded border border-gray-200 object-cover"
+                            class="w-40 max-h-40 rounded border border-gray-200 object-contain"
                             src="data:image/jpeg;base64,${result.thumbnail_base64}"
                             alt=${result.filename}
                           />

@@ -157,7 +157,7 @@ class ImageCard extends LitElement {
     }
     const sortedTags = [...tags].sort((a, b) => a.keyword.localeCompare(b.keyword));
     return html`
-      <div class="flex flex-wrap items-center gap-1">
+      <span class="inline-flex flex-wrap items-center gap-1 flex-1 min-w-0">
         ${sortedTags.map(tag => html`
           <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">
             ${tag.keyword}
@@ -171,7 +171,7 @@ class ImageCard extends LitElement {
             </button>
           </span>
         `)}
-      </div>
+      </span>
     `;
   }
 
@@ -247,6 +247,12 @@ class ImageCard extends LitElement {
             <span class="ml-1">${this.image.modified_time ? new Date(this.image.modified_time).toLocaleDateString() : 'Unknown'}</span>
           </div>
           <div>
+            <span class="font-semibold text-gray-700">last review:</span>
+            <span class="ml-1">
+              ${this.image.reviewed_at ? new Date(this.image.reviewed_at).toLocaleDateString() : 'Unreviewed'}
+            </span>
+          </div>
+          <div>
             <span class="font-semibold text-gray-700">list [${listName}]:</span>
             ${this.showAddToList ? html`
               <button
@@ -288,8 +294,9 @@ class ImageCard extends LitElement {
               type="button"
               class="text-purple-600 hover:text-purple-700 text-sm"
               @click=${this._handleRetag}
+              title="Retag"
             >
-              [${this.isRetagging ? 'processing' : 'retag'}]
+              ${this.isRetagging ? '⟳' : '↻'}
             </button>
             ${tagsText}
           </div>

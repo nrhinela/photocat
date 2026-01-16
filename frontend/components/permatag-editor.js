@@ -155,7 +155,7 @@ class PermatagEditor extends LitElement {
           <thead>
             <tr>
               <th class="py-2 px-4 border-b text-left">Keyword</th>
-              <th class="py-2 px-4 border-b text-center">ML</th>
+              <th class="py-2 px-4 border-b text-center">Zero-Shot ML Tags</th>
               <th class="py-2 px-4 border-b text-center">Approve</th>
               <th class="py-2 px-4 border-b text-center">Reject</th>
               <th class="py-2 px-4 border-b text-center"></th>
@@ -225,7 +225,7 @@ class PermatagEditor extends LitElement {
     const sideSection = html`
       <div class="mt-6">
           <div class="flex items-center justify-between mb-2">
-              <h4 class="font-semibold text-gray-700">ML Tags</h4>
+              <h4 class="font-semibold text-gray-700">Zero-Shot ML Tags</h4>
               <div class="flex items-center gap-2">
                 <button
                   class="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded shadow transition-colors text-xs"

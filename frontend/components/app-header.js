@@ -127,6 +127,12 @@ class AppHeader extends LitElement {
                     >
                         <i class="fas fa-tags mr-2"></i>Tagging
                     </button>
+                    <button
+                        @click=${() => this._handleTabChange('ml-training')}
+                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'ml-training' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
+                    >
+                        <i class="fas fa-brain mr-2"></i>ML Training
+                    </button>
                 </div>
             </div>
         </nav>

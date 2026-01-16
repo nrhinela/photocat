@@ -4,6 +4,7 @@ const API_BASE_URL = '/api/v1';
 export async function getImages(tenantId, filters = {}) {
   const params = new URLSearchParams();
 
+
   if (filters.search) {
       // The backend doesn't seem to have a direct text search endpoint,
       // but the old frontend had a client-side search. We will add a 'keywords'
@@ -33,6 +34,18 @@ export async function getImages(tenantId, filters = {}) {
 
   if (filters.hideZeroRating) {
     params.append('hide_zero_rating', 'true');
+  }
+
+  if (filters.reviewed !== undefined && filters.reviewed !== '') {
+    params.append('reviewed', filters.reviewed);
+  }
+
+  if (filters.limit !== undefined && filters.limit !== null && filters.limit !== '') {
+    params.append('limit', String(filters.limit));
+  }
+
+  if (filters.offset !== undefined && filters.offset !== null && filters.offset !== '') {
+    params.append('offset', String(filters.offset));
   }
 
   if (filters.keywords && Object.keys(filters.keywords).length > 0) {
@@ -65,8 +78,101 @@ export async function getImages(tenantId, filters = {}) {
   return data;
 }
 
-export async function getKeywords(tenantId) {
-    const response = await fetch(`${API_BASE_URL}/keywords`, {
+export async function getImageStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/images/stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch image stats');
+  }
+
+  return await response.json();
+}
+
+export async function getTagStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/tag-stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch tag stats');
+  }
+
+  return await response.json();
+}
+
+export async function getMlTrainingImages(tenantId, { limit = 50, offset = 0, refresh = false } = {}) {
+  const params = new URLSearchParams();
+  if (limit !== undefined && limit !== null) {
+    params.append('limit', String(limit));
+  }
+  if (offset) {
+    params.append('offset', String(offset));
+  }
+  if (refresh) {
+    params.append('refresh', 'true');
+  }
+  const url = params.toString()
+    ? `${API_BASE_URL}/ml-training/images?${params.toString()}`
+    : `${API_BASE_URL}/ml-training/images`;
+
+  const response = await fetch(url, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ML training images');
+  }
+
+  return await response.json();
+}
+
+export async function getMlTrainingStats(tenantId) {
+  const response = await fetch(`${API_BASE_URL}/ml-training/stats`, {
+    headers: {
+      'X-Tenant-ID': tenantId,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch ML training stats');
+  }
+
+  return await response.json();
+}
+
+export async function getKeywords(tenantId, filters = {}) {
+    const params = new URLSearchParams();
+
+    // Pass filter parameters to match the images endpoint
+    if (filters.rating !== undefined && filters.rating !== '') {
+        params.append('rating', filters.rating);
+        if (filters.ratingOperator) {
+            params.append('rating_operator', filters.ratingOperator);
+        }
+    }
+
+    if (filters.hideZeroRating) {
+        params.append('hide_zero_rating', 'true');
+    }
+
+    if (filters.listId) {
+        params.append('list_id', filters.listId);
+    }
+
+    if (filters.reviewed !== undefined && filters.reviewed !== '') {
+        params.append('reviewed', filters.reviewed);
+    }
+
+    const url = params.toString() ? `${API_BASE_URL}/keywords?${params.toString()}` : `${API_BASE_URL}/keywords`;
+    const response = await fetch(url, {
         headers: {
         'X-Tenant-ID': tenantId,
         },
@@ -77,12 +183,6 @@ export async function getKeywords(tenantId) {
     }
 
     const data = await response.json();
-
-  // NEW LOG: Inspect the raw data and the specific property we're trying to return
-    console.log('API Service: Raw data from /keywords:', data);
-    console.log('API Service: data.keywords_by_category:', data.keywords_by_category);
-
-
     return data.keywords_by_category || {};
 }
 
