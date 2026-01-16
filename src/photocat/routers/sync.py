@@ -10,7 +10,7 @@ from google.cloud import storage
 
 from photocat.dependencies import get_db, get_tenant, get_secret
 from photocat.tenant import Tenant
-from photocat.metadata import Tenant as TenantModel, ImageMetadata, ImageTag
+from photocat.metadata import Tenant as TenantModel, ImageMetadata, MachineTag
 from photocat.settings import settings
 from photocat.image import ImageProcessor
 from photocat.config.db_config import ConfigManager
@@ -337,7 +337,11 @@ async def trigger_sync(
 
                     # Tag with model (per category)
                     status_messages.append(f"Running {model.upper()} inference for tagging")
-                    db.query(ImageTag).filter(ImageTag.image_id == metadata.id).delete()
+                    # Delete existing tags for this image and tag type
+                    db.query(MachineTag).filter(
+                        MachineTag.image_id == metadata.id,
+                        MachineTag.tag_type == 'siglip'
+                    ).delete()
 
                     model_name = getattr(tagger, "model_name", model)
                     model_version = getattr(tagger, "model_version", model_name)
@@ -367,13 +371,15 @@ async def trigger_sync(
                     keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
 
                     for keyword, confidence in all_tags:
-                        tag = ImageTag(
+                        tag = MachineTag(
                             image_id=metadata.id,
                             tenant_id=tenant.id,
                             keyword=keyword,
                             category=keyword_to_category[keyword],
                             confidence=confidence,
-                            manual=False
+                            tag_type='siglip',
+                            model_name=model_name,
+                            model_version=model_version
                         )
                         db.add(tag)
 

@@ -13,11 +13,11 @@ from sqlalchemy import func, distinct, and_
 from sqlalchemy.orm import Session, aliased
 from google.cloud import storage
 
-from photocat.dependencies import get_db, get_tenant
+from photocat.dependencies import get_db, get_tenant, get_tenant_setting
 from photocat.tenant import Tenant
 from photocat.metadata import (
-    ImageMetadata, ImageTag, Permatag,
-    Tenant as TenantModel, TrainedImageTag, KeywordModel, ImageEmbedding
+    ImageMetadata, MachineTag, Permatag,
+    Tenant as TenantModel, KeywordModel, ImageEmbedding
 )
 from photocat.models.config import PhotoList, PhotoListItem
 from photocat.settings import settings
@@ -147,10 +147,14 @@ async def list_images(
                     all_images = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id).all()
                     all_image_ids = [img[0] for img in all_images]
 
-                # Get all tags for these images
-                all_tags = db.query(ImageTag).filter(
-                    ImageTag.tenant_id == tenant.id,
-                    ImageTag.image_id.in_(all_image_ids)
+                # Get active tag type from tenant config for filtering
+                active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+
+                # Get all tags for these images (from primary algorithm only)
+                all_tags = db.query(MachineTag).filter(
+                    MachineTag.tenant_id == tenant.id,
+                    MachineTag.image_id.in_(all_image_ids),
+                    MachineTag.tag_type == active_tag_type  # Filter by primary algorithm
                 ).all()
 
                 # Get all permatags for these images
@@ -216,14 +220,15 @@ async def list_images(
 
                     # Get tags for these images to calculate relevance scores
                     image_tags = db.query(
-                        ImageTag.image_id,
-                        func.sum(ImageTag.confidence).label('relevance_score')
+                        MachineTag.image_id,
+                        func.sum(MachineTag.confidence).label('relevance_score')
                     ).filter(
-                        ImageTag.image_id.in_(unique_image_ids),
-                        ImageTag.keyword.in_(all_keywords),
-                        ImageTag.tenant_id == tenant.id
+                        MachineTag.image_id.in_(unique_image_ids),
+                        MachineTag.keyword.in_(all_keywords),
+                        MachineTag.tenant_id == tenant.id,
+                        MachineTag.tag_type == active_tag_type  # Filter by primary algorithm
                     ).group_by(
-                        ImageTag.image_id
+                        MachineTag.image_id
                     ).all()
 
                     # Create a score map for ordering
@@ -269,22 +274,27 @@ async def list_images(
 
         if keyword_list and operator.upper() == "OR":
             # OR: Image must have ANY of the selected keywords
+            # Get active tag type for filtering
+            active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+
             # Use subquery to get image IDs that match keywords
-            matching_image_ids = db.query(ImageTag.image_id).filter(
-                ImageTag.keyword.in_(keyword_list),
-                ImageTag.tenant_id == tenant.id
+            matching_image_ids = db.query(MachineTag.image_id).filter(
+                MachineTag.keyword.in_(keyword_list),
+                MachineTag.tenant_id == tenant.id,
+                MachineTag.tag_type == active_tag_type
             ).distinct().subquery()
 
             # Main query with relevance ordering (by sum of confidence scores)
             query = db.query(
                 ImageMetadata,
-                func.sum(ImageTag.confidence).label('relevance_score')
+                func.sum(MachineTag.confidence).label('relevance_score')
             ).join(
-                ImageTag,
+                MachineTag,
                 and_(
-                    ImageTag.image_id == ImageMetadata.id,
-                    ImageTag.keyword.in_(keyword_list),
-                    ImageTag.tenant_id == tenant.id
+                    MachineTag.image_id == ImageMetadata.id,
+                    MachineTag.keyword.in_(keyword_list),
+                    MachineTag.tenant_id == tenant.id,
+                    MachineTag.tag_type == active_tag_type
                 )
             ).filter(
                 ImageMetadata.tenant_id == tenant.id,
@@ -292,7 +302,7 @@ async def list_images(
             ).group_by(
                 ImageMetadata.id
             ).order_by(
-                func.sum(ImageTag.confidence).desc(),
+                func.sum(MachineTag.confidence).desc(),
                 ImageMetadata.id.desc()
             )
 
@@ -314,14 +324,18 @@ async def list_images(
 
         elif keyword_list and operator.upper() == "AND":
             # AND: Image must have ALL selected keywords
+            # Get active tag type for filtering
+            active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+
             # Start with images that have tenant_id
             base_query = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id)
 
             # For each keyword, filter images that have that keyword
             for keyword in keyword_list:
-                subquery = db.query(ImageTag.image_id).filter(
-                    ImageTag.keyword == keyword,
-                    ImageTag.tenant_id == tenant.id
+                subquery = db.query(MachineTag.image_id).filter(
+                    MachineTag.keyword == keyword,
+                    MachineTag.tenant_id == tenant.id,
+                    MachineTag.tag_type == active_tag_type
                 ).subquery()
 
                 base_query = base_query.filter(ImageMetadata.id.in_(subquery))
@@ -335,13 +349,14 @@ async def list_images(
             # Query with relevance ordering (by sum of confidence scores)
             query = db.query(
                 ImageMetadata,
-                func.sum(ImageTag.confidence).label('relevance_score')
+                func.sum(MachineTag.confidence).label('relevance_score')
             ).join(
-                ImageTag,
+                MachineTag,
                 and_(
-                    ImageTag.image_id == ImageMetadata.id,
-                    ImageTag.keyword.in_(keyword_list),
-                    ImageTag.tenant_id == tenant.id
+                    MachineTag.image_id == ImageMetadata.id,
+                    MachineTag.keyword.in_(keyword_list),
+                    MachineTag.tenant_id == tenant.id,
+                    MachineTag.tag_type == active_tag_type
                 )
             ).filter(
                 ImageMetadata.tenant_id == tenant.id,
@@ -349,7 +364,7 @@ async def list_images(
             ).group_by(
                 ImageMetadata.id
             ).order_by(
-                func.sum(ImageTag.confidence).desc(),
+                func.sum(MachineTag.confidence).desc(),
                 ImageMetadata.id.desc()
             )
 
@@ -377,9 +392,11 @@ async def list_images(
 
     # Get tags for all images
     image_ids = [img.id for img in images]
-    tags = db.query(ImageTag).filter(
-        ImageTag.image_id.in_(image_ids),
-        ImageTag.tenant_id == tenant.id
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    tags = db.query(MachineTag).filter(
+        MachineTag.image_id.in_(image_ids),
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).all() if image_ids else []
 
     # Get permatags for all images
@@ -470,8 +487,12 @@ async def get_image_stats(
         Permatag.tenant_id == tenant.id
     ).scalar() or 0
 
-    ml_tag_count = db.query(func.count(distinct(ImageTag.image_id))).filter(
-        ImageTag.tenant_id == tenant.id
+    # Get active tag type from tenant settings
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+
+    ml_tag_count = db.query(func.count(distinct(MachineTag.image_id))).filter(
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).scalar() or 0
 
     return {
@@ -498,9 +519,11 @@ async def get_image(
         raise HTTPException(status_code=404, detail="Image not found")
 
     # Get tags
-    tags = db.query(ImageTag).filter(
-        ImageTag.image_id == image_id,
-        ImageTag.tenant_id == tenant.id
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    tags = db.query(MachineTag).filter(
+        MachineTag.image_id == image_id,
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).all()
 
     # Get permatags
@@ -632,9 +655,13 @@ async def list_ml_training_images(
     if not image_ids:
         return {"tenant_id": tenant.id, "images": [], "total": total, "limit": limit, "offset": offset}
 
-    tags = db.query(ImageTag).filter(
-        ImageTag.tenant_id == tenant.id,
-        ImageTag.image_id.in_(image_ids)
+    # Get active tag type from tenant settings
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+
+    tags = db.query(MachineTag).filter(
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.image_id.in_(image_ids),
+        MachineTag.tag_type == active_tag_type
     ).all()
 
     permatags = db.query(Permatag).filter(
@@ -642,10 +669,21 @@ async def list_ml_training_images(
         Permatag.image_id.in_(image_ids)
     ).all()
 
-    cached_trained = db.query(TrainedImageTag).filter(
-        TrainedImageTag.tenant_id == tenant.id,
-        TrainedImageTag.image_id.in_(image_ids)
-    ).all()
+    # Get latest keyword model name
+    model_row = db.query(KeywordModel.model_name).filter(
+        KeywordModel.tenant_id == tenant.id
+    ).order_by(
+        func.coalesce(KeywordModel.updated_at, KeywordModel.created_at).desc()
+    ).first()
+
+    cached_trained = []
+    if model_row:
+        cached_trained = db.query(MachineTag).filter(
+            MachineTag.tenant_id == tenant.id,
+            MachineTag.image_id.in_(image_ids),
+            MachineTag.tag_type == 'trained',
+            MachineTag.model_name == model_row.model_name
+        ).all()
 
     tags_by_image = {}
     for tag in tags:
@@ -754,8 +792,9 @@ async def get_ml_training_stats(
         ImageEmbedding.tenant_id == tenant.id
     ).scalar() or 0
 
-    zero_shot_image_count = db.query(func.count(distinct(ImageTag.image_id))).filter(
-        ImageTag.tenant_id == tenant.id
+    zero_shot_image_count = db.query(func.count(distinct(MachineTag.image_id))).filter(
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == 'siglip'
     ).scalar() or 0
 
     model_count = db.query(func.count(KeywordModel.id)).filter(
@@ -770,15 +809,17 @@ async def get_ml_training_stats(
     ).scalar()
 
     trained_count, trained_oldest, trained_newest = db.query(
-        func.count(TrainedImageTag.id),
-        func.min(TrainedImageTag.created_at),
-        func.max(TrainedImageTag.created_at)
+        func.count(MachineTag.id),
+        func.min(MachineTag.created_at),
+        func.max(MachineTag.created_at)
     ).filter(
-        TrainedImageTag.tenant_id == tenant.id
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == 'trained'
     ).one()
 
-    trained_image_count = db.query(func.count(distinct(TrainedImageTag.image_id))).filter(
-        TrainedImageTag.tenant_id == tenant.id
+    trained_image_count = db.query(func.count(distinct(MachineTag.image_id))).filter(
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == 'trained'
     ).scalar() or 0
 
     return {
@@ -934,9 +975,11 @@ async def accept_all_tags(
         raise HTTPException(status_code=404, detail="Image not found")
 
     # Get current machine tags
-    current_tags = db.query(ImageTag).filter(
-        ImageTag.image_id == image_id,
-        ImageTag.tenant_id == tenant.id
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    current_tags = db.query(MachineTag).filter(
+        MachineTag.image_id == image_id,
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).all()
 
     # Get all keywords from config
@@ -1011,9 +1054,11 @@ async def freeze_permatags(
     keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
     all_keyword_names = set(keyword_to_category.keys())
 
-    machine_tags = db.query(ImageTag).filter(
-        ImageTag.image_id == image_id,
-        ImageTag.tenant_id == tenant.id
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    machine_tags = db.query(MachineTag).filter(
+        MachineTag.image_id == image_id,
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).all()
     machine_tag_names = {tag.keyword for tag in machine_tags}
 
@@ -1254,7 +1299,10 @@ async def retag_single_image(
 
     try:
         # Delete existing tags
-        db.query(ImageTag).filter(ImageTag.image_id == image.id).delete()
+        db.query(MachineTag).filter(
+            MachineTag.image_id == image.id,
+            MachineTag.tag_type == 'siglip'
+        ).delete()
 
         # Download thumbnail
         blob = thumbnail_bucket.blob(image.thumbnail_path)
@@ -1289,13 +1337,15 @@ async def retag_single_image(
         keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
 
         for keyword, confidence in all_tags:
-            tag = ImageTag(
+            tag = MachineTag(
                 image_id=image.id,
                 tenant_id=tenant.id,
                 keyword=keyword,
                 category=keyword_to_category[keyword],
                 confidence=confidence,
-                manual=False
+                tag_type='siglip',
+                model_name=model_name,
+                model_version=model_version
             )
             db.add(tag)
 
@@ -1358,7 +1408,10 @@ async def retag_all_images(
     for image in images:
         try:
             # Delete existing tags
-            db.query(ImageTag).filter(ImageTag.image_id == image.id).delete()
+            db.query(MachineTag).filter(
+                MachineTag.image_id == image.id,
+                MachineTag.tag_type == 'siglip'
+            ).delete()
 
             # Download thumbnail
             blob = thumbnail_bucket.blob(image.thumbnail_path)
@@ -1394,13 +1447,15 @@ async def retag_all_images(
             keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
 
             for keyword, confidence in all_tags:
-                tag = ImageTag(
+                tag = MachineTag(
                     image_id=image.id,
                     tenant_id=tenant.id,
                     keyword=keyword,
                     category=keyword_to_category[keyword],
                     confidence=confidence,
-                    manual=False
+                    tag_type='siglip',
+                    model_name=model_name,
+                    model_version=model_version
                 )
                 db.add(tag)
 

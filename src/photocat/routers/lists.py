@@ -5,10 +5,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 
-from photocat.dependencies import get_db, get_tenant
+from photocat.dependencies import get_db, get_tenant, get_tenant_setting
 from photocat.tenant import Tenant
 from photocat.models.config import PhotoList, PhotoListItem
-from photocat.metadata import ImageMetadata, ImageTag, Permatag
+from photocat.metadata import ImageMetadata, MachineTag, Permatag
 from photocat.tagging import calculate_tags
 from photocat.models.requests import AddPhotoRequest
 from photocat.settings import settings
@@ -194,9 +194,11 @@ async def get_list_items(
         .all()
     )
     image_ids = [img.id for _, img in items]
-    tags = db.query(ImageTag).filter(
-        ImageTag.image_id.in_(image_ids),
-        ImageTag.tenant_id == tenant.id
+    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    tags = db.query(MachineTag).filter(
+        MachineTag.image_id.in_(image_ids),
+        MachineTag.tenant_id == tenant.id,
+        MachineTag.tag_type == active_tag_type
     ).all()
     permatags = db.query(Permatag).filter(
         Permatag.image_id.in_(image_ids),
