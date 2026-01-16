@@ -124,6 +124,7 @@ class ImageMetadata(Base):
     
     # Relationships
     tags = relationship("ImageTag", back_populates="image", cascade="all, delete-orphan")
+    machine_tags = relationship("MachineTag", back_populates="image", cascade="all, delete-orphan")
     permatags = relationship("Permatag", back_populates="image", cascade="all, delete-orphan")
     faces = relationship("DetectedFace", back_populates="image", cascade="all, delete-orphan")
     
@@ -283,4 +284,70 @@ class TrainedImageTag(Base):
     __table_args__ = (
         Index("idx_trained_tags_tenant_image", "tenant_id", "image_id"),
         Index("idx_trained_tags_unique", "tenant_id", "image_id", "keyword", "model_name", unique=True),
+    )
+
+
+class MachineTag(Base):
+    """Consolidated machine-generated tags supporting multiple algorithms.
+
+    Stores output from all tagging algorithms (SigLIP, CLIP, trained models, etc.)
+    in a single table, identified by tag_type. Replaces ImageTag and TrainedImageTag.
+
+    Design:
+    - tag_type: Algorithm identifier ('siglip', 'clip', 'trained', etc.)
+    - model_name: Specific model used (e.g., 'google/siglip-so400m-patch14-384')
+    - model_version: Version of the model for reprocessing decisions
+    - confidence: Algorithm's confidence score [0-1]
+
+    The unique constraint prevents duplicate outputs from the same algorithm
+    for the same image/keyword/model combination.
+    """
+
+    __tablename__ = "machine_tags"
+
+    id = Column(Integer, primary_key=True)
+    image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String(255), nullable=False, index=True)
+
+    # Tag content
+    keyword = Column(String(255), nullable=False, index=True)
+    category = Column(String(255))  # Parent category from hierarchy
+
+    # Algorithm output
+    confidence = Column(Float, nullable=False)  # Confidence/relevance score [0-1]
+
+    # Algorithm identification
+    tag_type = Column(String(50), nullable=False, index=True)
+    # Examples: 'siglip', 'clip', 'trained', 'visual_similarity', 'facial_recognition'
+
+    model_name = Column(String(100), nullable=False)
+    # e.g., 'google/siglip-so400m-patch14-384' (matches SigLIPTagger in tagging.py:112),
+    # 'openai/clip-vit-large' (hypothetical CLIP), 'trained' (keyword models)
+    # Must match the model_name set by the tagger at insertion time to ensure
+    # filtering/uniqueness/upserts work correctly across all code paths.
+    # Non-null to ensure uniqueness constraint is not bypassed by NULLs
+
+    model_version = Column(String(50))  # Version of the model that generated this tag
+
+    # Audit trail
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # updated_at tracks when tags are refreshed (used with ON CONFLICT upsert)
+
+    # Relationship
+    image = relationship("ImageMetadata", back_populates="machine_tags")
+
+    __table_args__ = (
+        # Per-image lookup with algorithm filter
+        Index("idx_machine_tags_per_image", "tenant_id", "image_id", "tag_type"),
+
+        # Faceted search: count images by keyword per algorithm
+        Index("idx_machine_tags_facets", "tenant_id", "tag_type", "keyword"),
+
+        # Prevent duplicate outputs from same algorithm for same image/keyword/model
+        # Includes tenant_id to isolate multi-tenant uniqueness
+        # model_name is non-null, so this constraint is never bypassed
+        Index("idx_machine_tags_unique",
+              "tenant_id", "image_id", "keyword", "tag_type", "model_name",
+              unique=True),
     )
