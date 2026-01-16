@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = "202601160000"
-down_revision = "202601151900_add_trained_image_tags"
+down_revision = "202601151900"
 branch_labels = None
 depends_on = None
 
