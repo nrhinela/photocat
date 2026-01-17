@@ -217,11 +217,11 @@ class ImageCard extends LitElement {
 
     return html`
       <div class="image-card bg-white rounded-lg shadow overflow-hidden">
-        <div class="aspect-square bg-gray-200 relative image-link" @click=${this._handleCardClick}>
+        <div class="aspect-square bg-gray-200 relative image-link flex items-center justify-center" @click=${this._handleCardClick}>
           <img
             src="${this.image.thumbnail_url || `/api/v1/images/${this.image.id}/thumbnail`}"
             alt="${this.image.filename}"
-            class="w-full h-full object-cover"
+            class="block max-w-full max-h-full"
             loading="lazy"
             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 400%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22400%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Image%3C/text%3E%3C/svg%3E';"
           />

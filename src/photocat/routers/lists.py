@@ -244,7 +244,7 @@ async def get_list_items(
                 "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
                 "modified_time": img.modified_time.isoformat() if img.modified_time else None,
                 "thumbnail_path": img.thumbnail_path,
-                "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
+                "thumbnail_url": tenant.get_thumbnail_url(settings, img.thumbnail_path),
                 "tags_applied": img.tags_applied,
                 "faces_detected": img.faces_detected,
                 "rating": img.rating,

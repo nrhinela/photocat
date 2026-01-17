@@ -60,6 +60,15 @@ class Tenant:
         """
         return f"{self.id}/{path_type}/{filename}"
 
+    def get_thumbnail_url(self, settings, thumbnail_path: Optional[str]) -> Optional[str]:
+        """Build a public thumbnail URL using CDN when configured."""
+        if not thumbnail_path:
+            return None
+        base = (settings.thumbnail_cdn_base_url or "").strip()
+        if base:
+            return f"{base.rstrip('/')}/{thumbnail_path}"
+        return f"https://storage.googleapis.com/{self.get_thumbnail_bucket(settings)}/{thumbnail_path}"
+
 
 class TenantContext:
     """Thread-local tenant context for request isolation."""

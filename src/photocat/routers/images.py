@@ -454,7 +454,7 @@ async def list_images(
             "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
             "modified_time": img.modified_time.isoformat() if img.modified_time else None,
             "thumbnail_path": img.thumbnail_path,
-            "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{img.thumbnail_path}" if img.thumbnail_path else None,
+            "thumbnail_url": tenant.get_thumbnail_url(settings, img.thumbnail_path),
             "tags_applied": img.tags_applied,
             "faces_detected": img.faces_detected,
             "rating": img.rating,
@@ -542,10 +542,7 @@ async def get_image(
     ).scalar()
 
     # Compute thumbnail_url as in the batch endpoint
-    if image.thumbnail_path:
-        thumbnail_url = f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{image.thumbnail_path}"
-    else:
-        thumbnail_url = None
+    thumbnail_url = tenant.get_thumbnail_url(settings, image.thumbnail_path)
     return {
         "id": image.id,
         "filename": image.filename,
@@ -760,7 +757,7 @@ async def list_ml_training_images(
         images_list.append({
             "id": image.id,
             "filename": image.filename,
-            "thumbnail_url": f"https://storage.googleapis.com/{tenant.get_thumbnail_bucket(settings)}/{image.thumbnail_path}" if image.thumbnail_path else None,
+            "thumbnail_url": tenant.get_thumbnail_url(settings, image.thumbnail_path),
             "embedding_generated": bool(image.embedding_generated),
             "positive_permatags": positive_permatags,
             "ml_tags": machine_tags,

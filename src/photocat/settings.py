@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Cloud Storage
     storage_bucket_name: str = "photocat-483622-images"
     thumbnail_bucket_name: Optional[str] = None
+    thumbnail_cdn_base_url: str = ""
     
     # Secret Manager
     secret_manager_prefix: str = "photocat"

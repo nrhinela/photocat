@@ -8,19 +8,18 @@ Proposal to refactor `src/photocat/routers/images.py` (1480 lines) into a modula
 
 ### File Metrics
 - **Total lines**: 1480
-- **Endpoints**: 19
+- **Endpoints**: 16
 - **Largest endpoint**: `GET /images` (433 lines, 29% of file)
 - **Complexity**: High cognitive load due to monolithic structure
 
-**Note**: Endpoint count verified via grep on 2026-01-16. Includes recently added POST /images/{id}/caption endpoint.
+**Note**: Endpoint count verified via grep on 2026-01-17. Caption endpoint was removed from earlier count.
 
 ### Endpoint Distribution
 ```
-Core Image Operations     ~490 lines (33%)
+Core Image Operations     ~436 lines (29%)
 ├── GET /images           433 lines (complex filtering)
 ├── GET /images/stats      28 lines
 ├── GET /images/{id}       64 lines
-├── POST /images/{id}/caption  54 lines
 ├── PATCH /images/{id}/rating  16 lines
 └── GET /images/{id}/thumbnail 49 lines
 
@@ -43,10 +42,8 @@ Tagging Operations        ~308 lines (21%)
 ```
 // COMMENT (Codex): Confirm the endpoint inventory matches the current router
 // before refactor scope is locked; the counts/paths here drive the plan.
-// RESPONSE: Verified - actual count is 19 endpoints (including POST /images/{id}/caption
-// not in original inventory). Updated distribution above reflects accurate counts.
-// COMMENT (Codex): The caption endpoint was removed; please re-verify the count
-// and update the distribution + totals accordingly.
+// RESPONSE: Re-verified 2026-01-17. Actual count is 16 endpoints (caption endpoint
+// was removed). Updated distribution above reflects accurate counts.
 
 ## Problems with Current Structure
 
@@ -91,7 +88,6 @@ src/photocat/routers/images/
 - `GET /images` - Main image listing with filtering
 - `GET /images/stats` - Aggregate statistics
 - `GET /images/{image_id}` - Single image detail
-- `POST /images/{image_id}/caption` - Generate AI caption
 - `PATCH /images/{image_id}/rating` - Update rating
 - `GET /images/{image_id}/thumbnail` - Thumbnail retrieval
 
@@ -140,7 +136,7 @@ src/photocat/routers/images/
 **Objective**: Lock OpenAPI operation_ids before refactoring to prevent spec drift
 
 **Actions**:
-1. Add explicit `operation_id` parameter to all 19 endpoint decorators
+1. Add explicit `operation_id` parameter to all 16 endpoint decorators
 2. Generate OpenAPI spec and save as baseline
 3. Deploy and validate (no functional changes)
 4. Merge to establish stable baseline
@@ -213,6 +209,9 @@ router = APIRouter(
     prefix="/api/v1",
     tags=["images"]
 )
+// COMMENT (Codex): If you want the OpenAPI spec to remain identical, keep tags
+// exactly as-is; adding per-subrouter tags (or changing the tag order) will
+// reorder sections in the spec and can affect generated clients.
 
 # Include all sub-routers (no prefix, tags inherited)
 router.include_router(core_router)
@@ -358,6 +357,9 @@ def apply_rating_filter(
 //       return select(PhotoListItem.photo_id).filter(...)
 // Then combine filters using .where(ImageMetadata.id.in_(subquery)) patterns.
 // This preserves database-level optimization and proper pagination.
+// COMMENT (Codex): If Phase 1 is meant to be low-risk refactor only, consider
+// keeping the current set-based semantics and deferring any query-plan changes
+// to a separate optimization phase to reduce behavior/perf drift.
 
 ## Backward Compatibility Guarantees
 
@@ -366,8 +368,6 @@ def apply_rating_filter(
 - `GET /api/v1/images` → unchanged
 - `POST /api/v1/images/{id}/permatags` → unchanged
 - All 16 endpoints maintain exact same URLs
-// COMMENT (Codex): If the endpoint inventory is 19, this "16 endpoints" line
-// should be updated to match the verified count.
 
 ✅ **Request/response schemas unchanged**
 - No changes to request parameters
@@ -378,6 +378,9 @@ def apply_rating_filter(
 - Filtering logic remains functionally identical
 - Error responses unchanged (status codes, messages)
 - Performance characteristics maintained
+// COMMENT (Codex): We should soften the “performance characteristics maintained”
+// claim and instead commit to validating (benchmarks) since filter extraction or
+// query composition changes can alter query plans.
 
 ### Import Path Migration
 **Before**:
@@ -459,11 +462,13 @@ from photocat.routers.images.filtering import apply_rating_filter
 // Single-commit rollback only applies if phases are consolidated into one PR.
 
 ### Rollback Risk: **Low**
-- Single atomic commit makes revert clean
-// COMMENT (Codex): This contradicts the per-phase rollback plan above unless
-// you consolidate phases into a single PR.
+- Each phase can be independently reverted via git revert
 - No database migrations involved
 - No external API changes to coordinate
+// COMMENT (Codex): This contradicts the per-phase rollback plan above unless
+// you consolidate phases into a single PR.
+// RESPONSE: Corrected. Removed "single atomic commit" language as this is a
+// multi-phase approach with independent rollback per phase.
 
 ## Benefits Summary
 
@@ -491,7 +496,7 @@ from photocat.routers.images.filtering import apply_rating_filter
 ## Implementation Checklist
 
 ### Phase 0: Pin operation_id Values
-- [ ] Add explicit operation_id to all 19 endpoints
+- [ ] Add explicit operation_id to all 16 endpoints
 - [ ] Generate OpenAPI spec baseline
 - [ ] Run full test suite (100% pass rate)
 - [ ] Deploy to dev environment
@@ -540,6 +545,8 @@ from photocat.routers.images.filtering import apply_rating_filter
 | Test coverage loss | Low | Medium | Measure coverage before/after, require >= baseline |
 | Performance regression | Very Low | Medium | Benchmark critical endpoints, require < 5% degradation |
 | Merge conflicts during migration | Medium | Low | Complete in single PR, communicate with team |
+// COMMENT (Codex): This mitigation conflicts with the earlier multi-phase plan.
+// Please align this row to “phased PRs with coordination windows” or similar.
 | Routing bugs | Low | High | Extensive integration tests, OpenAPI spec validation |
 
 **Overall Risk Level**: **Low**
