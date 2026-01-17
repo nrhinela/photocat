@@ -38,7 +38,7 @@ router = APIRouter(
 )
 
 
-@router.get("/images", response_model=dict)
+@router.get("/images", response_model=dict, operation_id="list_images")
 async def list_images(
     tenant: Tenant = Depends(get_tenant),
     limit: int = None,
@@ -473,7 +473,7 @@ async def list_images(
     }
 
 
-@router.get("/images/stats", response_model=dict)
+@router.get("/images/stats", response_model=dict, operation_id="get_image_stats")
 async def get_image_stats(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
@@ -503,7 +503,7 @@ async def get_image_stats(
     }
 
 
-@router.get("/images/{image_id}", response_model=dict)
+@router.get("/images/{image_id}", response_model=dict, operation_id="get_image")
 async def get_image(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -566,7 +566,7 @@ async def get_image(
     }
 
 
-@router.patch("/images/{image_id}/rating", response_model=dict)
+@router.patch("/images/{image_id}/rating", response_model=dict, operation_id="update_image_rating")
 async def update_image_rating(
     image_id: int,
     rating: int = Body(..., embed=True),
@@ -584,7 +584,7 @@ async def update_image_rating(
     return {"id": image.id, "rating": image.rating}
 
 
-@router.get("/images/{image_id}/thumbnail")
+@router.get("/images/{image_id}/thumbnail", operation_id="get_thumbnail")
 async def get_thumbnail(
     image_id: int,
     db: Session = Depends(get_db)
@@ -635,7 +635,7 @@ async def get_thumbnail(
         raise HTTPException(status_code=500, detail=f"Error fetching thumbnail: {str(e)}")
 
 
-@router.get("/ml-training/images", response_model=dict)
+@router.get("/ml-training/images", response_model=dict, operation_id="list_ml_training_images")
 async def list_ml_training_images(
     tenant: Tenant = Depends(get_tenant),
     limit: int = 50,
@@ -776,7 +776,7 @@ async def list_ml_training_images(
     }
 
 
-@router.get("/ml-training/stats", response_model=dict)
+@router.get("/ml-training/stats", response_model=dict, operation_id="get_ml_training_stats")
 async def get_ml_training_stats(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
@@ -834,7 +834,7 @@ async def get_ml_training_stats(
     }
 
 
-@router.get("/images/{image_id}/permatags", response_model=dict)
+@router.get("/images/{image_id}/permatags", response_model=dict, operation_id="get_permatags")
 async def get_permatags(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -870,7 +870,7 @@ async def get_permatags(
     }
 
 
-@router.post("/images/{image_id}/permatags", response_model=dict)
+@router.post("/images/{image_id}/permatags", response_model=dict, operation_id="add_permatag")
 async def add_permatag(
     image_id: int,
     request: Request,
@@ -934,7 +934,7 @@ async def add_permatag(
     }
 
 
-@router.delete("/images/{image_id}/permatags/{permatag_id}", response_model=dict)
+@router.delete("/images/{image_id}/permatags/{permatag_id}", response_model=dict, operation_id="delete_permatag")
 async def delete_permatag(
     image_id: int,
     permatag_id: int,
@@ -957,7 +957,7 @@ async def delete_permatag(
     return {"success": True}
 
 
-@router.post("/images/{image_id}/permatags/accept-all", response_model=dict)
+@router.post("/images/{image_id}/permatags/accept-all", response_model=dict, operation_id="accept_all_tags")
 async def accept_all_tags(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -1033,7 +1033,7 @@ async def accept_all_tags(
     }
 
 
-@router.post("/images/{image_id}/permatags/freeze", response_model=dict)
+@router.post("/images/{image_id}/permatags/freeze", response_model=dict, operation_id="freeze_permatags")
 async def freeze_permatags(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -1096,7 +1096,7 @@ async def freeze_permatags(
     }
 
 
-@router.post("/images/upload", response_model=dict)
+@router.post("/images/upload", response_model=dict, operation_id="upload_images")
 async def upload_images(
     files: List[UploadFile] = File(...),
     tenant: Tenant = Depends(get_tenant),
@@ -1188,7 +1188,7 @@ async def upload_images(
     }
 
 
-@router.get("/images/{image_id}/analyze", response_model=dict)
+@router.get("/images/{image_id}/analyze", response_model=dict, operation_id="analyze_image_keywords")
 async def analyze_image_keywords(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
@@ -1258,7 +1258,7 @@ async def analyze_image_keywords(
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
-@router.post("/images/{image_id}/retag", response_model=dict)
+@router.post("/images/{image_id}/retag", response_model=dict, operation_id="retag_single_image")
 async def retag_single_image(
     image_id: int,
     model: str = Query(None),
@@ -1368,7 +1368,7 @@ async def retag_single_image(
         raise HTTPException(status_code=500, detail=f"Retagging failed: {str(e)}")
 
 
-@router.post("/retag", response_model=dict)
+@router.post("/retag", response_model=dict, operation_id="retag_all_images")
 async def retag_all_images(
     model: str = Query(None),
     tenant: Tenant = Depends(get_tenant),
