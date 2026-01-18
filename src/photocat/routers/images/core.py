@@ -32,6 +32,7 @@ async def list_images(
     rating_operator: str = "eq",
     hide_zero_rating: bool = False,
     reviewed: Optional[bool] = None,
+    date_order: str = "desc",
     db: Session = Depends(get_db)
 ):
     """List images for tenant with optional faceted search by keywords."""
@@ -67,6 +68,13 @@ async def list_images(
         }
 
     # Handle per-category filters if provided
+    date_order = (date_order or "desc").lower()
+    if date_order not in ("asc", "desc"):
+        date_order = "desc"
+    order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
+    order_by_date = order_by_date.desc() if date_order == "desc" else order_by_date.asc()
+    id_order = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
+
     if category_filters:
         try:
             filters = json.loads(category_filters)
@@ -92,10 +100,28 @@ async def list_images(
                     # Calculate relevance scores using helper
                     score_map = calculate_relevance_scores(db, tenant, unique_image_ids, all_keywords, active_tag_type)
 
-                    # Sort unique_image_ids by relevance score (descending), then by ID (descending)
+                    date_rows = db.query(
+                        ImageMetadata.id,
+                        ImageMetadata.capture_timestamp,
+                        ImageMetadata.modified_time,
+                    ).filter(ImageMetadata.id.in_(unique_image_ids)).all()
+                    date_map = {
+                        row[0]: row[1] or row[2]
+                        for row in date_rows
+                    }
+
+                    # Sort unique_image_ids by relevance score (descending), then by date (order), then by ID (order)
                     sorted_ids = sorted(
                         unique_image_ids,
-                        key=lambda img_id: (-(score_map.get(img_id) or 0), -img_id)
+                        key=lambda img_id: (
+                            -(score_map.get(img_id) or 0),
+                            (
+                                -(date_map.get(img_id).timestamp())
+                                if date_map.get(img_id) and date_order == "desc"
+                                else (date_map.get(img_id).timestamp() if date_map.get(img_id) else float('inf'))
+                            ),
+                            -img_id if date_order == "desc" else img_id
+                        )
                     )
 
                     # Apply offset and limit
@@ -124,7 +150,7 @@ async def list_images(
             # Fall back to returning all images
             query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
             total = query.count()
-            images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+            images = query.order_by(order_by_date, id_order).limit(limit).offset(offset).all() if limit else query.order_by(order_by_date, id_order).offset(offset).all()
 
     # Apply keyword filtering if provided (legacy support)
     elif keywords:
@@ -143,6 +169,7 @@ async def list_images(
             ).distinct().subquery()
 
             # Main query with relevance ordering (by sum of confidence scores)
+            order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
             query = db.query(
                 ImageMetadata,
                 func.sum(MachineTag.confidence).label('relevance_score')
@@ -161,7 +188,8 @@ async def list_images(
                 ImageMetadata.id
             ).order_by(
                 func.sum(MachineTag.confidence).desc(),
-                ImageMetadata.id.desc()
+                order_by_date,
+                id_order
             )
 
             if filter_ids is not None:
@@ -205,6 +233,7 @@ async def list_images(
             matching_image_ids = base_query.subquery()
 
             # Query with relevance ordering (by sum of confidence scores)
+            order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
             query = db.query(
                 ImageMetadata,
                 func.sum(MachineTag.confidence).label('relevance_score')
@@ -223,7 +252,8 @@ async def list_images(
                 ImageMetadata.id
             ).order_by(
                 func.sum(MachineTag.confidence).desc(),
-                ImageMetadata.id.desc()
+                order_by_date,
+                id_order
             )
 
             total = db.query(ImageMetadata).filter(
@@ -239,14 +269,16 @@ async def list_images(
             if filter_ids is not None:
                 query = query.filter(ImageMetadata.id.in_(filter_ids))
             total = query.count()
-            images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+            order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
+            images = query.order_by(order_by_date, id_order).limit(limit).offset(offset).all() if limit else query.order_by(order_by_date, id_order).offset(offset).all()
     else:
         # No keywords filter, return all
         query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
         if filter_ids is not None:
             query = query.filter(ImageMetadata.id.in_(filter_ids))
         total = query.count()
-        images = query.order_by(ImageMetadata.id.desc()).limit(limit).offset(offset).all() if limit else query.order_by(ImageMetadata.id.desc()).offset(offset).all()
+        order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
+        images = query.order_by(order_by_date, id_order).limit(limit).offset(offset).all() if limit else query.order_by(order_by_date, id_order).offset(offset).all()
 
     # Get tags for all images
     image_ids = [img.id for img in images]
@@ -309,8 +341,13 @@ async def list_images(
             "lens_model": img.lens_model,
             "iso": img.iso,
             "aperture": img.aperture,
+            "shutter_speed": img.shutter_speed,
+            "focal_length": img.focal_length,
+            "gps_latitude": img.gps_latitude,
+            "gps_longitude": img.gps_longitude,
             "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
             "modified_time": img.modified_time.isoformat() if img.modified_time else None,
+            "created_at": img.created_at.isoformat() if img.created_at else None,
             "thumbnail_path": img.thumbnail_path,
             "thumbnail_url": tenant.get_thumbnail_url(settings, img.thumbnail_path),
             "tags_applied": img.tags_applied,
@@ -411,6 +448,16 @@ async def get_image(
         "dropbox_path": image.dropbox_path,
         "camera_make": image.camera_make,
         "camera_model": image.camera_model,
+        "lens_model": image.lens_model,
+        "iso": image.iso,
+        "aperture": image.aperture,
+        "shutter_speed": image.shutter_speed,
+        "focal_length": image.focal_length,
+        "gps_latitude": image.gps_latitude,
+        "gps_longitude": image.gps_longitude,
+        "capture_timestamp": image.capture_timestamp.isoformat() if image.capture_timestamp else None,
+        "modified_time": image.modified_time.isoformat() if image.modified_time else None,
+        "created_at": image.created_at.isoformat() if image.created_at else None,
         "perceptual_hash": image.perceptual_hash,
         "thumbnail_path": image.thumbnail_path,
         "thumbnail_url": thumbnail_url,
