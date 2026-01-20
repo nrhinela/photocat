@@ -167,12 +167,12 @@ class FilterControls extends LitElement {
     const containerClass = this.embedded ? '' : 'bg-white rounded-lg shadow p-6 mb-6';
     const keywordSectionClass = this.keywordsOnly ? '' : 'border-t pt-4';
 
-    if (this.showHistogram && !this.keywordsOnly) {
+    if (this.showHistogram) {
       return html`
         <div class=${containerClass}>
           <div class="filter-container">
             <div class="filter-column">
-              ${this.keywordsOnly ? html`` : html`
+              ${!this.keywordsOnly ? html`
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div class="flex items-end">
                     <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
@@ -242,7 +242,7 @@ class FilterControls extends LitElement {
                     </div>
                   ` : html``}
                 </div>
-              `}
+              ` : html``}
 
               <div class=${keywordSectionClass}>
                 <div class="flex items-center gap-4 mb-3">
