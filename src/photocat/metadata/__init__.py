@@ -146,7 +146,8 @@ class ImageTag(Base):
 
     id = Column(Integer, primary_key=True)
     image_id = Column(Integer, ForeignKey("image_metadata.id"), nullable=False)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
+    keyword_id = Column(Integer, nullable=False, index=True)
 
     confidence = Column(Float)  # If auto-tagged
     manual = Column(Boolean, default=False)  # User-applied vs AI
@@ -170,7 +171,9 @@ class Permatag(Base):
 
     id = Column(Integer, primary_key=True)
     image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
+    # Database enforces FK constraint; use db.query(Keyword).filter(Keyword.id == permatag.keyword_id)
+    keyword_id = Column(Integer, nullable=False, index=True)
 
     signum = Column(Integer, nullable=False)  # -1 = rejected, 1 = approved
 
@@ -255,7 +258,9 @@ class KeywordModel(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(255), nullable=False, index=True)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
+    # Database enforces FK constraint; use db.query(Keyword).filter(Keyword.id == model.keyword_id)
+    keyword_id = Column(Integer, nullable=False, index=True)
     model_name = Column(String(100), nullable=False)
     model_version = Column(String(50))
 
@@ -286,7 +291,8 @@ class TrainedImageTag(Base):
 
     id = Column(Integer, primary_key=True)
     image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
+    keyword_id = Column(Integer, nullable=False, index=True)
 
     confidence = Column(Float)
     model_name = Column(String(100))
@@ -327,7 +333,9 @@ class MachineTag(Base):
     tenant_id = Column(String(255), nullable=False, index=True)
 
     # Tag content (normalized via keyword_id)
-    keyword_id = Column(Integer, ForeignKey("keywords.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
+    # Database enforces FK constraint; use db.query(Keyword).filter(Keyword.id == tag.keyword_id)
+    keyword_id = Column(Integer, nullable=False, index=True)
 
     # Algorithm output
     confidence = Column(Float, nullable=False)  # Confidence/relevance score [0-1]
