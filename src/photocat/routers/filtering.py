@@ -545,9 +545,10 @@ def apply_hide_zero_rating_filter_subquery(
     Returns:
         SQLAlchemy subquery of image IDs with non-zero ratings
     """
+    from sqlalchemy import or_
     return db.query(ImageMetadata.id).filter(
         ImageMetadata.tenant_id == tenant.id,
-        ImageMetadata.rating != 0
+        or_(ImageMetadata.rating != 0, ImageMetadata.rating.is_(None))
     ).subquery()
 
 
