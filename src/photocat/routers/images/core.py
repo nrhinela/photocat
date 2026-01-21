@@ -271,7 +271,8 @@ async def list_images(
 
                 # Apply base_query subquery filters (list, rating, etc.) to the keyword query
                 for subquery in subqueries_list:
-                    query = query.filter(ImageMetadata.id.in_(db.query(subquery.c.id)))
+                    # All subqueries return ImageMetadata.id as the id column
+                    query = query.filter(ImageMetadata.id.in_(subquery))
 
                 total = query.count()
 
@@ -310,7 +311,8 @@ async def list_images(
 
                 # Apply base_query subquery filters (list, rating, etc.)
                 for subquery in subqueries_list:
-                    and_query = and_query.filter(ImageMetadata.id.in_(db.query(subquery.c.id)))
+                    # All subqueries return ImageMetadata.id as the id column
+                    and_query = and_query.filter(ImageMetadata.id.in_(subquery))
 
                 # Get matching image IDs
                 matching_image_ids = and_query.subquery()

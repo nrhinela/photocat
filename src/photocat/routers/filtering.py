@@ -492,8 +492,12 @@ def apply_list_filter_subquery(
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
 
-    return db.query(PhotoListItem.photo_id).filter(
-        PhotoListItem.list_id == list_id
+    return db.query(ImageMetadata.id).filter(
+        ImageMetadata.id.in_(
+            db.query(PhotoListItem.photo_id).filter(
+                PhotoListItem.list_id == list_id
+            )
+        )
     ).subquery()
 
 
