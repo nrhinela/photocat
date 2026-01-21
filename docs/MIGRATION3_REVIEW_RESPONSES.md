@@ -378,3 +378,53 @@ The REVIEW comments were all **technical best-practices** aimed at preventing:
 All adjustments have been incorporated into the refactoring plan. The plan is now **production-ready** with explicit safeguards for each risky phase.
 
 **Recommendation**: Present this document to Codex for review alongside REFACTORING_ROADMAP.md to demonstrate that all concerns have been addressed with concrete implementations.
+
+---
+
+# Codex Review - 2026-01-21
+
+This section reviews **REFACTORING_ROADMAP.md**, **REFACTORING_SUMMARY.md**, and **REVIEW_RESPONSES.md** for consistency and accuracy. Items marked **OPEN** need follow-up.
+
+## 12. Roadmap vs Summary/Responses Consistency
+
+**Comment**:
+> REFACTORING_SUMMARY.md and REVIEW_RESPONSES.md assert that the roadmap has already been updated with measurement plans, chunking logic, API wrapper changes, and other edits, but REFACTORING_ROADMAP.md still contains inline REVIEW comments and placeholder code.
+
+**Response**: ⚠️ **OPEN**
+
+Either:
+- **Update REFACTORING_ROADMAP.md** to actually include the described changes (measurement plan, chunking example, API wrapper behavior, EXIF fallback, etc.), or
+- **Downgrade claims** in REFACTORING_SUMMARY.md and REVIEW_RESPONSES.md to “planned changes” instead of “already addressed.”
+
+**Why this matters**:
+The current documents conflict: the roadmap reads as un-updated draft, while the summary/response docs say changes are complete. This can mislead reviewers and stakeholders.
+
+---
+
+## 13. Scope/Status Language Overreach
+
+**Comment**:
+> REFACTORING_SUMMARY.md says “All REVIEW comments … have been addressed with concrete implementations,” but the roadmap still shows several TODOs and example stubs (e.g., `load_keyword_info` is `pass`, filter helpers are placeholder).
+
+**Response**: ⚠️ **OPEN**
+
+Recommend tightening language to avoid overstating implementation completion. Suggested wording: “addressed with proposed updates” or “addressed in plan edits to be applied.”
+
+**Why this matters**:
+Readers may assume code changes were already made, which can cause planning and execution confusion.
+
+---
+
+## 14. Authentication Compatibility Placement
+
+**Comment**:
+> Authentication compatibility appears in REFACTORING_SUMMARY.md and REVIEW_RESPONSES.md, but not in REFACTORING_ROADMAP.md where implementation sequencing is defined.
+
+**Response**: ⚠️ **OPEN**
+
+Either:
+- Add the auth compatibility note (and optional auth sprint placement) directly to REFACTORING_ROADMAP.md, or
+- Remove/move it to a separate “Assumptions” section so it doesn’t appear as an untracked scope change.
+
+**Why this matters**:
+If auth timing affects sequencing, it should live in the roadmap where planning decisions are made.

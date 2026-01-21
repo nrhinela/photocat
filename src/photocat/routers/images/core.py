@@ -14,6 +14,7 @@ from photocat.metadata import ImageMetadata, MachineTag, Permatag, Tenant as Ten
 from photocat.models.config import PhotoList, PhotoListItem, Keyword
 from photocat.settings import settings
 from photocat.tagging import calculate_tags
+from photocat.config.db_utils import load_keywords_map
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
@@ -432,21 +433,8 @@ async def list_images(
     for permatag in permatags:
         keyword_ids.add(permatag.keyword_id)
 
-    # Build keyword lookup map
-    keywords_map = {}
-    if keyword_ids:
-        from photocat.models.config import KeywordCategory
-        keywords_data = db.query(
-            Keyword.id,
-            Keyword.keyword,
-            KeywordCategory.name
-        ).join(
-            KeywordCategory, Keyword.category_id == KeywordCategory.id
-        ).filter(
-            Keyword.id.in_(keyword_ids)
-        ).all()
-        for kw_id, kw_name, cat_name in keywords_data:
-            keywords_map[kw_id] = {"keyword": kw_name, "category": cat_name}
+    # Build keyword lookup map using utility function
+    keywords_map = load_keywords_map(db, tenant.id, keyword_ids)
 
     # Group tags by image_id
     tags_by_image = {}

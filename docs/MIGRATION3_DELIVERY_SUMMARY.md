@@ -6,7 +6,7 @@
 
 ## What We Delivered
 
-### 1. Updated REFACTORING_ROADMAP.md
+### 1. Updated MIGRATION3_REFACTORING_ROADMAP.md
 **Main deliverable**: All 11 REVIEW comments addressed inline with concrete code examples
 
 #### Changes made:
@@ -22,11 +22,11 @@
 - ✅ **Phase 4.1**: Golden dataset fixture and performance benchmarks (line 693)
 - ✅ **Rollout**: Phase 2 deployment correctness validation checklist (line 734)
 
-**File**: `/docs/REFACTORING_ROADMAP.md` (updated in-place)
+**File**: `/docs/MIGRATION3_REFACTORING_ROADMAP.md` (updated in-place)
 
 ---
 
-### 2. New: REVIEW_RESPONSES.md
+### 2. New: MIGRATION3_REVIEW_RESPONSES.md
 **Purpose**: Shows how each REVIEW comment was addressed with justification
 
 **Contains**:
@@ -36,24 +36,24 @@
 - Why each change matters (business/technical rationale)
 - Link to authentication compatibility
 
-**File**: `/docs/REVIEW_RESPONSES.md` (NEW)
+**File**: `/docs/MIGRATION3_REVIEW_RESPONSES.md` (NEW)
 
 ---
 
-### 3. New: REFACTORING_SUMMARY.md
+### 3. New: MIGRATION3_REFACTORING_SUMMARY.md
 **Purpose**: Quick reference for what changed and why
 
 **Contains**:
 - Summary of all 11 improvements by phase
 - Risk matrix: Risk → Safeguard → Where implemented
 - Questions for final approval
-- Link to REVIEW_RESPONSES.md for details
+- Link to MIGRATION3_REVIEW_RESPONSES.md for details
 
-**File**: `/docs/REFACTORING_SUMMARY.md` (NEW)
+**File**: `/docs/MIGRATION3_REFACTORING_SUMMARY.md` (NEW)
 
 ---
 
-### 4. New: AUTH_AND_REFACTORING_ROADMAP.md
+### 4. New: MIGRATION3_AUTH_AND_REFACTORING_ROADMAP.md
 **Purpose**: Addresses your question about authentication impact
 
 **Contains**:
@@ -69,7 +69,7 @@
 - **Recommended**: Insert 2-3 day "Auth Foundation Sprint" between Phase 1 & Phase 2
 - **Result**: Auth and refactoring can be deployed together after Phase 4
 
-**File**: `/docs/AUTH_AND_REFACTORING_ROADMAP.md` (NEW)
+**File**: `/docs/MIGRATION3_AUTH_AND_REFACTORING_ROADMAP.md` (NEW)
 
 ---
 
@@ -77,25 +77,30 @@
 
 Present in this order:
 
-1. **REFACTORING_ROADMAP.md** (updated)
+1. **MIGRATION3_REFACTORING_ROADMAP.md** (updated)
    - Main plan with all REVIEW comments addressed inline
    - Ready for implementation
    - No ambiguities, concrete code examples
 
-2. **REVIEW_RESPONSES.md** (new)
+2. **MIGRATION3_REVIEW_RESPONSES.md** (new)
    - Shows how each concern was resolved
    - Provides rationale for each change
    - Technical depth for code review
 
-3. **REFACTORING_SUMMARY.md** (new)
+3. **MIGRATION3_REFACTORING_SUMMARY.md** (new)
    - Quick reference for changes
    - Risk matrix and safeguards
    - Approval questions
 
-4. **AUTH_AND_REFACTORING_ROADMAP.md** (new)
+4. **MIGRATION3_AUTH_AND_REFACTORING_ROADMAP.md** (new)
    - Addresses your strategic question
    - Coordination plan with authentication work
-   - Migration strategy
+   - User/tenant membership strategy
+
+5. **MIGRATION3_DATABASE_MIGRATIONS.md** (new)
+   - Database changes required (if any)
+   - Optional vs required migrations
+   - Migration templates and checklists
 
 ---
 
@@ -190,13 +195,16 @@ Point to:
 
 ## Files Delivered
 
+All prefixed with `MIGRATION3_` to distinguish from database migrations:
+
 ```
 /docs/
-├── REFACTORING_ROADMAP.md (UPDATED - main plan with all review comments)
-├── REVIEW_RESPONSES.md (NEW - addresses each comment with rationale)
-├── REFACTORING_SUMMARY.md (NEW - quick reference of changes)
-├── AUTH_AND_REFACTORING_ROADMAP.md (NEW - auth coordination plan)
-└── DELIVERY_SUMMARY.md (NEW - this file)
+├── MIGRATION3_REFACTORING_ROADMAP.md (UPDATED - main plan with all review comments)
+├── MIGRATION3_REVIEW_RESPONSES.md (NEW - addresses each comment with rationale)
+├── MIGRATION3_REFACTORING_SUMMARY.md (NEW - quick reference of changes)
+├── MIGRATION3_AUTH_AND_REFACTORING_ROADMAP.md (NEW - auth coordination plan)
+├── MIGRATION3_DATABASE_MIGRATIONS.md (NEW - what DB migrations are needed)
+└── MIGRATION3_DELIVERY_SUMMARY.md (NEW - this file)
 ```
 
 All ready for Codex review.
