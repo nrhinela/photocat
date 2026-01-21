@@ -10,7 +10,7 @@ from google.cloud import storage
 
 from photocat.dependencies import get_db, get_tenant, get_tenant_setting
 from photocat.tenant import Tenant
-from photocat.metadata import ImageMetadata, MachineTag, Permatag, Tenant as TenantModel
+from photocat.metadata import ImageMetadata, MachineTag, Permatag, Tenant as TenantModel, KeywordModel
 from photocat.models.config import PhotoList, PhotoListItem, Keyword
 from photocat.settings import settings
 from photocat.tagging import calculate_tags
@@ -51,8 +51,11 @@ async def list_images(
     permatag_category: Optional[str] = None,
     permatag_signum: Optional[int] = None,
     permatag_missing: bool = False,
+    category_filter_source: Optional[str] = None,
     date_order: str = "desc",
     order_by: Optional[str] = None,
+    ml_keyword: Optional[str] = None,
+    ml_tag_type: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """List images for tenant with optional faceted search by keywords."""
@@ -100,11 +103,24 @@ async def list_images(
         }
 
     # Handle per-category filters if provided
+    ml_keyword_id = None
+    if ml_keyword:
+        normalized_keyword = ml_keyword.strip().lower()
+        if normalized_keyword:
+            keyword_row = db.query(Keyword.id).filter(
+                func.lower(Keyword.keyword) == normalized_keyword,
+                Keyword.tenant_id == tenant.id
+            ).first()
+            if keyword_row:
+                ml_keyword_id = keyword_row[0]
+
     date_order = (date_order or "desc").lower()
     if date_order not in ("asc", "desc"):
         date_order = "desc"
     order_by_value = (order_by or "").lower()
-    if order_by_value not in ("photo_creation", "image_id"):
+    if order_by_value not in ("photo_creation", "image_id", "ml_score"):
+        order_by_value = None
+    if order_by_value == "ml_score" and not ml_keyword_id:
         order_by_value = None
     order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
     order_by_date = order_by_date.desc() if date_order == "desc" else order_by_date.asc()
@@ -116,7 +132,13 @@ async def list_images(
             filters = json.loads(category_filters)
 
             # Apply category filters using helper
-            unique_image_ids_set = apply_category_filters(db, tenant, category_filters, filter_ids)
+            unique_image_ids_set = apply_category_filters(
+                db,
+                tenant,
+                category_filters,
+                filter_ids,
+                source=category_filter_source or "current"
+            )
 
             if unique_image_ids_set:
                 unique_image_ids = list(unique_image_ids_set)
@@ -356,8 +378,38 @@ async def list_images(
         if filter_ids is not None:
             query = query.filter(ImageMetadata.id.in_(filter_ids))
         total = query.count()
-        order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
-        images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+        if order_by_value == "ml_score" and ml_keyword_id:
+            active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+            selected_tag_type = (ml_tag_type or active_tag_type).strip().lower()
+            model_name = None
+            if selected_tag_type == 'trained':
+                model_row = db.query(KeywordModel.model_name).filter(
+                    KeywordModel.tenant_id == tenant.id
+                ).order_by(
+                    func.coalesce(KeywordModel.updated_at, KeywordModel.created_at).desc()
+                ).first()
+                if model_row:
+                    model_name = model_row[0]
+            ml_scores = db.query(
+                MachineTag.image_id.label('image_id'),
+                func.max(MachineTag.confidence).label('ml_score')
+            ).filter(
+                MachineTag.keyword_id == ml_keyword_id,
+                MachineTag.tenant_id == tenant.id,
+                MachineTag.tag_type == selected_tag_type,
+                *([MachineTag.model_name == model_name] if model_name else [])
+            ).group_by(
+                MachineTag.image_id
+            ).subquery()
+            scored_query = query.outerjoin(ml_scores, ml_scores.c.image_id == ImageMetadata.id)
+            order_clauses = (
+                ml_scores.c.ml_score.desc().nullslast(),
+                order_by_date,
+                id_order
+            )
+            images = scored_query.order_by(*order_clauses).limit(limit).offset(offset).all() if limit else scored_query.order_by(*order_clauses).offset(offset).all()
+        else:
+            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
 
     # Get tags for all images
     image_ids = [img.id for img in images]

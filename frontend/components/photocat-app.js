@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import './app-header.js';
 import './image-gallery.js';
 import './filter-controls.js';
+import './tag-histogram.js';
 import './image-modal.js';
 import './upload-modal.js';
 import './tab-container.js'; // Import the new tab container
@@ -155,6 +156,15 @@ class PhotoCatApp extends LitElement {
     .curate-audit-toggle button.active {
         background: #111827;
         color: #ffffff;
+    }
+    .curate-ai-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px;
+        border-radius: 10px;
+        background: #f8fafc;
+        border: 1px solid #e5e7eb;
     }
     .curate-layout {
         display: grid;
@@ -535,7 +545,7 @@ class PhotoCatApp extends LitElement {
       curateApplyPending: { type: Number },
       curateEditorImage: { type: Object },
       curateEditorOpen: { type: Boolean },
-      curateSubTab: { type: String },
+      curateSubTab: { type: String, attribute: false },
       curateAuditMode: { type: String },
       curateAuditKeyword: { type: String },
       curateAuditCategory: { type: String },
@@ -552,6 +562,9 @@ class PhotoCatApp extends LitElement {
       curateAuditLoading: { type: Boolean },
       curateAuditLoadAll: { type: Boolean },
       curateAuditPageOffset: { type: Number },
+      curateAuditAiEnabled: { type: Boolean },
+      curateAuditAiModel: { type: String },
+      curateAdvancedOpen: { type: Boolean },
       activeCurateTagSource: { type: String },
       curateCategoryCards: { type: Array },
   }
@@ -601,7 +614,7 @@ class PhotoCatApp extends LitElement {
       this._pendingCurateApplyIds = new Set();
       this.curateEditorImage = null;
       this.curateEditorOpen = false;
-      this.curateSubTab = 'main';
+      this.curateSubTab = 'home';
       this.curateAuditMode = 'existing';
       this.curateAuditKeyword = '';
       this.curateAuditCategory = '';
@@ -618,6 +631,9 @@ class PhotoCatApp extends LitElement {
       this.curateAuditLoading = false;
       this.curateAuditLoadAll = false;
       this.curateAuditPageOffset = 0;
+      this.curateAuditAiEnabled = false;
+      this.curateAuditAiModel = '';
+      this.curateAdvancedOpen = false;
       this.activeCurateTagSource = 'permatags';
       this.curateCategoryCards = [];
       this._listsLoaded = false;
@@ -780,6 +796,59 @@ class PhotoCatApp extends LitElement {
       this._applyCurateFilters();
   }
 
+  _handleCurateKeywordSelect(event, mode) {
+      const rawValue = event.target.value || '';
+      if (!rawValue) {
+          if (mode === 'tag-audit') {
+              this.curateAuditKeyword = '';
+              this.curateAuditCategory = '';
+              this.curateAuditSelection = [];
+              this.curateAuditDragSelection = [];
+              this.curateAuditDragTarget = null;
+              this.curateAuditOffset = 0;
+              this.curateAuditTotal = null;
+              this.curateAuditLoadAll = false;
+              this.curateAuditPageOffset = 0;
+              this.curateAuditImages = [];
+          } else {
+              this.curateKeywordFilters = {};
+              this.curateKeywordOperators = {};
+              this._applyCurateFilters();
+          }
+          return;
+      }
+
+      const [encodedCategory, ...encodedKeywordParts] = rawValue.split('::');
+      const category = decodeURIComponent(encodedCategory || '');
+      const keyword = decodeURIComponent(encodedKeywordParts.join('::') || '');
+
+      if (mode === 'tag-audit') {
+          this.curateAuditKeyword = keyword;
+          this.curateAuditCategory = category;
+          this.curateAuditSelection = [];
+          this.curateAuditDragSelection = [];
+          this.curateAuditDragTarget = null;
+          this.curateAuditOffset = 0;
+          this.curateAuditTotal = null;
+          this.curateAuditLoadAll = false;
+          this.curateAuditPageOffset = 0;
+          if (!keyword) {
+              this.curateAuditImages = [];
+              return;
+          }
+          this._fetchCurateAuditImages();
+          return;
+      }
+
+      const nextKeywords = {};
+      if (keyword) {
+          nextKeywords[category || 'Uncategorized'] = new Set([keyword]);
+      }
+      this.curateKeywordFilters = nextKeywords;
+      this.curateKeywordOperators = keyword ? { [category || 'Uncategorized']: 'OR' } : {};
+      this._applyCurateFilters();
+  }
+
   _handleCurateKeywordFilterChange(e) {
       const detail = e.detail || {};
       const nextKeywords = {};
@@ -813,6 +882,52 @@ class PhotoCatApp extends LitElement {
         .filter(Boolean)
         .sort((a, b) => b.totalCount - a.totalCount);
       this.curateCategoryCards = categoryCards;
+  }
+
+  _getAllKeywordsFlat() {
+      // Flatten all keywords from all categories for dropdown
+      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
+      const allKeywords = [];
+      Object.entries(sourceStats).forEach(([category, keywords]) => {
+          (keywords || []).forEach(kw => {
+              allKeywords.push({
+                  keyword: kw.keyword,
+                  category: category,
+                  count: kw.count || 0
+              });
+          });
+      });
+      // Sort by keyword name
+      return allKeywords.sort((a, b) => a.keyword.localeCompare(b.keyword));
+  }
+
+  _getKeywordsByCategory() {
+      // Group keywords by category with counts, returns array of [category, keywords] tuples
+      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
+      const result = [];
+
+      Object.entries(sourceStats).forEach(([category, keywords]) => {
+          const categoryKeywords = (keywords || [])
+              .map(kw => ({
+                  keyword: kw.keyword,
+                  count: kw.count || 0
+              }))
+              .sort((a, b) => a.keyword.localeCompare(b.keyword));
+
+          if (categoryKeywords.length > 0) {
+              result.push([category, categoryKeywords]);
+          }
+      });
+
+      // Sort categories alphabetically
+      return result.sort((a, b) => a[0].localeCompare(b[0]));
+  }
+
+  _getCategoryCount(category) {
+      // Get total positive permatag count for a category
+      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
+      const keywords = sourceStats[category] || [];
+      return (keywords || []).reduce((sum, kw) => sum + (kw.count || 0), 0);
   }
 
   _handleCurateHideDeletedChange(e) {
@@ -851,7 +966,7 @@ class PhotoCatApp extends LitElement {
       if (this._pendingCurateApplyIds) {
         this._pendingCurateApplyIds.clear();
       }
-      this.curateSubTab = 'main';
+      this.curateSubTab = 'home';
       this.curateAuditMode = 'existing';
       this.curateAuditKeyword = '';
       this.curateAuditCategory = '';
@@ -867,6 +982,8 @@ class PhotoCatApp extends LitElement {
       this.curateAuditLoading = false;
       this.curateAuditLoadAll = false;
       this.curateAuditPageOffset = 0;
+      this.curateAuditAiEnabled = false;
+      this.curateAuditAiModel = '';
       this._maybeFetchListsForTab(this.activeTab);
   }
 
@@ -1041,6 +1158,31 @@ class PhotoCatApp extends LitElement {
       }
   }
 
+  _handleCurateAuditAiEnabledChange(event) {
+      this.curateAuditAiEnabled = event.target.checked;
+      if (!this.curateAuditAiEnabled) {
+          this.curateAuditAiModel = '';
+      }
+      this.curateAuditOffset = 0;
+      this.curateAuditTotal = null;
+      this.curateAuditLoadAll = false;
+      this.curateAuditPageOffset = 0;
+      if (this.curateAuditKeyword && this.curateAuditMode === 'missing') {
+          this._fetchCurateAuditImages();
+      }
+  }
+
+  _handleCurateAuditAiModelChange(nextModel) {
+      this.curateAuditAiModel = this.curateAuditAiModel === nextModel ? '' : nextModel;
+      this.curateAuditOffset = 0;
+      this.curateAuditTotal = null;
+      this.curateAuditLoadAll = false;
+      this.curateAuditPageOffset = 0;
+      if (this.curateAuditKeyword && this.curateAuditMode === 'missing') {
+          this._fetchCurateAuditImages();
+      }
+  }
+
   _handleCurateAuditKeywordChange(e) {
       const detail = e.detail || {};
       let nextKeyword = '';
@@ -1117,6 +1259,9 @@ class PhotoCatApp extends LitElement {
 
   async _fetchCurateAuditImages({ append = false, loadAll = false, offset = null } = {}) {
       if (!this.tenant || !this.curateAuditKeyword) return;
+      const useAiSort = this.curateAuditMode === 'missing'
+          && this.curateAuditAiEnabled
+          && !!this.curateAuditAiModel;
       if (this.curateMinRating === 0 && this.curateHideDeleted) {
           this.curateAuditImages = [];
           this.curateAuditOffset = 0;
@@ -1134,11 +1279,15 @@ class PhotoCatApp extends LitElement {
                 : (this.curateAuditPageOffset || 0);
           const filters = {
               sortOrder: this.curateOrderDirection,
-              orderBy: this.curateOrderBy,
+              orderBy: useAiSort ? 'ml_score' : this.curateOrderBy,
               permatagKeyword: this.curateAuditKeyword,
               permatagSignum: 1,
               permatagMissing: this.curateAuditMode === 'missing',
           };
+          if (useAiSort) {
+              filters.mlKeyword = this.curateAuditKeyword;
+              filters.mlTagType = this.curateAuditAiModel;
+          }
           if (this.curateHideDeleted) {
               filters.hideZeroRating = true;
           }
@@ -1392,112 +1541,164 @@ class PhotoCatApp extends LitElement {
       this.curateDragSelection = ids;
   }
 
-  _renderCurateFilters({ mode = 'main' } = {}) {
-    const isTagAudit = mode === 'tag-audit';
+  _renderCurateFilters({ mode = 'main', showHistogramOnly = false, showHistogram = true } = {}) {
+    // If showing only histogram (for home tab), render just that
+    if (showHistogramOnly) {
+      return html`
+        <tag-histogram
+          .categoryCards=${this.curateCategoryCards || []}
+          .activeTagSource=${this.activeCurateTagSource || 'permatags'}
+          .tagStatsBySource=${this.tagStatsBySource}
+          @tag-source-change=${this._handleCurateTagSourceChange}
+        ></tag-histogram>
+      `;
+    }
+
+    const selectedKeywordValue = (() => {
+      if (mode === 'tag-audit') {
+        if (!this.curateAuditKeyword) return '';
+        const category = this.curateAuditCategory || 'Uncategorized';
+        return `${encodeURIComponent(category)}::${encodeURIComponent(this.curateAuditKeyword)}`;
+      }
+      const entries = Object.entries(this.curateKeywordFilters || {});
+      for (const [category, keywordsSet] of entries) {
+        if (keywordsSet && keywordsSet.size > 0) {
+          const [keyword] = Array.from(keywordsSet);
+          if (keyword) {
+            return `${encodeURIComponent(category)}::${encodeURIComponent(keyword)}`;
+          }
+        }
+      }
+      return '';
+    })();
+
     return html`
+      <!-- Compact Filter Section (Top) -->
       <div class="bg-white rounded-lg shadow p-4 mb-4">
-        <div class="grid grid-cols-1 lg:grid-cols-[3fr_1fr] gap-4 items-start">
-          <div class="min-w-0">
-            <div class="flex flex-wrap md:flex-nowrap items-end gap-4">
-              <div class="flex-[1] min-w-[90px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Limit</label>
+        <div class="space-y-4">
+          <!-- Line 1: Keyword Dropdown + Page Size + Thumbnail Slider -->
+          <div class="flex gap-4 items-end">
+            <div class="flex-1 min-w-[250px]">
+              <label class="block text-xs font-semibold text-gray-600 mb-2">Keywords</label>
+              <select
+                class="w-full px-3 py-2 border rounded-lg text-sm"
+                .value=${selectedKeywordValue}
+                @change=${(event) => this._handleCurateKeywordSelect(event, mode)}
+              >
+                <option value="">Select a keyword...</option>
+                ${this._getKeywordsByCategory().map(([category, keywords]) => html`
+                  <optgroup label="${category} (${this._getCategoryCount(category)})">
+                    ${keywords.map(kw => html`
+                      <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
+                        ${kw.keyword} (${kw.count})
+                      </option>
+                    `)}
+                  </optgroup>
+                `)}
+              </select>
+            </div>
+            <div class="flex-[0.7] min-w-[100px]">
+              <label class="block text-xs font-semibold text-gray-600 mb-2">Page Size</label>
+              <input
+                type="number"
+                min="1"
+                class="w-full px-3 py-2 border rounded-lg text-sm"
+                .value=${String(this.curateLimit)}
+                @input=${this._handleCurateLimitChange}
+              >
+            </div>
+            <div class="flex-1 min-w-[160px]">
+              <label class="block text-xs font-semibold text-gray-600 mb-2">Thumbnail Size</label>
+              <div class="flex items-center gap-3 text-xs text-gray-600">
                 <input
-                  type="number"
-                  min="1"
-                  class="w-full px-2 py-1 border rounded-lg text-xs"
-                  .value=${String(this.curateLimit)}
-                  @input=${this._handleCurateLimitChange}
+                  type="range"
+                  min="80"
+                  max="220"
+                  step="10"
+                  .value=${String(this.curateThumbSize)}
+                  @input=${this._handleCurateThumbSizeChange}
+                  class="flex-1"
                 >
+                <span class="w-8 text-right text-xs">${this.curateThumbSize}px</span>
               </div>
-              <div class="flex-[2] min-w-[180px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Order by</label>
-                <div class="grid grid-cols-2 gap-2">
-                  <select
-                    class="w-full px-2 py-1 border rounded-lg text-xs"
-                    .value=${this.curateOrderBy}
-                    @change=${this._handleCurateOrderByChange}
-                  >
-                    <option value="photo_creation">Photo creation</option>
-                    <option value="image_id">Image ID</option>
-                  </select>
-                  <select
-                    class="w-full px-2 py-1 border rounded-lg text-xs"
-                    .value=${this.curateOrderDirection}
-                    @change=${this._handleCurateOrderDirectionChange}
-                  >
-                    <option value="desc">Desc</option>
-                    <option value="asc">Asc</option>
-                  </select>
-                </div>
-              </div>
-              <div class="flex-[2] min-w-[200px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Rating</label>
-                <div class="flex flex-wrap items-center gap-2">
-                  <label class="inline-flex items-center gap-2 text-xs text-gray-600">
-                    <input
-                      type="checkbox"
-                      class="h-4 w-4"
-                      .checked=${this.curateHideDeleted}
-                      @change=${this._handleCurateHideDeletedChange}
+            </div>
+            <button
+              class="h-9 w-9 flex items-center justify-center border rounded-lg text-gray-600 hover:bg-gray-50"
+              title="Advanced filters"
+              aria-pressed=${this.curateAdvancedOpen ? 'true' : 'false'}
+              @click=${() => { this.curateAdvancedOpen = !this.curateAdvancedOpen; }}
+            >
+              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.02.02a2 2 0 1 1-2.83 2.83l-.02-.02a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.03a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.02.02a2 2 0 1 1-2.83-2.83l.02-.02a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.03a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.02-.02a2 2 0 1 1 2.83-2.83l.02.02a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.03a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.02-.02a2 2 0 1 1 2.83 2.83l-.02.02a1.7 1.7 0 0 0-.34 1.87V9c0 .68.4 1.3 1.02 1.58.24.11.5.17.77.17H21a2 2 0 1 1 0 4h-.03a1.7 1.7 0 0 0-1.55 1z"></path>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Line 2: Advanced Accordion (with existing filters inside) -->
+          ${this.curateAdvancedOpen ? html`
+            <div class="border rounded-lg">
+              <div class="px-3 py-3 bg-gray-50 space-y-4">
+              <!-- Existing filter controls moved into accordion -->
+              <div class="flex flex-wrap md:flex-nowrap items-end gap-4">
+                <div class="flex-[2] min-w-[180px]">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">Sort items by</label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <select
+                      class="w-full px-2 py-1 border rounded-lg text-xs"
+                      .value=${this.curateOrderBy}
+                      @change=${this._handleCurateOrderByChange}
                     >
-                    <span class="inline-flex items-center gap-2">
-                      <i class="fas fa-trash"></i>
-                      hide deleted
-                    </span>
-                  </label>
-                  <div class="flex items-center gap-1">
-                    ${[0, 1, 2, 3].map((value) => {
-                      const label = value === 0 ? '0' : `${value}+`;
-                      const title = value === 0 ? 'Quality = 0' : `Quality >= ${value}`;
-                      return html`
-                        <button
-                          class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${this.curateMinRating === value ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-100 text-gray-500 border-gray-200'}"
-                          title=${title}
-                          @click=${() => this._handleCurateMinRating(value)}
-                        >
-                          <i class="fas fa-star"></i>
-                          <span>${label}</span>
-                        </button>
-                      `;
-                    })}
+                      <option value="photo_creation">Photo Date</option>
+                      <option value="image_id">Uploaded Date</option>
+                    </select>
+                    <select
+                      class="w-full px-2 py-1 border rounded-lg text-xs"
+                      .value=${this.curateOrderDirection}
+                      @change=${this._handleCurateOrderDirectionChange}
+                    >
+                      <option value="desc">Desc</option>
+                      <option value="asc">Asc</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="flex-[2] min-w-[200px]">
+                  <label class="block text-xs font-semibold text-gray-600 mb-1">Rating</label>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <label class="inline-flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        class="h-4 w-4"
+                        .checked=${this.curateHideDeleted}
+                        @change=${this._handleCurateHideDeletedChange}
+                      >
+                      <span class="inline-flex items-center gap-2">
+                        <i class="fas fa-trash"></i>
+                        hide deleted
+                      </span>
+                    </label>
+                    <div class="flex items-center gap-1">
+                      ${[0, 1, 2, 3].map((value) => {
+                        const label = value === 0 ? '0' : `${value}+`;
+                        const title = value === 0 ? 'Quality = 0' : `Quality >= ${value}`;
+                        return html`
+                          <button
+                            class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${this.curateMinRating === value ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-100 text-gray-500 border-gray-200'}"
+                            title=${title}
+                            @click=${() => this._handleCurateMinRating(value)}
+                          >
+                            <i class="fas fa-star"></i>
+                            <span>${label}</span>
+                          </button>
+                        `;
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
-              <div class="flex-[1] min-w-[160px]">
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Thumbnail size</label>
-                <div class="flex items-center gap-3 text-xs text-gray-600">
-                  <input
-                    type="range"
-                    min="80"
-                    max="220"
-                    step="10"
-                    .value=${String(this.curateThumbSize)}
-                    @input=${this._handleCurateThumbSizeChange}
-                    class="flex-1"
-                  >
-                  <span class="w-8 text-right text-xs">${this.curateThumbSize}px</span>
-                </div>
               </div>
             </div>
-          </div>
-          <div class="min-w-0 flex-1">
-            <filter-controls
-              .tenant=${this.tenant}
-              .keywordsOnly=${true}
-              .embedded=${true}
-              .singleSelect=${isTagAudit}
-              .keywordSource=${'permatags'}
-              .ratingFilter=${this.curateMinRating !== null && this.curateMinRating !== undefined ? String(this.curateMinRating) : ''}
-              .ratingOperator=${this.curateMinRating === 0 ? 'eq' : 'gte'}
-              .hideZeroRating=${this.curateHideDeleted}
-              .showHistogram=${true}
-              .tagStatsBySource=${this.tagStatsBySource}
-              .activeTagSource=${this.activeCurateTagSource || 'permatags'}
-              .categoryCards=${this.curateCategoryCards || []}
-              @filter-change=${isTagAudit ? this._handleCurateAuditKeywordChange : this._handleCurateKeywordFilterChange}
-              @tag-source-change=${this._handleCurateTagSourceChange}
-            ></filter-controls>
-          </div>
+          ` : html``}
         </div>
       </div>
     `;
@@ -1665,10 +1866,16 @@ class PhotoCatApp extends LitElement {
                 <div class="flex items-center justify-between mb-4">
                     <div class="curate-subtabs">
                         <button
+                          class="curate-subtab ${this.curateSubTab === 'home' ? 'active' : ''}"
+                          @click=${() => this._handleCurateSubTabChange('home')}
+                        >
+                          Curate Home
+                        </button>
+                        <button
                           class="curate-subtab ${this.curateSubTab === 'main' ? 'active' : ''}"
                           @click=${() => this._handleCurateSubTabChange('main')}
                         >
-                          Main
+                          Explore
                         </button>
                         <button
                           class="curate-subtab ${this.curateSubTab === 'tag-audit' ? 'active' : ''}"
@@ -1678,8 +1885,66 @@ class PhotoCatApp extends LitElement {
                         </button>
                     </div>
                 </div>
+                <div ?hidden=${this.curateSubTab !== 'home'}>
+                  <div class="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+                    <!-- Left Column: Instructions -->
+                    <div class="space-y-6">
+                      <div class="bg-white rounded-lg shadow p-6">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-6">Curate Your Collection</h2>
+
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                          <h3 class="text-lg font-semibold text-blue-900 mb-3">Getting Started</h3>
+                          <p class="text-blue-800 text-sm mb-4">
+                            Welcome to the Curation interface! Here's how to organize your collection:
+                          </p>
+                          <ol class="space-y-3 text-sm text-blue-800">
+                            <li class="flex gap-3">
+                              <span class="font-bold flex-shrink-0">1.</span>
+                              <span><button @click=${() => this._handleCurateSubTabChange('main')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Explore Tab</button>: Browse, select, and organize images by dragging them between panes. Use filters and keywords to find exactly what you need.</span>
+                            </li>
+                            <li class="flex gap-3">
+                              <span class="font-bold flex-shrink-0">2.</span>
+                              <span><button @click=${() => this._handleCurateSubTabChange('tag-audit')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Tag Audit Tab</button>: Review and validate machine-generated tags. Ensure your automated tags are accurate and complete.</span>
+                            </li>
+                            <li class="flex gap-3">
+                              <span class="font-bold flex-shrink-0">3.</span>
+                              <span><strong>Curate Home (This Tab):</strong> Monitor tag statistics and understand your collection's tagging patterns at a glance.</span>
+                            </li>
+                          </ol>
+                        </div>
+
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <h3 class="text-lg font-semibold text-green-900 mb-3">Quick Tips</h3>
+                          <ul class="space-y-2 text-sm text-green-800">
+                            <li class="flex gap-2">
+                              <span>📌</span>
+                              <span>Click and drag images to move them between left and right panes</span>
+                            </li>
+                            <li class="flex gap-2">
+                              <span>🏷️</span>
+                              <span>Use the Process button to apply tags to selected images</span>
+                            </li>
+                            <li class="flex gap-2">
+                              <span>🔍</span>
+                              <span>Filter by keywords, ratings, and lists to focus on specific images</span>
+                            </li>
+                            <li class="flex gap-2">
+                              <span>⚙️</span>
+                              <span>Switch between Permatags, Keyword-Model, and Zero-Shot in the histogram</span>
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Right Column: Histogram -->
+                    <div class="bg-white rounded-lg shadow p-4 self-start sticky top-0 max-h-[calc(100vh-200px)] overflow-y-auto">
+                      ${this._renderCurateFilters({ mode: 'home', showHistogramOnly: true })}
+                    </div>
+                  </div>
+                </div>
                 <div ?hidden=${this.curateSubTab !== 'main'}>
-                  ${this._renderCurateFilters({ mode: 'main' })}
+                  ${this._renderCurateFilters({ mode: 'main', showHistogram: false })}
                   <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
                     <div
                       class="curate-pane"
@@ -1913,9 +2178,9 @@ class PhotoCatApp extends LitElement {
                 </div>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'tag-audit'}>
-                    ${this._renderCurateFilters({ mode: 'tag-audit' })}
+                    ${this._renderCurateFilters({ mode: 'tag-audit', showHistogram: false })}
                     <div class="bg-white rounded-lg shadow p-4 mb-4">
-                        <div class="flex flex-wrap items-center gap-4">
+                        <div class="flex flex-wrap items-start gap-4">
                             <div>
                                 <div class="text-xs font-semibold text-gray-600 mb-1">Audit mode</div>
                                 <div class="curate-audit-toggle">
@@ -1923,29 +2188,48 @@ class PhotoCatApp extends LitElement {
                                       class=${this.curateAuditMode === 'existing' ? 'active' : ''}
                                       @click=${() => this._handleCurateAuditModeChange('existing')}
                                     >
-                                      Audit Existing
+                                      Verify Existing Tags
                                     </button>
                                     <button
                                       class=${this.curateAuditMode === 'missing' ? 'active' : ''}
                                       @click=${() => this._handleCurateAuditModeChange('missing')}
                                     >
-                                      Audit Missing
+                                      Find Missing Tags
                                     </button>
                                 </div>
                             </div>
-                            <div>
-                                <div class="text-xs font-semibold text-gray-600 mb-1">Limit</div>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  class="w-24 px-2 py-1 border rounded-lg text-xs"
-                                  .value=${String(this.curateAuditLimit)}
-                                  @input=${this._handleCurateAuditLimitChange}
-                                >
-                            </div>
-                            <div class="text-xs text-gray-500">
-                                Select one keyword and drag images to ${auditActionVerb} it.
-                            </div>
+                            ${this.curateAuditMode === 'missing' ? html`
+                              <div>
+                                <div class="text-xs font-semibold text-gray-600 mb-1">AI mode</div>
+                                <div class="curate-ai-toggle text-xs text-gray-600">
+                                  <label class="inline-flex items-center gap-2">
+                                    <input
+                                      type="checkbox"
+                                      class="h-4 w-4"
+                                      .checked=${this.curateAuditAiEnabled}
+                                      @change=${this._handleCurateAuditAiEnabledChange}
+                                    >
+                                    <span>Enable</span>
+                                  </label>
+                                  ${this.curateAuditAiEnabled ? html`
+                                    <div class="flex items-center gap-2">
+                                      ${[
+                                        { key: 'siglip', label: 'Zero-shot' },
+                                        { key: 'trained', label: 'Keyword model' },
+                                      ].map((model) => html`
+                                        <button
+                                          class="px-2 py-1 rounded border text-xs ${this.curateAuditAiModel === model.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
+                                          aria-pressed=${this.curateAuditAiModel === model.key ? 'true' : 'false'}
+                                          @click=${() => this._handleCurateAuditAiModelChange(model.key)}
+                                        >
+                                          ${model.label}
+                                        </button>
+                                      `)}
+                                    </div>
+                                  ` : html``}
+                                </div>
+                              </div>
+                            ` : html``}
                         </div>
                     </div>
                     <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">

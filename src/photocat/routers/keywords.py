@@ -25,7 +25,8 @@ async def get_available_keywords(
     rating: Optional[int] = None,
     rating_operator: str = "eq",
     hide_zero_rating: bool = False,
-    reviewed: Optional[bool] = None
+    reviewed: Optional[bool] = None,
+    source: Optional[str] = None
 ):
     """Get all available keywords from config for faceted search with counts.
 
@@ -101,16 +102,19 @@ async def get_available_keywords(
         all_img_ids = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id).all()
         effective_images = {row[0] for row in all_img_ids}
 
+    source_mode = (source or "current").lower()
     # Get active tag type from tenant config (must be added in PR 2 or earlier)
     # Fallback to 'siglip' if not configured (for backward compatibility)
     active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
 
     # Get all tags for filtered images (from primary algorithm only)
-    all_tags = db.query(MachineTag).filter(
-        MachineTag.tenant_id == tenant.id,
-        MachineTag.image_id.in_(effective_images),
-        MachineTag.tag_type == active_tag_type  # Filter by primary algorithm
-    ).all() if effective_images else []
+    all_tags = []
+    if effective_images and source_mode != "permatags":
+        all_tags = db.query(MachineTag).filter(
+            MachineTag.tenant_id == tenant.id,
+            MachineTag.image_id.in_(effective_images),
+            MachineTag.tag_type == active_tag_type  # Filter by primary algorithm
+        ).all()
 
     # Get all permatags for filtered images
     all_permatags = db.query(Permatag).filter(
@@ -139,39 +143,46 @@ async def get_available_keywords(
         for kw_id, kw_name, cat_name in keywords_data:
             keywords_map[kw_id] = {"keyword": kw_name, "category": cat_name}
 
-    # Build permatag map by image_id and keyword_id
-    permatag_map = {}
-    for p in all_permatags:
-        if p.image_id not in permatag_map:
-            permatag_map[p.image_id] = {}
-        permatag_map[p.image_id][p.keyword_id] = p.signum
-
-    # Compute "current tags" for each image (with permatag overrides)
-    current_tags_by_image = {}
-    for img_id in effective_images:
-        current_tags_by_image[img_id] = []
-
-    for tag in all_tags:
-        # Include machine tag only if not negatively permatagged
-        if tag.image_id in permatag_map and permatag_map[tag.image_id].get(tag.keyword_id) == -1:
-            continue  # Skip negatively permatagged machine tags
-        keyword_name = keywords_map.get(tag.keyword_id, {}).get("keyword", "unknown")
-        current_tags_by_image[tag.image_id].append(keyword_name)
-
-    # Add positive permatags
-    for p in all_permatags:
-        if p.signum == 1:
-            keyword_name = keywords_map.get(p.keyword_id, {}).get("keyword", "unknown")
-            if keyword_name not in current_tags_by_image.get(p.image_id, []):
-                if p.image_id not in current_tags_by_image:
-                    current_tags_by_image[p.image_id] = []
-                current_tags_by_image[p.image_id].append(keyword_name)
-
-    # Count images by keyword (using current/effective tags)
     keyword_image_counts = {}
-    for img_id, current_keywords in current_tags_by_image.items():
-        for keyword in current_keywords:
-            keyword_image_counts[keyword] = keyword_image_counts.get(keyword, 0) + 1
+    if source_mode == "permatags":
+        for p in all_permatags:
+            if p.signum != 1:
+                continue
+            keyword_name = keywords_map.get(p.keyword_id, {}).get("keyword", "unknown")
+            keyword_image_counts[keyword_name] = keyword_image_counts.get(keyword_name, 0) + 1
+    else:
+        # Build permatag map by image_id and keyword_id
+        permatag_map = {}
+        for p in all_permatags:
+            if p.image_id not in permatag_map:
+                permatag_map[p.image_id] = {}
+            permatag_map[p.image_id][p.keyword_id] = p.signum
+
+        # Compute "current tags" for each image (with permatag overrides)
+        current_tags_by_image = {}
+        for img_id in effective_images:
+            current_tags_by_image[img_id] = []
+
+        for tag in all_tags:
+            # Include machine tag only if not negatively permatagged
+            if tag.image_id in permatag_map and permatag_map[tag.image_id].get(tag.keyword_id) == -1:
+                continue  # Skip negatively permatagged machine tags
+            keyword_name = keywords_map.get(tag.keyword_id, {}).get("keyword", "unknown")
+            current_tags_by_image[tag.image_id].append(keyword_name)
+
+        # Add positive permatags
+        for p in all_permatags:
+            if p.signum == 1:
+                keyword_name = keywords_map.get(p.keyword_id, {}).get("keyword", "unknown")
+                if keyword_name not in current_tags_by_image.get(p.image_id, []):
+                    if p.image_id not in current_tags_by_image:
+                        current_tags_by_image[p.image_id] = []
+                    current_tags_by_image[p.image_id].append(keyword_name)
+
+        # Count images by keyword (using current/effective tags)
+        for img_id, current_keywords in current_tags_by_image.items():
+            for keyword in current_keywords:
+                keyword_image_counts[keyword] = keyword_image_counts.get(keyword, 0) + 1
 
     counts_dict = keyword_image_counts
 

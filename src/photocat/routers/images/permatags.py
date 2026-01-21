@@ -48,7 +48,8 @@ async def get_permatags(
         raise HTTPException(status_code=404, detail="Image not found")
 
     permatags = db.query(Permatag).filter(
-        Permatag.image_id == image_id
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id
     ).all()
 
     # Load keyword info in bulk
@@ -121,7 +122,8 @@ async def add_permatag(
     # Check if permatag already exists (update or insert)
     existing = db.query(Permatag).filter(
         Permatag.image_id == image_id,
-        Permatag.keyword_id == keyword.id
+        Permatag.keyword_id == keyword.id,
+        Permatag.tenant_id == tenant.id
     ).first()
 
     if existing:
@@ -133,6 +135,7 @@ async def add_permatag(
         # Create new permatag
         permatag = Permatag(
             image_id=image_id,
+            tenant_id=tenant.id,
             keyword_id=keyword.id,
             signum=signum,
             created_by=None  # Could be set from auth header if available
@@ -215,7 +218,8 @@ async def bulk_permatags(
     keyword_ids = list(keyword_name_to_id.values())
     existing_rows = db.query(Permatag).filter(
         Permatag.image_id.in_(image_ids),
-        Permatag.keyword_id.in_(keyword_ids)
+        Permatag.keyword_id.in_(keyword_ids),
+        Permatag.tenant_id == tenant.id
     ).all()
     existing_map = {(row.image_id, row.keyword_id): row for row in existing_rows}
 
@@ -248,6 +252,7 @@ async def bulk_permatags(
         else:
             permatag = Permatag(
                 image_id=image_id,
+                tenant_id=tenant.id,
                 keyword_id=keyword_id,
                 signum=op["signum"],
                 created_by=None
@@ -284,7 +289,8 @@ async def delete_permatag(
 
     permatag = db.query(Permatag).filter(
         Permatag.id == permatag_id,
-        Permatag.image_id == image_id
+        Permatag.image_id == image_id,
+        Permatag.tenant_id == tenant.id
     ).first()
 
     if not permatag:
@@ -334,13 +340,15 @@ async def accept_all_tags(
     # This preserves manually added permatags for keywords not in the vocabulary
     db.query(Permatag).filter(
         Permatag.image_id == image_id,
-        Permatag.keyword_id.in_(list(all_keyword_ids))
+        Permatag.keyword_id.in_(list(all_keyword_ids)),
+        Permatag.tenant_id == tenant.id
     ).delete(synchronize_session=False)
 
     # Create positive permatags for all current tags
     for tag in current_tags:
         permatag = Permatag(
             image_id=image_id,
+            tenant_id=tenant.id,
             keyword_id=tag.keyword_id,
             signum=1
         )
@@ -351,6 +359,7 @@ async def accept_all_tags(
         if keyword_id not in current_keyword_ids:
             permatag = Permatag(
                 image_id=image_id,
+                tenant_id=tenant.id,
                 keyword_id=keyword_id,
                 signum=-1
             )
@@ -399,7 +408,8 @@ async def freeze_permatags(
 
     existing_permatags = db.query(Permatag).filter(
         Permatag.image_id == image_id,
-        Permatag.keyword_id.in_(list(all_keyword_ids))
+        Permatag.keyword_id.in_(list(all_keyword_ids)),
+        Permatag.tenant_id == tenant.id
     ).all()
     existing_keyword_ids = {p.keyword_id for p in existing_permatags}
 
@@ -411,6 +421,7 @@ async def freeze_permatags(
         signum = 1 if keyword_id in machine_tag_ids else -1
         permatag = Permatag(
             image_id=image_id,
+            tenant_id=tenant.id,
             keyword_id=keyword_id,
             signum=signum,
             created_by=None

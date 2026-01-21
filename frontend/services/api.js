@@ -61,6 +61,9 @@ export async function getImages(tenantId, filters = {}) {
       if (Object.keys(categoryFilters).length > 0) {
         params.append('category_filters', JSON.stringify(categoryFilters));
       }
+      if (filters.categoryFilterSource) {
+        params.append('category_filter_source', filters.categoryFilterSource);
+      }
   }
 
   if (filters.sortOrder) {
@@ -80,6 +83,12 @@ export async function getImages(tenantId, filters = {}) {
   }
   if (filters.permatagMissing) {
     params.append('permatag_missing', 'true');
+  }
+  if (filters.mlKeyword) {
+    params.append('ml_keyword', filters.mlKeyword);
+  }
+  if (filters.mlTagType) {
+    params.append('ml_tag_type', filters.mlTagType);
   }
 
 
@@ -188,6 +197,9 @@ export async function getKeywords(tenantId, filters = {}) {
 
     if (filters.reviewed !== undefined && filters.reviewed !== '') {
         params.append('reviewed', filters.reviewed);
+    }
+    if (filters.source) {
+        params.append('source', filters.source);
     }
 
     const url = params.toString() ? `${API_BASE_URL}/keywords?${params.toString()}` : `${API_BASE_URL}/keywords`;

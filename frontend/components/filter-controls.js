@@ -10,10 +10,16 @@ class FilterControls extends LitElement {
     }
     .filter-container {
       display: flex;
+      flex-direction: column;
       gap: 1rem;
       height: 100%;
     }
-    .filter-column {
+    .top-row {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+    .controls-section {
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -21,9 +27,31 @@ class FilterControls extends LitElement {
     }
     .histogram-column {
       width: 280px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
       min-width: 0;
+    }
+    .histogram-column.collapsed {
+      max-height: 180px;
+      overflow: hidden;
+    }
+    .histogram-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem;
+      font-size: 0.75rem;
+      color: #666;
+      background-color: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.25rem;
+      cursor: pointer;
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+    .histogram-toggle:hover {
+      background-color: #f3f4f6;
     }
     .dropdown {
         position: absolute;
@@ -69,10 +97,14 @@ class FilterControls extends LitElement {
     embedded: { type: Boolean },
     singleSelect: { type: Boolean },
     keywordSource: { type: String },
+    helpTitle: { type: String },
+    helpIntro: { type: String },
+    helpSteps: { type: Array },
     showHistogram: { type: Boolean },
     tagStatsBySource: { type: Object },
     activeTagSource: { type: String },
     categoryCards: { type: Array },
+    histogramExpanded: { type: Boolean },
   };
   constructor() {
     super();
@@ -94,10 +126,14 @@ class FilterControls extends LitElement {
     this.embedded = false;
     this.singleSelect = false;
     this.keywordSource = '';
+    this.helpTitle = '';
+    this.helpIntro = '';
+    this.helpSteps = [];
     this.showHistogram = false;
     this.tagStatsBySource = {};
     this.activeTagSource = 'permatags';
     this.categoryCards = [];
+    this.histogramExpanded = false;
   }
 
   firstUpdated() {
@@ -165,13 +201,13 @@ class FilterControls extends LitElement {
 
   render() {
     const containerClass = this.embedded ? '' : 'bg-white rounded-lg shadow p-6 mb-6';
-    const keywordSectionClass = this.keywordsOnly ? '' : 'border-t pt-4';
 
-    if (this.showHistogram) {
-      return html`
-        <div class=${containerClass}>
-          <div class="filter-container">
-            <div class="filter-column">
+    return html`
+      <div class=${containerClass}>
+        <div class="filter-container">
+          <!-- Top Row: Filter Controls and Histogram (if enabled) -->
+          <div class="top-row">
+            <div class="controls-section">
               ${!this.keywordsOnly ? html`
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div class="flex items-end">
@@ -243,125 +279,52 @@ class FilterControls extends LitElement {
                   ` : html``}
                 </div>
               ` : html``}
-
-              <div class=${keywordSectionClass}>
-                <div class="flex items-center gap-4 mb-3">
-                  <div class="flex items-center gap-2">
-                    <label class="text-sm text-gray-600 font-semibold">Filter by Keywords:</label>
-                    <span id="activeFiltersCount" class="bg-blue-600 text-white text-xs px-2 py-1 rounded-full hidden">0</span>
-                  </div>
-                  <button @click=${this._clearFilters} class="text-sm text-red-600 hover:text-red-700 ml-auto">
-                    <i class="fas fa-times mr-1"></i>Clear All
-                  </button>
-                </div>
-
-                <!-- Tag Input with Autocomplete - One per category -->
-                <div id="categoryInputsContainer" class="space-y-3">
-                  ${Object.entries(this.keywords).map(([category, keywords]) => this._renderCategoryFilter(category, keywords))}
-                </div>
-              </div>
             </div>
-            <div class="histogram-column">
-              <tag-histogram
-                .categoryCards=${this.categoryCards}
-                .activeTagSource=${this.activeTagSource}
-                .tagStatsBySource=${this.tagStatsBySource}
-                @tag-source-change=${this._handleTagSourceChange}
-              ></tag-histogram>
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    return html`
-      <div class=${containerClass}>
-        ${this.keywordsOnly ? html`` : html`
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div class="flex items-end">
-              <label class="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
-                <input
-                  type="checkbox"
-                  class="h-4 w-4"
-                  .checked=${this.hideZeroRating}
-                  @change=${this._handleHideZeroChange}
-                >
-                🗑 hide deleted
-              </label>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Reviewed?</label>
-              <select class="w-full px-4 py-2 border rounded-lg" .value=${this.reviewedFilter} @change=${this._handleReviewedChange}>
-                <option value="">All</option>
-                <option value="true">Reviewed</option>
-                <option value="false">Unreviewed</option>
-              </select>
-            </div>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Filter by List</label>
-              <select class="w-full px-4 py-2 border rounded-lg" .value=${this.listFilterId} @change=${this._handleListFilterChange}>
-                <option value="">All lists</option>
-                ${this.lists.map((list) => html`
-                  <option value=${String(list.id)}>${list.title}</option>
-                `)}
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Filter by Rating</label>
-              <select class="w-full px-4 py-2 border rounded-lg" .value=${this.ratingFilter} @change=${this._handleRatingFilterChange}>
-                <option value="">All ratings</option>
-                <option value="0">0</option>
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">3</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Rating Operator</label>
-              <select class="w-full px-4 py-2 border rounded-lg" .value=${this.ratingOperator} @change=${this._handleRatingOperatorChange}>
-                <option value="gte">>=</option>
-                <option value="gt">></option>
-                <option value="eq">==</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-600 mb-1">Sort by Date</label>
-              <select class="w-full px-4 py-2 border rounded-lg" .value=${this.dateSortOrder} @change=${this._handleDateSortChange}>
-                <option value="desc">Newest first</option>
-                <option value="asc">Oldest first</option>
-              </select>
-            </div>
-            ${this.showLimit ? html`
-              <div>
-                <label class="block text-xs font-semibold text-gray-600 mb-1">Limit</label>
-                <input
-                  type="number"
-                  min="1"
-                  class="w-full px-4 py-2 border rounded-lg"
-                  .value=${String(this.limit)}
-                  @input=${this._handleLimitChange}
-                >
+            ${this.showHistogram ? html`
+              <div class="histogram-column ${this.histogramExpanded ? '' : 'collapsed'}">
+                <tag-histogram
+                  .categoryCards=${this.categoryCards}
+                  .activeTagSource=${this.activeTagSource}
+                  .tagStatsBySource=${this.tagStatsBySource}
+                  @tag-source-change=${this._handleTagSourceChange}
+                ></tag-histogram>
+                <button class="histogram-toggle" @click=${this._toggleHistogramExpanded}>
+                  ${this.histogramExpanded ? 'Show less ▲' : 'Show more ▼'}
+                </button>
               </div>
             ` : html``}
           </div>
-        `}
 
-        <div class=${keywordSectionClass}>
-          <div class="flex items-center gap-4 mb-3">
-            <div class="flex items-center gap-2">
-              <label class="text-sm text-gray-600 font-semibold">Filter by Keywords:</label>
-              <span id="activeFiltersCount" class="bg-blue-600 text-white text-xs px-2 py-1 rounded-full hidden">0</span>
+          <!-- Second Row: Keywords and Help Text -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; border-top: 1px solid #e5e7eb; padding-top: 1rem;">
+            <!-- Left Column: Keywords -->
+            <div>
+              <div class="flex items-center gap-4 mb-3">
+                <div class="flex items-center gap-2">
+                  <label class="text-sm text-gray-600 font-semibold">Filter by Keywords:</label>
+                  <span id="activeFiltersCount" class="bg-blue-600 text-white text-xs px-2 py-1 rounded-full hidden">0</span>
+                </div>
+                <button @click=${this._clearFilters} class="text-sm text-red-600 hover:text-red-700 ml-auto">
+                  <i class="fas fa-times mr-1"></i>Clear All
+                </button>
+              </div>
+
+              <!-- Tag Input with Autocomplete - One per category -->
+              <div id="categoryInputsContainer" class="space-y-3">
+                ${Object.entries(this.keywords).map(([category, keywords]) => this._renderCategoryFilter(category, keywords))}
+              </div>
             </div>
-            <button @click=${this._clearFilters} class="text-sm text-red-600 hover:text-red-700 ml-auto">
-              <i class="fas fa-times mr-1"></i>Clear All
-            </button>
-          </div>
 
-          <!-- Tag Input with Autocomplete - One per category -->
-          <div id="categoryInputsContainer" class="space-y-3">
-            ${Object.entries(this.keywords).map(([category, keywords]) => this._renderCategoryFilter(category, keywords))}
+            <!-- Right Column: Reserved for Help Text -->
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 text-sm text-gray-600">
+              <p class="font-semibold text-gray-700 mb-2">${this.helpTitle || 'Keywords Help'}</p>
+              <p class="mb-2">${this.helpIntro || 'Select keywords to filter images. Use the operator buttons to choose AND/OR logic between categories.'}</p>
+              ${this.helpSteps?.length ? html`
+                <ol class="list-decimal ml-4 space-y-1">
+                  ${this.helpSteps.map((step) => html`<li>${step}</li>`)}
+                </ol>
+              ` : ''}
+            </div>
           </div>
         </div>
       </div>
@@ -553,6 +516,10 @@ class FilterControls extends LitElement {
   _handleTagSourceChange(e) {
     this.activeTagSource = e.detail.source;
     this._updateCategoryCards();
+  }
+
+  _toggleHistogramExpanded() {
+    this.histogramExpanded = !this.histogramExpanded;
   }
 }
 
