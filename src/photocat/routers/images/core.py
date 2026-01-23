@@ -1,19 +1,32 @@
 """Core image endpoints: list, get, stats, rating, thumbnail."""
 
 import json
+import mimetypes
+from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, distinct, and_
 from sqlalchemy.orm import Session
 from google.cloud import storage
+from dropbox import Dropbox
 
-from photocat.dependencies import get_db, get_tenant, get_tenant_setting
+from photocat.dependencies import get_db, get_tenant, get_tenant_setting, get_secret
 from photocat.tenant import Tenant
 from photocat.metadata import ImageMetadata, MachineTag, Permatag, Tenant as TenantModel, KeywordModel
 from photocat.models.config import PhotoList, PhotoListItem, Keyword
 from photocat.settings import settings
 from photocat.tagging import calculate_tags
+from photocat.config.db_utils import load_keywords_map
+from photocat.image import ImageProcessor
+from photocat.exif import (
+    get_exif_value,
+    parse_exif_datetime,
+    parse_exif_float,
+    parse_exif_int,
+    parse_exif_str,
+)
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
@@ -51,6 +64,7 @@ async def list_images(
     permatag_category: Optional[str] = None,
     permatag_signum: Optional[int] = None,
     permatag_missing: bool = False,
+    permatag_positive_missing: bool = False,
     category_filter_source: Optional[str] = None,
     date_order: str = "desc",
     order_by: Optional[str] = None,
@@ -60,40 +74,28 @@ async def list_images(
 ):
     """List images for tenant with optional faceted search by keywords."""
     from ..filtering import (
-        apply_list_filter,
-        apply_rating_filter,
-        apply_hide_zero_rating_filter,
-        apply_reviewed_filter,
-        apply_permatag_filter,
         apply_category_filters,
-        calculate_relevance_scores
+        calculate_relevance_scores,
+        build_image_query_with_subqueries
     )
 
-    filter_ids = None
-    if list_id is not None:
-        filter_ids = apply_list_filter(db, tenant, list_id)
+    base_query, subqueries_list, has_empty_filter = build_image_query_with_subqueries(
+        db,
+        tenant,
+        list_id=list_id,
+        rating=rating,
+        rating_operator=rating_operator,
+        hide_zero_rating=hide_zero_rating,
+        reviewed=reviewed,
+        permatag_keyword=permatag_keyword,
+        permatag_category=permatag_category,
+        permatag_signum=permatag_signum,
+        permatag_missing=permatag_missing,
+        permatag_positive_missing=permatag_positive_missing
+    )
 
-    if rating is not None:
-        filter_ids = apply_rating_filter(db, tenant, rating, rating_operator, filter_ids)
-
-    if hide_zero_rating:
-        filter_ids = apply_hide_zero_rating_filter(db, tenant, filter_ids)
-
-    if reviewed is not None:
-        filter_ids = apply_reviewed_filter(db, tenant, reviewed, filter_ids)
-
-    if permatag_keyword:
-        filter_ids = apply_permatag_filter(
-            db,
-            tenant,
-            permatag_keyword,
-            signum=permatag_signum,
-            missing=permatag_missing,
-            category=permatag_category,
-            existing_filter=filter_ids
-        )
-
-    if filter_ids is not None and not filter_ids:
+    # If any filter resulted in empty set, return empty response
+    if has_empty_filter:
         return {
             "tenant_id": tenant.id,
             "images": [],
@@ -129,19 +131,25 @@ async def list_images(
 
     if category_filters:
         try:
+            from .query_builder import QueryBuilder
+
             filters = json.loads(category_filters)
+            builder = QueryBuilder(db, tenant, date_order, order_by_value)
 
             # Apply category filters using helper
             unique_image_ids_set = apply_category_filters(
                 db,
                 tenant,
                 category_filters,
-                filter_ids,
+                None,  # category_filters handles its own filtering now
                 source=category_filter_source or "current"
             )
 
             if unique_image_ids_set:
                 unique_image_ids = list(unique_image_ids_set)
+
+                if subqueries_list:
+                    unique_image_ids = builder.apply_filters_to_id_set(unique_image_ids, subqueries_list)
 
                 # Get all keywords for relevance counting
                 all_keywords = []
@@ -149,7 +157,7 @@ async def list_images(
                     all_keywords.extend(filter_data.get('keywords', []))
 
                 # Total count of matching images
-                total = len(unique_image_ids)
+                total = builder.get_total_count(unique_image_ids)
 
                 if total:
                     # Get active tag type for scoring
@@ -202,7 +210,7 @@ async def list_images(
                         )
 
                     # Apply offset and limit
-                    paginated_ids = sorted_ids[offset:offset + limit] if limit else sorted_ids[offset:]
+                    paginated_ids = builder.paginate_id_list(sorted_ids, offset, limit)
 
                     # Now fetch full ImageMetadata objects in order
                     if paginated_ids:
@@ -231,7 +239,10 @@ async def list_images(
 
     # Apply keyword filtering if provided (legacy support)
     elif keywords:
+        from .query_builder import QueryBuilder
+
         keyword_list = [k.strip() for k in keywords.split(',') if k.strip()]
+        builder = QueryBuilder(db, tenant, date_order, order_by_value)
 
         if keyword_list and operator.upper() == "OR":
             # OR: Image must have ANY of the selected keywords
@@ -281,20 +292,11 @@ async def list_images(
                     id_order
                 )
 
-                if filter_ids is not None:
-                    query = query.filter(ImageMetadata.id.in_(filter_ids))
-                    total = db.query(ImageMetadata).filter(
-                        ImageMetadata.tenant_id == tenant.id,
-                        ImageMetadata.id.in_(matching_image_ids),
-                        ImageMetadata.id.in_(filter_ids)
-                    ).count()
-                else:
-                    total = db.query(ImageMetadata).filter(
-                        ImageMetadata.tenant_id == tenant.id,
-                        ImageMetadata.id.in_(matching_image_ids)
-                    ).count()
+                # Apply base_query subquery filters (list, rating, etc.) to the keyword query
+                query = builder.apply_subqueries(query, subqueries_list)
 
-                results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+                total = builder.get_total_count(query)
+                results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
 
         elif keyword_list and operator.upper() == "AND":
@@ -315,23 +317,23 @@ async def list_images(
                 total = 0
             else:
                 # Start with images that have tenant_id
-                base_query = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id)
+                and_query = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id)
 
                 # For each keyword, filter images that have that keyword
                 for keyword_id in keyword_id_list:
-                    subquery = db.query(MachineTag.image_id).filter(
+                    keyword_subquery = db.query(MachineTag.image_id).filter(
                         MachineTag.keyword_id == keyword_id,
                         MachineTag.tenant_id == tenant.id,
                         MachineTag.tag_type == active_tag_type
                     ).subquery()
 
-                    base_query = base_query.filter(ImageMetadata.id.in_(subquery))
+                    and_query = and_query.filter(ImageMetadata.id.in_(keyword_subquery))
 
-                if filter_ids is not None:
-                    base_query = base_query.filter(ImageMetadata.id.in_(filter_ids))
+                # Apply base_query subquery filters (list, rating, etc.)
+                and_query = builder.apply_subqueries(and_query, subqueries_list)
 
                 # Get matching image IDs
-                matching_image_ids = base_query.subquery()
+                matching_image_ids = and_query.subquery()
 
                 # Query with relevance ordering (by sum of confidence scores)
                 order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
@@ -357,59 +359,41 @@ async def list_images(
                     id_order
                 )
 
-                total = db.query(ImageMetadata).filter(
-                    ImageMetadata.tenant_id == tenant.id,
-                    ImageMetadata.id.in_(matching_image_ids)
-                ).count()
-
-                results = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+                total = builder.get_total_count(query)
+                results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
         else:
-            # No valid keywords, return all
-            query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
-            if filter_ids is not None:
-                query = query.filter(ImageMetadata.id.in_(filter_ids))
-            total = query.count()
-            order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time).desc()
-            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+            # No valid keywords, use base_query with subquery filters
+            query = base_query
+            query = builder.apply_subqueries(query, subqueries_list)
+            total = builder.get_total_count(query)
+            order_by_clauses = builder.build_order_clauses()
+            images = builder.apply_pagination(query.order_by(*order_by_clauses), offset, limit)
     else:
-        # No keywords filter, return all
-        query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
-        if filter_ids is not None:
-            query = query.filter(ImageMetadata.id.in_(filter_ids))
-        total = query.count()
+        # No keywords filter, use base_query with subquery filters
+        from .query_builder import QueryBuilder
+
+        query = base_query
+        builder = QueryBuilder(db, tenant, date_order, order_by_value)
+
         if order_by_value == "ml_score" and ml_keyword_id:
-            active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
-            selected_tag_type = (ml_tag_type or active_tag_type).strip().lower()
-            model_name = None
-            if selected_tag_type == 'trained':
-                model_row = db.query(KeywordModel.model_name).filter(
-                    KeywordModel.tenant_id == tenant.id
-                ).order_by(
-                    func.coalesce(KeywordModel.updated_at, KeywordModel.created_at).desc()
-                ).first()
-                if model_row:
-                    model_name = model_row[0]
-            ml_scores = db.query(
-                MachineTag.image_id.label('image_id'),
-                func.max(MachineTag.confidence).label('ml_score')
-            ).filter(
-                MachineTag.keyword_id == ml_keyword_id,
-                MachineTag.tenant_id == tenant.id,
-                MachineTag.tag_type == selected_tag_type,
-                *([MachineTag.model_name == model_name] if model_name else [])
-            ).group_by(
-                MachineTag.image_id
-            ).subquery()
-            scored_query = query.outerjoin(ml_scores, ml_scores.c.image_id == ImageMetadata.id)
+            # Apply ML score ordering via outer join
+            query, ml_scores = builder.apply_ml_score_ordering(query, ml_keyword_id, ml_tag_type)
+            # Build order clauses with ML score priority
+            order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
+            order_by_date_clause = order_by_date_clause.desc() if date_order == "desc" else order_by_date_clause.asc()
+            id_order_clause = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
             order_clauses = (
                 ml_scores.c.ml_score.desc().nullslast(),
-                order_by_date,
-                id_order
+                order_by_date_clause,
+                id_order_clause
             )
-            images = scored_query.order_by(*order_clauses).limit(limit).offset(offset).all() if limit else scored_query.order_by(*order_clauses).offset(offset).all()
+            images = query.order_by(*order_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_clauses).offset(offset).all()
         else:
+            order_by_clauses = builder.build_order_clauses()
             images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+
+        total = query.count()
 
     # Get tags for all images
     image_ids = [img.id for img in images]
@@ -432,21 +416,8 @@ async def list_images(
     for permatag in permatags:
         keyword_ids.add(permatag.keyword_id)
 
-    # Build keyword lookup map
-    keywords_map = {}
-    if keyword_ids:
-        from photocat.models.config import KeywordCategory
-        keywords_data = db.query(
-            Keyword.id,
-            Keyword.keyword,
-            KeywordCategory.name
-        ).join(
-            KeywordCategory, Keyword.category_id == KeywordCategory.id
-        ).filter(
-            Keyword.id.in_(keyword_ids)
-        ).all()
-        for kw_id, kw_name, cat_name in keywords_data:
-            keywords_map[kw_id] = {"keyword": kw_name, "category": cat_name}
+    # Build keyword lookup map using utility function
+    keywords_map = load_keywords_map(db, tenant.id, keyword_ids)
 
     # Group tags by image_id
     tags_by_image = {}
@@ -539,6 +510,13 @@ async def get_image_stats(
         ImageMetadata.tenant_id == tenant.id
     ).scalar() or 0
 
+    positive_permatag_image_count = db.query(func.count(distinct(Permatag.image_id))).join(
+        ImageMetadata, ImageMetadata.id == Permatag.image_id
+    ).filter(
+        ImageMetadata.tenant_id == tenant.id,
+        Permatag.signum == 1
+    ).scalar() or 0
+
     # Get active tag type from tenant settings
     active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
 
@@ -551,6 +529,8 @@ async def get_image_stats(
         "tenant_id": tenant.id,
         "image_count": int(image_count),
         "reviewed_image_count": int(reviewed_image_count),
+        "positive_permatag_image_count": int(positive_permatag_image_count),
+        "untagged_positive_count": int(max(image_count - positive_permatag_image_count, 0)),
         "ml_tag_count": int(ml_tag_count)
     }
 
@@ -734,3 +714,171 @@ async def get_thumbnail(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching thumbnail: {str(e)}")
+
+
+@router.get("/images/{image_id}/full", operation_id="get_full_image")
+async def get_full_image(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Stream full-size image from Dropbox without persisting it."""
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    dropbox_ref = image.dropbox_path
+    if not dropbox_ref and image.dropbox_id:
+        dropbox_ref = image.dropbox_id if image.dropbox_id.startswith("id:") else f"id:{image.dropbox_id}"
+
+    if not dropbox_ref or dropbox_ref.startswith("/local/") or (image.dropbox_id and image.dropbox_id.startswith("local_")):
+        raise HTTPException(status_code=404, detail="Image not available in Dropbox")
+
+    if not tenant.dropbox_app_key:
+        raise HTTPException(status_code=400, detail="Dropbox app key not configured for tenant")
+    if not tenant.dropbox_token_secret or not tenant.dropbox_app_secret:
+        raise HTTPException(status_code=400, detail="Dropbox secrets not configured for tenant")
+
+    try:
+        refresh_token = get_secret(tenant.dropbox_token_secret)
+        app_secret = get_secret(tenant.dropbox_app_secret)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Dropbox secrets missing: {exc}")
+
+    try:
+        dbx = Dropbox(
+            oauth2_refresh_token=refresh_token,
+            app_key=tenant.dropbox_app_key,
+            app_secret=app_secret
+        )
+        metadata, response = dbx.files_download(dropbox_ref)
+        content_type = response.headers.get("Content-Type") or response.headers.get("content-type")
+        if not content_type:
+            content_type, _ = mimetypes.guess_type(image.filename or dropbox_ref)
+            content_type = content_type or "application/octet-stream"
+        filename = getattr(metadata, "name", None) or image.filename or "image"
+        return StreamingResponse(
+            response.iter_content(chunk_size=1024 * 1024),
+            media_type=content_type,
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": f'inline; filename="{filename}"'
+            }
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error fetching Dropbox image: {exc}")
+
+
+@router.post("/images/{image_id}/refresh-metadata", response_model=dict, operation_id="refresh_image_metadata")
+async def refresh_image_metadata(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db)
+):
+    """Re-download image and refresh EXIF metadata without changing tags."""
+    image = db.query(ImageMetadata).filter_by(
+        id=image_id,
+        tenant_id=tenant.id
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    dropbox_ref = image.dropbox_path
+    if not dropbox_ref and image.dropbox_id:
+        dropbox_ref = image.dropbox_id if image.dropbox_id.startswith("id:") else f"id:{image.dropbox_id}"
+    if not dropbox_ref or dropbox_ref.startswith("/local/") or (image.dropbox_id and image.dropbox_id.startswith("local_")):
+        raise HTTPException(status_code=404, detail="Image not available in Dropbox")
+
+    if not tenant.dropbox_app_key:
+        raise HTTPException(status_code=400, detail="Dropbox app key not configured for tenant")
+    if not tenant.dropbox_token_secret or not tenant.dropbox_app_secret:
+        raise HTTPException(status_code=400, detail="Dropbox secrets not configured for tenant")
+
+    try:
+        refresh_token = get_secret(tenant.dropbox_token_secret)
+        app_secret = get_secret(tenant.dropbox_app_secret)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Dropbox secrets missing: {exc}")
+
+    try:
+        dbx = Dropbox(
+            oauth2_refresh_token=refresh_token,
+            app_key=tenant.dropbox_app_key,
+            app_secret=app_secret
+        )
+        metadata, response = dbx.files_download(dropbox_ref)
+        image_bytes = response.content
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error downloading Dropbox image: {exc}")
+
+    try:
+        processor = ImageProcessor()
+        features = processor.extract_features(image_bytes)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error parsing image metadata: {exc}")
+
+    exif = features.get("exif", {}) or {}
+    capture_timestamp = parse_exif_datetime(
+        get_exif_value(exif, "DateTimeOriginal", "DateTime")
+    )
+    gps_latitude = parse_exif_float(get_exif_value(exif, "GPSLatitude"))
+    gps_longitude = parse_exif_float(get_exif_value(exif, "GPSLongitude"))
+    iso = parse_exif_int(get_exif_value(exif, "ISOSpeedRatings", "ISOSpeed", "ISO"))
+    aperture = parse_exif_float(get_exif_value(exif, "FNumber", "ApertureValue"))
+    shutter_speed = parse_exif_str(get_exif_value(exif, "ExposureTime", "ShutterSpeedValue"))
+    focal_length = parse_exif_float(get_exif_value(exif, "FocalLength"))
+
+    thumbnail_path = image.thumbnail_path
+    if not thumbnail_path:
+        name_source = getattr(metadata, "name", None) or image.filename or f"image_{image.id}"
+        thumbnail_filename = f"{Path(name_source).stem}_thumb.jpg"
+        thumbnail_path = tenant.get_storage_path(thumbnail_filename, "thumbnails")
+
+    try:
+        storage_client = storage.Client(project=settings.gcp_project_id)
+        bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+        blob = bucket.blob(thumbnail_path)
+        blob.cache_control = "public, max-age=31536000, immutable"
+        blob.upload_from_string(features["thumbnail"], content_type="image/jpeg")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error uploading thumbnail: {exc}")
+
+    image.width = features.get("width")
+    image.height = features.get("height")
+    image.format = features.get("format")
+    image.perceptual_hash = features.get("perceptual_hash")
+    image.color_histogram = features.get("color_histogram")
+    image.exif_data = exif
+    image.camera_make = parse_exif_str(get_exif_value(exif, "Make"))
+    image.camera_model = parse_exif_str(get_exif_value(exif, "Model"))
+    image.lens_model = parse_exif_str(get_exif_value(exif, "LensModel", "Lens"))
+    image.capture_timestamp = capture_timestamp
+    image.gps_latitude = gps_latitude
+    image.gps_longitude = gps_longitude
+    image.iso = iso
+    image.aperture = aperture
+    image.shutter_speed = shutter_speed
+    image.focal_length = focal_length
+    image.thumbnail_path = thumbnail_path
+    image.last_processed = datetime.utcnow()
+
+    if metadata is not None:
+        image.file_size = getattr(metadata, "size", image.file_size)
+        image.modified_time = getattr(metadata, "server_modified", image.modified_time)
+        image.content_hash = getattr(metadata, "content_hash", image.content_hash)
+        if getattr(metadata, "path_display", None):
+            image.dropbox_path = metadata.path_display
+        if getattr(metadata, "id", None):
+            image.dropbox_id = metadata.id
+
+    db.add(image)
+    db.commit()
+
+    return {
+        "status": "ok",
+        "image_id": image.id
+    }
