@@ -93,7 +93,30 @@ async def get_people_categories(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Get all person categories for a tenant."""
+    """Get all person categories for a tenant.
+
+    Automatically initializes default categories on first access.
+    """
+    # Auto-initialize categories if tenant doesn't have any
+    existing_categories = db.query(PersonCategory).filter(
+        PersonCategory.tenant_id == tenant.id
+    ).count()
+
+    if existing_categories == 0:
+        # Create default categories
+        default_categories = [
+            {"name": "photo_author", "display_name": "Photo Author"},
+            {"name": "people_in_scene", "display_name": "People in Scene"}
+        ]
+        for cat_def in default_categories:
+            category = PersonCategory(
+                tenant_id=tenant.id,
+                name=cat_def["name"],
+                display_name=cat_def["display_name"]
+            )
+            db.add(category)
+        db.commit()
+
     categories = db.query(PersonCategory).filter(
         PersonCategory.tenant_id == tenant.id
     ).order_by(PersonCategory.name).all()

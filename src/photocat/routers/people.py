@@ -162,7 +162,30 @@ async def list_people(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500)
 ):
-    """List all people for a tenant."""
+    """List all people for a tenant.
+
+    Automatically initializes default person categories on first access.
+    """
+    # Auto-initialize categories if tenant doesn't have any
+    existing_categories = db.query(PersonCategory).filter(
+        PersonCategory.tenant_id == tenant.id
+    ).count()
+
+    if existing_categories == 0:
+        # Create default categories
+        default_categories = [
+            {"name": "photo_author", "display_name": "Photo Author"},
+            {"name": "people_in_scene", "display_name": "People in Scene"}
+        ]
+        for cat_def in default_categories:
+            category = PersonCategory(
+                tenant_id=tenant.id,
+                name=cat_def["name"],
+                display_name=cat_def["display_name"]
+            )
+            db.add(category)
+        db.commit()
+
     query = db.query(Person).filter(Person.tenant_id == tenant.id)
 
     if person_category:
