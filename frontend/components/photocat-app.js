@@ -254,6 +254,32 @@ class PhotoCatApp extends LitElement {
     .curate-thumb-wrapper {
         position: relative;
     }
+    .curate-thumb-rating-widget {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(17, 24, 39, 0.85);
+        color: #f9fafb;
+        padding: 4px 6px;
+        border-radius: 999px;
+        opacity: 0;
+        transform: translateY(-2px);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        pointer-events: none;
+        z-index: 12;
+    }
+    .curate-thumb-rating-widget button {
+        font-size: 12px;
+        line-height: 1;
+    }
+    .curate-thumb-wrapper:hover .curate-thumb-rating-widget {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+    }
     .curate-thumb-date {
         position: absolute;
         left: 6px;
@@ -1649,6 +1675,55 @@ class PhotoCatApp extends LitElement {
       this.curateEditorOpen = true;
   }
 
+  _applyCurateRating(imageId, rating) {
+      const update = (image) => (image.id === imageId ? { ...image, rating } : image);
+      this.curateImages = this.curateImages.map(update);
+      this.curateSelection = this.curateSelection.map(update);
+      this.curateAuditImages = this.curateAuditImages.map(update);
+      this.curateAuditSelection = this.curateAuditSelection.map(update);
+      if (this.curateEditorImage?.id === imageId) {
+          this.curateEditorImage = { ...this.curateEditorImage, rating };
+      }
+  }
+
+  _handleCurateRating(event, image, rating) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!image?.id) return;
+      this._applyCurateRating(image.id, rating);
+      enqueueCommand({
+          type: 'set-rating',
+          tenantId: this.tenant,
+          imageId: image.id,
+          rating,
+      });
+  }
+
+  _renderCurateRatingWidget(image) {
+      return html`
+        <div class="curate-thumb-rating-widget" @click=${(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            class="cursor-pointer mx-0.5 ${image.rating == 0 ? 'text-gray-200' : 'text-gray-300 hover:text-gray-100'}"
+            title="0 stars"
+            @click=${(e) => this._handleCurateRating(e, image, 0)}
+          >
+            ${image.rating == 0 ? '❌' : '🗑'}
+          </button>
+          ${[1, 2, 3].map((star) => html`
+            <button
+              type="button"
+              class="cursor-pointer mx-0.5 ${image.rating && image.rating >= star ? 'text-yellow-300' : 'text-gray-400 hover:text-gray-200'}"
+              title="${star} star${star > 1 ? 's' : ''}"
+              @click=${(e) => this._handleCurateRating(e, image, star)}
+            >
+              ${image.rating && image.rating >= star ? '★' : '☆'}
+            </button>
+          `)}
+        </div>
+      `;
+  }
+
   _handleCurateEditorClose() {
       this.curateEditorOpen = false;
       this.curateEditorImage = null;
@@ -2331,6 +2406,7 @@ class PhotoCatApp extends LitElement {
                                           @pointermove=${this.curateTagMode ? null : (event) => this._handleCuratePointerMove(event)}
                                           @pointerenter=${this.curateTagMode ? null : () => this._handleCurateSelectHover(index)}
                                         >
+                                        ${this._renderCurateRatingWidget(image)}
                                         ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
                                           <div class="curate-thumb-rating">Rating ${image.rating}</div>
                                         ` : html``}
@@ -2499,6 +2575,7 @@ class PhotoCatApp extends LitElement {
                                         draggable="true"
                                         @dragstart=${(event) => this._handleCurateDragStart(event, image)}
                                       >
+                                      ${this._renderCurateRatingWidget(image)}
                                       ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
                                         <div class="curate-thumb-rating">Rating ${image.rating}</div>
                                       ` : html``}

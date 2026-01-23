@@ -195,17 +195,26 @@ async def list_people(
 
     results = []
     for person in people:
-        # Get tag count
-        tag_count = db.query(MachineTag).filter(
-            MachineTag.keyword_id == person.keyword.id if person.keyword else -1
-        ).count() if person.keyword else 0
+        # Get the keyword for this person (if any)
+        keyword = db.query(Keyword).filter(
+            Keyword.person_id == person.id
+        ).first()
+
+        # Get tag count using the keyword
+        tag_count = 0
+        keyword_id = None
+        if keyword:
+            keyword_id = keyword.id
+            tag_count = db.query(MachineTag).filter(
+                MachineTag.keyword_id == keyword.id
+            ).count()
 
         results.append(PersonResponse(
             id=person.id,
             name=person.name,
             instagram_url=person.instagram_url,
             person_category=person.person_category,
-            keyword_id=person.keyword.id if person.keyword else None,
+            keyword_id=keyword_id,
             tag_count=tag_count,
             created_at=person.created_at.isoformat() if person.created_at else "",
             updated_at=person.updated_at.isoformat() if person.updated_at else ""
@@ -229,16 +238,25 @@ async def get_person(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
 
-    tag_count = db.query(MachineTag).filter(
-        MachineTag.keyword_id == person.keyword.id if person.keyword else -1
-    ).count() if person.keyword else 0
+    # Get the keyword for this person
+    keyword = db.query(Keyword).filter(
+        Keyword.person_id == person.id
+    ).first()
+
+    tag_count = 0
+    keyword_id = None
+    if keyword:
+        keyword_id = keyword.id
+        tag_count = db.query(MachineTag).filter(
+            MachineTag.keyword_id == keyword.id
+        ).count()
 
     return PersonResponse(
         id=person.id,
         name=person.name,
         instagram_url=person.instagram_url,
         person_category=person.person_category,
-        keyword_id=person.keyword.id if person.keyword else None,
+        keyword_id=keyword_id,
         tag_count=tag_count,
         aliases=person.aliases,
         created_at=person.created_at.isoformat() if person.created_at else "",
@@ -263,12 +281,17 @@ async def update_person(
         raise HTTPException(status_code=404, detail="Person not found")
 
     try:
+        # Get the keyword for this person
+        keyword = db.query(Keyword).filter(
+            Keyword.person_id == person.id
+        ).first()
+
         # Update person fields
         if request.name is not None:
             person.name = request.name
             # Also update the keyword if it exists
-            if person.keyword:
-                person.keyword.keyword = request.name
+            if keyword:
+                keyword.keyword = request.name
 
         if request.instagram_url is not None:
             person.instagram_url = request.instagram_url
@@ -279,16 +302,20 @@ async def update_person(
         db.commit()
         db.refresh(person)
 
-        tag_count = db.query(MachineTag).filter(
-            MachineTag.keyword_id == person.keyword.id if person.keyword else -1
-        ).count() if person.keyword else 0
+        tag_count = 0
+        keyword_id = None
+        if keyword:
+            keyword_id = keyword.id
+            tag_count = db.query(MachineTag).filter(
+                MachineTag.keyword_id == keyword.id
+            ).count()
 
         return PersonResponse(
             id=person.id,
             name=person.name,
             instagram_url=person.instagram_url,
             person_category=person.person_category,
-            keyword_id=person.keyword.id if person.keyword else None,
+            keyword_id=keyword_id,
             tag_count=tag_count,
             created_at=person.created_at.isoformat() if person.created_at else "",
             updated_at=person.updated_at.isoformat() if person.updated_at else ""
@@ -315,9 +342,14 @@ async def delete_person(
         raise HTTPException(status_code=404, detail="Person not found")
 
     try:
+        # Get the keyword for this person
+        keyword = db.query(Keyword).filter(
+            Keyword.person_id == person.id
+        ).first()
+
         # Delete associated keyword (cascade will delete related tags)
-        if person.keyword:
-            db.delete(person.keyword)
+        if keyword:
+            db.delete(keyword)
 
         # Delete person
         db.delete(person)
@@ -349,11 +381,16 @@ async def get_person_stats(
     if not person:
         raise HTTPException(status_code=404, detail="Person not found")
 
+    # Get the keyword for this person
+    keyword = db.query(Keyword).filter(
+        Keyword.person_id == person.id
+    ).first()
+
     # Count tags if keyword exists
     tag_count = 0
-    if person.keyword:
+    if keyword:
         tag_count = db.query(MachineTag).filter(
-            MachineTag.keyword_id == person.keyword.id
+            MachineTag.keyword_id == keyword.id
         ).count()
 
     return PersonStatsResponse(
@@ -383,9 +420,13 @@ def get_or_create_person_keyword(
     if not person:
         return None
 
-    # If keyword already exists, return it
-    if person.keyword:
-        return person.keyword
+    # Check if keyword already exists for this person
+    existing_keyword = db.query(Keyword).filter(
+        Keyword.person_id == person.id
+    ).first()
+
+    if existing_keyword:
+        return existing_keyword
 
     # Create keyword if missing
     keyword_cat = db.query(KeywordCategory).filter(

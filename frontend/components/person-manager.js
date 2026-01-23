@@ -18,14 +18,12 @@ class PersonManager extends LitElement {
   static styles = [tailwind, css`
     :host {
       display: block;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
+      min-height: 400px;
     }
     .container {
       display: flex;
       flex-direction: column;
-      height: 100%;
+      min-height: 400px;
       background: #f9fafb;
     }
     .header {
@@ -261,16 +259,21 @@ class PersonManager extends LitElement {
 
   async connectedCallback() {
     super.connectedCallback();
+    console.log('[PersonManager] connectedCallback, tenant:', this.tenant);
     await this.loadData();
   }
 
   async loadData() {
+    console.log('[PersonManager] loadData starting');
     this.loading = true;
     this.error = '';
     try {
       await this.loadCategories();
+      console.log('[PersonManager] categories loaded:', this.categories);
       await this.loadPeople();
+      console.log('[PersonManager] people loaded:', this.people);
     } catch (err) {
+      console.error('[PersonManager] loadData error:', err);
       this.error = err.message || 'Failed to load data';
     } finally {
       this.loading = false;

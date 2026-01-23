@@ -23,6 +23,32 @@ class ImageCard extends LitElement {
     .image-hover img {
       border-radius: 12px 12px 0 0;
     }
+    .thumb-rating {
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(17, 24, 39, 0.85);
+      color: #f9fafb;
+      padding: 6px 8px;
+      border-radius: 999px;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      pointer-events: none;
+      z-index: 12;
+    }
+    .thumb-rating button {
+      font-size: 14px;
+      line-height: 1;
+    }
+    .image-hover:hover .thumb-rating {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
     .image-hover-info {
       position: absolute;
       left: 8px;
@@ -200,7 +226,32 @@ class ImageCard extends LitElement {
       composed: true,
     }));
   }
-  
+
+  _renderThumbRating() {
+    return html`
+      <div class="thumb-rating" @click=${(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          class="cursor-pointer mx-0.5 ${this.image.rating == 0 ? 'text-gray-200' : 'text-gray-300 hover:text-gray-100'}"
+          title="0 stars"
+          @click=${(e) => this._handleRating(e, 0)}
+        >
+          ${this.image.rating == 0 ? '❌' : '🗑'}
+        </button>
+        ${[1, 2, 3].map((star) => html`
+          <button
+            type="button"
+            class="cursor-pointer mx-0.5 ${this.image.rating && this.image.rating >= star ? 'text-yellow-300' : 'text-gray-400 hover:text-gray-200'}"
+            title="${star} star${star > 1 ? 's' : ''}"
+            @click=${(e) => this._handleRating(e, star)}
+          >
+            ${this.image.rating && this.image.rating >= star ? '★' : '☆'}
+          </button>
+        `)}
+      </div>
+    `;
+  }
+
   _handleCardClick() {
       this.dispatchEvent(new CustomEvent('image-selected', { detail: this.image, bubbles: true, composed: true }));
   }
@@ -364,6 +415,7 @@ class ImageCard extends LitElement {
             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 400%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22400%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Image%3C/text%3E%3C/svg%3E';"
           />
           ${this.image.tags_applied ? html`<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>` : ''}
+          ${this._renderThumbRating()}
           ${this._renderHoverInfo()}
         </div>
         <div class="p-3 text-sm text-gray-700 space-y-2">
@@ -494,6 +546,7 @@ class ImageCard extends LitElement {
             loading="lazy"
             @click=${this._handleCardClick}
           />
+          ${this._renderThumbRating()}
           ${this._renderHoverInfo()}
         </div>
         <div class="flex-1 min-w-0">

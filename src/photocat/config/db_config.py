@@ -150,16 +150,23 @@ class ConfigManager:
         return result
     
     def _extract_keywords_recursive(self, category: DBKeywordCategory, parent_path: str, result: List[dict]):
-        """Recursively extract keywords with category paths."""
+        """Recursively extract keywords with category paths.
+
+        Excludes 'person' type keywords since those are for manual people tagging,
+        not for ML model classification.
+        """
         category_path = f"{parent_path}/{category.name}" if parent_path else category.name
-        
+
         for keyword in sorted(category.keywords, key=lambda k: k.sort_order):
+            # Skip person keywords - they're for manual tagging, not ML
+            if getattr(keyword, 'tag_type', 'keyword') == 'person':
+                continue
             result.append({
                 'keyword': keyword.keyword,
                 'category': category_path,
                 'prompt': keyword.prompt
             })
-        
+
         for subcat in sorted(category.subcategories, key=lambda c: c.sort_order):
             self._extract_keywords_recursive(subcat, category_path, result)
     
