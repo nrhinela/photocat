@@ -2839,7 +2839,7 @@ class PhotoCatApp extends LitElement {
                 <list-editor .tenant=${this.tenant} @lists-updated=${this._handleListsUpdated}></list-editor>
             </div>
             <div slot="people" class="container p-4">
-                <person-manager></person-manager>
+                <person-manager .tenant=${this.tenant}></person-manager>
             </div>
             <div slot="tagging" class="container p-4">
                 <tagging-admin .tenant=${this.tenant} @open-upload-modal=${this._handleOpenUploadModal}></tagging-admin>

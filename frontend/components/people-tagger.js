@@ -3,6 +3,7 @@ import { tailwind } from './tailwind-lit.js';
 
 class PeopleTagger extends LitElement {
   static properties = {
+    tenant: { type: String },
     imageId: { type: Number },
     imageName: { type: String },
     people: { type: Array },
@@ -257,7 +258,7 @@ class PeopleTagger extends LitElement {
   }
 
   async loadPeople() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const response = await fetch(`/api/v1/people?limit=500`, {
       headers: { 'X-Tenant-ID': tenantId }
     });
@@ -267,7 +268,7 @@ class PeopleTagger extends LitElement {
   }
 
   async loadImagePeopleTags() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const response = await fetch(`/api/v1/images/${this.imageId}/people`, {
       headers: { 'X-Tenant-ID': tenantId }
     });
@@ -285,7 +286,7 @@ class PeopleTagger extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
       const response = await fetch(`/api/v1/images/${this.imageId}/people`, {
         method: 'POST',
         headers: {
@@ -319,7 +320,7 @@ class PeopleTagger extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
       const response = await fetch(`/api/v1/images/${this.imageId}/people/${personId}`, {
         method: 'DELETE',
         headers: { 'X-Tenant-ID': tenantId }

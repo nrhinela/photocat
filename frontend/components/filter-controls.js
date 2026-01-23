@@ -319,6 +319,7 @@ class FilterControls extends LitElement {
               <div class="mt-6 pt-6 border-t border-gray-200">
                 <p class="text-sm text-gray-600 font-semibold mb-3">Filter by People:</p>
                 <people-search
+                  .tenant="${this.tenant}"
                   @selection-changed="${(e) => this._handlePeopleSelectionChanged(e.detail.selectedPeople)}">
                 </people-search>
               </div>

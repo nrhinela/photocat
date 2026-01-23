@@ -795,6 +795,7 @@ class ImageEditor extends LitElement {
     }
     return html`
       <people-tagger
+        .tenant="${this.tenant}"
         .imageId="${this.details.id}"
         .imageName="${this.details.filename}">
       </people-tagger>

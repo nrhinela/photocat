@@ -3,6 +3,7 @@ import { tailwind } from './tailwind-lit.js';
 
 class PersonManager extends LitElement {
   static properties = {
+    tenant: { type: String },
     view: { type: String }, // 'list' or 'editor'
     people: { type: Array },
     categories: { type: Array },
@@ -277,7 +278,7 @@ class PersonManager extends LitElement {
   }
 
   async loadCategories() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const response = await fetch('/api/v1/config/people/categories', {
       headers: { 'X-Tenant-ID': tenantId }
     });
@@ -286,7 +287,7 @@ class PersonManager extends LitElement {
   }
 
   async loadPeople() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const params = new URLSearchParams();
     if (this.filterCategory) params.append('person_category', this.filterCategory);
     params.append('limit', '500');
@@ -317,7 +318,7 @@ class PersonManager extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
       const response = await fetch('/api/v1/people', {
         method: 'POST',
         headers: {
@@ -348,7 +349,7 @@ class PersonManager extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
       const response = await fetch(`/api/v1/people/${personId}`, {
         method: 'DELETE',
         headers: { 'X-Tenant-ID': tenantId }

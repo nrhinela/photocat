@@ -3,6 +3,7 @@ import { tailwind } from './tailwind-lit.js';
 
 class PeopleSearch extends LitElement {
   static properties = {
+    tenant: { type: String },
     categories: { type: Array },
     people: { type: Array },
     selectedPeople: { type: Set },
@@ -146,7 +147,7 @@ class PeopleSearch extends LitElement {
   }
 
   async loadCategories() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const response = await fetch('/api/v1/config/people/categories', {
       headers: { 'X-Tenant-ID': tenantId }
     });
@@ -155,7 +156,7 @@ class PeopleSearch extends LitElement {
   }
 
   async loadPeople() {
-    const tenantId = localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
     const params = new URLSearchParams();
     if (this.selectedCategory) params.append('person_category', this.selectedCategory);
     params.append('limit', '500');
