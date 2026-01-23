@@ -264,6 +264,10 @@ class PhotoCatApp extends LitElement {
         text-align: center;
         pointer-events: none;
     }
+    .curate-thumb-icon {
+        margin-right: 4px;
+        font-size: 11px;
+    }
     .curate-thumb-date.processed {
         bottom: 24px;
     }
@@ -2328,12 +2332,12 @@ class PhotoCatApp extends LitElement {
                                         ` : html``}
                                         ${this._formatCurateDate(image) ? html`
                                           <div class="curate-thumb-date">
-                                            <i class="fas fa-camera mr-1"></i>${this._formatCurateDate(image)}
+                                            <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                           </div>
                                         ` : html``}
                                         ${this._formatCurateProcessedDate(image) ? html`
                                           <div class="curate-thumb-date processed">
-                                            <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
+                                            <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
                                           </div>
                                         ` : html``}
                                         <div class="curate-thumb-info">
@@ -2496,12 +2500,12 @@ class PhotoCatApp extends LitElement {
                                       ` : html``}
                                       ${this._formatCurateDate(image) ? html`
                                         <div class="curate-thumb-date">
-                                          <i class="fas fa-camera mr-1"></i>${this._formatCurateDate(image)}
+                                          <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                         </div>
                                       ` : html``}
                                       ${this._formatCurateProcessedDate(image) ? html`
                                         <div class="curate-thumb-date processed">
-                                          <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
+                                          <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
                                         </div>
                                       ` : html``}
                                       <div class="curate-thumb-info">
@@ -2622,12 +2626,12 @@ class PhotoCatApp extends LitElement {
                                         ` : html``}
                                         ${this._formatCurateDate(image) ? html`
                                           <div class="curate-thumb-date">
-                                            <i class="fas fa-camera mr-1"></i>${this._formatCurateDate(image)}
+                                            <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                           </div>
                                         ` : html``}
                                         ${this._formatCurateProcessedDate(image) ? html`
                                           <div class="curate-thumb-date processed">
-                                            <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
+                                            <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
                                           </div>
                                         ` : html``}
                                         <div class="curate-thumb-info">
@@ -2697,12 +2701,12 @@ class PhotoCatApp extends LitElement {
                                       ` : html``}
                                       ${this._formatCurateDate(image) ? html`
                                         <div class="curate-thumb-date">
-                                          <i class="fas fa-camera mr-1"></i>${this._formatCurateDate(image)}
+                                          <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                         </div>
                                       ` : html``}
                                       ${this._formatCurateProcessedDate(image) ? html`
                                         <div class="curate-thumb-date processed">
-                                          <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
+                                          <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
                                         </div>
                                       ` : html``}
                                       <div class="curate-thumb-info">
