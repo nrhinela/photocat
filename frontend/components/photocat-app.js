@@ -264,11 +264,14 @@ class PhotoCatApp extends LitElement {
         text-align: center;
         pointer-events: none;
     }
+    .curate-thumb-date.processed {
+        bottom: 24px;
+    }
     .curate-thumb-rating {
         position: absolute;
         left: 6px;
         right: 6px;
-        bottom: 26px;
+        bottom: 44px;
         font-size: 10px;
         color: #f9fafb;
         background: rgba(17, 24, 39, 0.65);
@@ -2329,7 +2332,7 @@ class PhotoCatApp extends LitElement {
                                           </div>
                                         ` : html``}
                                         ${this._formatCurateProcessedDate(image) ? html`
-                                          <div class="curate-thumb-date">
+                                          <div class="curate-thumb-date processed">
                                             <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
                                           </div>
                                         ` : html``}
@@ -2497,7 +2500,7 @@ class PhotoCatApp extends LitElement {
                                         </div>
                                       ` : html``}
                                       ${this._formatCurateProcessedDate(image) ? html`
-                                        <div class="curate-thumb-date">
+                                        <div class="curate-thumb-date processed">
                                           <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
                                         </div>
                                       ` : html``}
@@ -2623,7 +2626,7 @@ class PhotoCatApp extends LitElement {
                                           </div>
                                         ` : html``}
                                         ${this._formatCurateProcessedDate(image) ? html`
-                                          <div class="curate-thumb-date">
+                                          <div class="curate-thumb-date processed">
                                             <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
                                           </div>
                                         ` : html``}
@@ -2698,7 +2701,7 @@ class PhotoCatApp extends LitElement {
                                         </div>
                                       ` : html``}
                                       ${this._formatCurateProcessedDate(image) ? html`
-                                        <div class="curate-thumb-date">
+                                        <div class="curate-thumb-date processed">
                                           <i class="fas fa-cog mr-1"></i>${this._formatCurateProcessedDate(image)}
                                         </div>
                                       ` : html``}
