@@ -49,31 +49,6 @@ class ImageCard extends LitElement {
       transform: translateY(0);
       pointer-events: auto;
     }
-    .image-hover-info {
-      position: absolute;
-      left: 8px;
-      right: auto;
-      bottom: 8px;
-      background: rgba(17, 24, 39, 0.85);
-      color: #f9fafb;
-      font-size: 12px;
-      line-height: 1.35;
-      padding: 8px 10px;
-      border-radius: 8px;
-      min-width: 220px;
-      max-width: min(70vw, 320px);
-      width: max-content;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.15s ease;
-      transition-delay: 0s;
-      z-index: 10;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
-    }
-    .image-hover:hover .image-hover-info {
-      opacity: 1;
-      transition-delay: 0.5s;
-    }
     .hover-label {
       color: #d1d5db;
       font-weight: 600;
@@ -315,21 +290,6 @@ class ImageCard extends LitElement {
     return String(value);
   }
 
-  _renderHoverInfo() {
-    const photoTaken = this._formatDateTime(this.image.capture_timestamp);
-    const dropboxPath = this.image.dropbox_path
-      ? this._formatDropboxPath(this.image.dropbox_path)
-      : 'Unknown';
-    const rating = this._formatRating(this.image.rating);
-    return html`
-      <div class="image-hover-info">
-        <span class="hover-line"><span class="hover-label">Photo taken:</span>${photoTaken}</span>
-        <span class="hover-line"><span class="hover-label">Path:</span>${dropboxPath}</span>
-        <span class="hover-line"><span class="hover-label">Rating:</span>${rating}</span>
-      </div>
-    `;
-  }
-
   _handleMetadataToggle(event) {
     this.metadataOpen = event.target.open;
   }
@@ -399,7 +359,6 @@ class ImageCard extends LitElement {
       : '';
     const formattedPath = this._formatDropboxPath(dropboxPath);
     const photoCreatedAt = this.image.capture_timestamp ? this._formatDateTime(this.image.capture_timestamp) : null;
-    const uploadedAt = this._formatDateTime(this.image.modified_time);
     const listName = this.activeListName || 'None';
     const canAddToList = !!this.activeListName && this.showAddToList;
     const addLabel = this.isInActiveList ? 'Added' : 'Add';
@@ -416,7 +375,6 @@ class ImageCard extends LitElement {
           />
           ${this.image.tags_applied ? html`<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>` : ''}
           ${this._renderThumbRating()}
-          ${this._renderHoverInfo()}
         </div>
         <div class="p-3 text-sm text-gray-700 space-y-2">
           ${photoCreatedAt ? html`
@@ -425,10 +383,6 @@ class ImageCard extends LitElement {
               <span class="ml-1">${photoCreatedAt}</span>
             </div>
           ` : html``}
-          <div>
-            <span class="font-semibold text-gray-700">uploaded:</span>
-            <span class="ml-1">${uploadedAt}</span>
-          </div>
           <div>
             <span class="font-semibold text-gray-700">file:</span>
             ${dropboxHref ? html`
@@ -530,7 +484,6 @@ class ImageCard extends LitElement {
       ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
       : '';
     const photoCreatedAt = this.image.capture_timestamp ? this._formatDateTime(this.image.capture_timestamp) : null;
-    const uploadedAt = this._formatDateTime(this.image.modified_time);
     const listName = this.activeListName || 'None';
     const canAddToList = !!this.activeListName && this.showAddToList;
     const addLabel = this.isInActiveList ? 'Added' : `Add to list: ${listName}`;
@@ -547,14 +500,12 @@ class ImageCard extends LitElement {
             @click=${this._handleCardClick}
           />
           ${this._renderThumbRating()}
-          ${this._renderHoverInfo()}
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-semibold text-gray-800 truncate">${this.image.filename}</div>
           ${photoCreatedAt ? html`
             <div class="text-xs text-gray-500">photo created: ${photoCreatedAt}</div>
           ` : html``}
-          <div class="text-xs text-gray-500">uploaded: ${uploadedAt}</div>
           ${dropboxHref ? html`
             <a
               href=${dropboxHref}

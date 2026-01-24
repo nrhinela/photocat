@@ -161,7 +161,7 @@ async def list_ml_training_images(
                     model_name=model_name,
                     model_version=model_version,
                     model_type=settings.tagging_model,
-                    threshold=0.15,
+                    threshold=settings.keyword_model_threshold,
                     model_weight=settings.keyword_model_weight
                 )
                 trained_by_image[image.id] = trained_tags
@@ -244,5 +244,4 @@ async def get_ml_training_stats(
         "trained_tag_oldest": trained_oldest.isoformat() if trained_oldest else None,
         "trained_tag_newest": trained_newest.isoformat() if trained_newest else None
     }
-
 

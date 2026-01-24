@@ -1,6 +1,7 @@
 """ML training commands."""
 
 import click
+from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import func
 from google.cloud import storage
@@ -37,15 +38,17 @@ def train_keyword_models_command(
 @click.option('--limit', default=None, type=int, help='Limit number of images to process')
 @click.option('--offset', default=0, type=int, help='Offset into image list')
 @click.option('--replace', is_flag=True, default=False, help='Replace existing trained tags')
+@click.option('--older-than-days', default=None, type=float, help='Only process images with trained tags older than this many days')
 def recompute_trained_tags_command(
     tenant_id: str,
     batch_size: int,
     limit: Optional[int],
     offset: int,
-    replace: bool
+    replace: bool,
+    older_than_days: Optional[float]
 ):
     """Recompute ML trained tags for images."""
-    cmd = RecomputeTrainedTagsCommand(tenant_id, batch_size, limit, offset, replace)
+    cmd = RecomputeTrainedTagsCommand(tenant_id, batch_size, limit, offset, replace, older_than_days)
     cmd.run()
 
 
@@ -99,7 +102,8 @@ class RecomputeTrainedTagsCommand(CliCommand):
         batch_size: int,
         limit: Optional[int],
         offset: int,
-        replace: bool
+        replace: bool,
+        older_than_days: Optional[float]
     ):
         super().__init__()
         self.tenant_id = tenant_id
@@ -107,6 +111,7 @@ class RecomputeTrainedTagsCommand(CliCommand):
         self.limit = limit
         self.offset = offset
         self.replace = replace
+        self.older_than_days = older_than_days
 
     def run(self):
         """Execute recompute trained tags command."""
@@ -153,64 +158,105 @@ class RecomputeTrainedTagsCommand(CliCommand):
         thumbnail_bucket = storage_client.bucket(self.tenant.get_thumbnail_bucket(settings))
 
         # Process images in batches
-        base_query = self.db.query(ImageMetadata).filter_by(tenant_id=self.tenant.id).order_by(ImageMetadata.id.desc())
+        base_query = self.db.query(ImageMetadata).filter_by(tenant_id=self.tenant.id)
+        if self.older_than_days is not None:
+            cutoff = datetime.utcnow() - timedelta(days=self.older_than_days)
+            last_tagged_subquery = self.db.query(
+                MachineTag.image_id.label('image_id'),
+                func.max(MachineTag.created_at).label('last_tagged_at')
+            ).filter(
+                MachineTag.tenant_id == self.tenant.id,
+                MachineTag.tag_type == 'trained',
+                MachineTag.model_name == model_name
+            ).group_by(
+                MachineTag.image_id
+            ).subquery()
+            base_query = base_query.outerjoin(
+                last_tagged_subquery,
+                ImageMetadata.id == last_tagged_subquery.c.image_id
+            ).filter(
+                (last_tagged_subquery.c.last_tagged_at.is_(None)) |
+                (last_tagged_subquery.c.last_tagged_at < cutoff)
+            )
+        base_query = base_query.order_by(ImageMetadata.id.desc())
         total = base_query.count()
+        total_remaining = max(total - self.offset, 0)
 
         processed = 0
         skipped = 0
         current_offset = self.offset
-        while True:
-            batch = base_query.offset(current_offset).limit(self.batch_size).all()
-            if not batch:
-                break
+        if total_remaining == 0:
+            click.echo("No images available for processing.")
+            return
 
-            reached_limit = False
-            for image in batch:
-                if self.limit is not None and processed >= self.limit:
-                    reached_limit = True
+        click.echo(
+            f"Processing {total_remaining} images "
+            f"(batch {self.batch_size}, offset {self.offset}"
+            f"{', limit ' + str(self.limit) if self.limit is not None else ''})"
+        )
+
+        with click.progressbar(
+            length=total_remaining,
+            label="Recomputing trained tags",
+            show_eta=True,
+            show_pos=True
+        ) as bar:
+            while True:
+                batch = base_query.offset(current_offset).limit(self.batch_size).all()
+                if not batch:
                     break
-                if not image.thumbnail_path:
-                    skipped += 1
-                    continue
-                if not self.replace:
-                    existing = self.db.query(MachineTag.id).filter(
-                        MachineTag.tenant_id == self.tenant.id,
-                        MachineTag.image_id == image.id,
-                        MachineTag.tag_type == 'trained',
-                        MachineTag.model_name == model_name
-                    ).first()
-                    if existing:
+
+                reached_limit = False
+                for image in batch:
+                    if self.limit is not None and processed >= self.limit:
+                        reached_limit = True
+                        break
+                    if not image.thumbnail_path:
                         skipped += 1
+                        bar.update(1)
                         continue
-                blob = thumbnail_bucket.blob(image.thumbnail_path)
-                if not blob.exists():
-                    skipped += 1
-                    continue
-                image_data = blob.download_as_bytes()
-                recompute_trained_tags_for_image(
-                    db=self.db,
-                    tenant_id=self.tenant.id,
-                    image_id=image.id,
-                    image_data=image_data,
-                    keywords_by_category=by_category,
-                    keyword_models=keyword_models,
-                    keyword_to_category=keyword_to_category,
-                    model_name=model_name,
-                    model_version=model_version,
-                    model_type=settings.tagging_model,
-                    threshold=0.15,
-                    model_weight=settings.keyword_model_weight
-                )
-                processed += 1
-                if self.limit is not None and processed >= self.limit:
-                    reached_limit = True
+                    if not self.replace:
+                        existing = self.db.query(MachineTag.id).filter(
+                            MachineTag.tenant_id == self.tenant.id,
+                            MachineTag.image_id == image.id,
+                            MachineTag.tag_type == 'trained',
+                            MachineTag.model_name == model_name
+                        ).first()
+                        if existing:
+                            skipped += 1
+                            bar.update(1)
+                            continue
+                    blob = thumbnail_bucket.blob(image.thumbnail_path)
+                    if not blob.exists():
+                        skipped += 1
+                        bar.update(1)
+                        continue
+                    image_data = blob.download_as_bytes()
+                    recompute_trained_tags_for_image(
+                        db=self.db,
+                        tenant_id=self.tenant.id,
+                        image_id=image.id,
+                        image_data=image_data,
+                        keywords_by_category=by_category,
+                        keyword_models=keyword_models,
+                        keyword_to_category=keyword_to_category,
+                        model_name=model_name,
+                        model_version=model_version,
+                        model_type=settings.tagging_model,
+                        threshold=settings.keyword_model_threshold,
+                        model_weight=settings.keyword_model_weight
+                    )
+                    processed += 1
+                    bar.update(1)
+                    if self.limit is not None and processed >= self.limit:
+                        reached_limit = True
+                        break
+
+                self.db.commit()
+
+                if reached_limit:
                     break
 
-            self.db.commit()
-
-            if reached_limit:
-                break
-
-            current_offset += len(batch)
+                current_offset += len(batch)
 
         click.echo(f"✓ Trained tags recomputed: {processed} · Skipped: {skipped} · Total: {total}")

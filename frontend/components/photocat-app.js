@@ -192,6 +192,12 @@ class PhotoCatApp extends LitElement {
         flex-direction: column;
         position: relative;
     }
+    .curate-pane.utility-targets {
+        position: sticky;
+        top: 12px;
+        align-self: start;
+        max-height: calc(100vh - 160px);
+    }
     .curate-pane-header {
         padding: 10px 12px;
         border-bottom: 1px solid #e5e7eb;
@@ -257,28 +263,104 @@ class PhotoCatApp extends LitElement {
     .curate-thumb-rating-widget {
         position: absolute;
         top: 6px;
+        left: 6px;
         right: 6px;
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: 4px;
-        background: rgba(17, 24, 39, 0.85);
-        color: #f9fafb;
-        padding: 4px 6px;
-        border-radius: 999px;
+        justify-content: space-between;
+        gap: 8px;
         opacity: 0;
         transform: translateY(-2px);
         transition: opacity 0.15s ease, transform 0.15s ease;
         pointer-events: none;
         z-index: 12;
     }
-    .curate-thumb-rating-widget button {
+    .curate-thumb-rating-static {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(255, 255, 255, 0.9);
+        color: #111827;
+        padding: 4px 6px;
+        border-radius: 999px;
+        box-shadow: 0 4px 12px rgba(17, 24, 39, 0.18);
+        z-index: 10;
+        pointer-events: none;
+    }
+    .curate-thumb-rating-static.trash-offset {
+        right: 6px;
+    }
+    .curate-thumb-rating-static span {
         font-size: 12px;
         line-height: 1;
+    }
+    .curate-thumb-rating-widget .curate-thumb-burst {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        width: 30px;
+        height: 30px;
+        pointer-events: none;
+        animation: curate-burst 0.7s ease-out forwards;
+    }
+    .curate-thumb-rating-widget .curate-thumb-burst::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(250, 204, 21, 0.95) 0 30%, rgba(250, 204, 21, 0) 65%);
+        box-shadow: 0 0 14px rgba(250, 204, 21, 0.8);
+    }
+    .curate-thumb-rating-widget .curate-thumb-burst::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 2px solid rgba(250, 204, 21, 0.8);
+        opacity: 0.9;
+    }
+    .curate-thumb-rating-widget button {
+        font-size: 14px;
+        line-height: 1;
+    }
+    .curate-thumb-trash {
+        background: rgba(255, 255, 255, 0.98);
+        color: #111827;
+        border-radius: 999px;
+        padding: 6px 8px;
+        box-shadow: 0 6px 16px rgba(17, 24, 39, 0.22);
+    }
+    .curate-thumb-stars {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(255, 255, 255, 0.98);
+        color: #111827;
+        border-radius: 999px;
+        padding: 6px 8px;
+        box-shadow: 0 6px 16px rgba(17, 24, 39, 0.22);
     }
     .curate-thumb-wrapper:hover .curate-thumb-rating-widget {
         opacity: 1;
         transform: translateY(0);
         pointer-events: auto;
+    }
+    @keyframes curate-burst {
+        0% {
+            transform: scale(0.35);
+            opacity: 0.1;
+        }
+        45% {
+            transform: scale(1.1);
+            opacity: 1;
+        }
+        100% {
+            transform: scale(1.35);
+            opacity: 0;
+        }
     }
     .curate-thumb-date {
         position: absolute;
@@ -297,6 +379,11 @@ class PhotoCatApp extends LitElement {
         margin-right: 4px;
         font-size: 11px;
     }
+    .curate-thumb-id {
+        margin-right: 6px;
+        font-weight: 600;
+        color: #e5e7eb;
+    }
     .curate-thumb-date.processed {
         bottom: 24px;
     }
@@ -304,7 +391,7 @@ class PhotoCatApp extends LitElement {
         position: absolute;
         left: 6px;
         right: 6px;
-        bottom: 44px;
+        bottom: 22px;
         font-size: 10px;
         color: #f9fafb;
         background: rgba(17, 24, 39, 0.65);
@@ -312,31 +399,6 @@ class PhotoCatApp extends LitElement {
         border-radius: 6px;
         text-align: center;
         pointer-events: none;
-    }
-    .curate-thumb-info {
-        position: absolute;
-        left: 4px;
-        right: auto;
-        bottom: 4px;
-        background: rgba(17, 24, 39, 0.85);
-        color: #f9fafb;
-        font-size: 11px;
-        line-height: 1.35;
-        padding: 6px 8px;
-        border-radius: 6px;
-        min-width: 200px;
-        max-width: min(70vw, 300px);
-        width: max-content;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.15s ease;
-        transition-delay: 0s;
-        z-index: 10;
-        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
-    }
-    .curate-thumb-wrapper:hover .curate-thumb-info {
-        opacity: 1;
-        transition-delay: 0.5s;
     }
     .curate-thumb-line {
         display: block;
@@ -347,6 +409,15 @@ class PhotoCatApp extends LitElement {
     .curate-thumb.selected {
         outline: 3px solid #2563eb;
         outline-offset: -2px;
+    }
+    .curate-thumb.selected.flash {
+        animation: curate-select-flash 0.6s ease;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
+    }
+    @keyframes curate-select-flash {
+        0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.6); }
+        40% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.35); }
+        100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
     }
     .curate-drop {
         border: 2px dashed #cbd5f5;
@@ -429,6 +500,94 @@ class PhotoCatApp extends LitElement {
         display: inline-flex;
         align-items: center;
         gap: 4px;
+    }
+    .curate-utility-panel {
+        position: sticky;
+        top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+    .curate-utility-box {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        background: #f9fafb;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 140px;
+    }
+    .curate-utility-box.active {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+        background: #eff6ff;
+    }
+    .curate-utility-controls {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 8px;
+        align-items: center;
+    }
+    .curate-utility-controls select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        background: #fff;
+    }
+    .curate-utility-controls select.curate-utility-select.selected {
+        background: #fef3c7;
+        border-color: #fde68a;
+    }
+    .curate-utility-count {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        font-weight: 600;
+        color: #1f2937;
+    }
+    .curate-utility-drop-hint {
+        text-align: center;
+        font-size: 0.7rem;
+        color: #6b7280;
+    }
+    .curate-utility-add {
+        border: 1px dashed #cbd5f5;
+        border-radius: 12px;
+        padding: 10px;
+        text-align: center;
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #2563eb;
+        background: #f8fbff;
+        cursor: pointer;
+    }
+    .curate-utility-add:hover {
+        background: #eef5ff;
+    }
+    .curate-utility-remove {
+        margin-left: auto;
+        width: 22px;
+        height: 22px;
+        border-radius: 9999px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+        color: #6b7280;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+    }
+    .curate-utility-remove:hover {
+        color: #dc2626;
+        border-color: #fecaca;
+        background: #fef2f2;
     }
     .curate-tags-actions {
         display: flex;
@@ -587,19 +746,11 @@ class PhotoCatApp extends LitElement {
       curatePageOffset: { type: Number },
       curateTotal: { type: Number },
       curateLoading: { type: Boolean },
-      curateSelection: { type: Array },
-      curateDragTarget: { type: String },
       curateDragSelection: { type: Array },
       curateDragSelecting: { type: Boolean },
       curateDragStartIndex: { type: Number },
       curateDragEndIndex: { type: Number },
       curateThumbSize: { type: Number },
-      curateTagMode: { type: Boolean },
-      curateTagChoices: { type: Object },
-      curateTagFilter: { type: String },
-      curateApplyStatus: { type: String },
-      curateApplyTotal: { type: Number },
-      curateApplyPending: { type: Number },
       curateEditorImage: { type: Object },
       curateEditorOpen: { type: Boolean },
       curateSubTab: { type: String, attribute: false },
@@ -625,6 +776,8 @@ class PhotoCatApp extends LitElement {
       curateNoPositivePermatags: { type: Boolean },
       activeCurateTagSource: { type: String },
       curateCategoryCards: { type: Array },
+      curateAuditTargets: { type: Array },
+      curateExploreTargets: { type: Array },
   }
 
   constructor() {
@@ -647,7 +800,7 @@ class PhotoCatApp extends LitElement {
       this.mlTrainingStats = null;
       this.tagStatsBySource = {};
       this.activeTagSource = 'zero_shot';
-      this.curateLimit = 50;
+      this.curateLimit = 100;
       this.curateOrderBy = 'photo_creation';
       this.curateOrderDirection = 'desc';
       this.curateHideDeleted = true;
@@ -659,20 +812,11 @@ class PhotoCatApp extends LitElement {
       this.curatePageOffset = 0;
       this.curateTotal = null;
       this.curateLoading = false;
-      this.curateSelection = [];
-      this.curateDragTarget = null;
       this.curateDragSelection = [];
       this.curateDragSelecting = false;
       this.curateDragStartIndex = null;
       this.curateDragEndIndex = null;
       this.curateThumbSize = 190;
-      this.curateTagMode = false;
-      this.curateTagChoices = {};
-      this.curateTagFilter = '';
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      this._pendingCurateApplyIds = new Set();
       this.curateEditorImage = null;
       this.curateEditorOpen = false;
       this.curateSubTab = 'home';
@@ -686,7 +830,7 @@ class PhotoCatApp extends LitElement {
       this.curateAuditDragSelecting = false;
       this.curateAuditDragStartIndex = null;
       this.curateAuditDragEndIndex = null;
-      this.curateAuditLimit = 50;
+      this.curateAuditLimit = 100;
       this.curateAuditOffset = 0;
       this.curateAuditTotal = null;
       this.curateAuditLoading = false;
@@ -698,6 +842,17 @@ class PhotoCatApp extends LitElement {
       this.curateNoPositivePermatags = false;
       this.activeCurateTagSource = 'permatags';
       this.curateCategoryCards = [];
+      this.curateExploreTargets = [
+        { id: 1, category: '', keyword: '', action: 'add', count: 0 },
+      ];
+      this._curateExploreHotspotNextId = 2;
+      this.curateAuditTargets = [
+        { id: 1, category: '', keyword: '', action: 'remove', count: 0 },
+      ];
+      this._curateAuditHotspotNextId = 2;
+      this._curateSubTabState = { main: null };
+      this._curateActiveWorkingTab = 'main';
+      this._curateSubTabState.main = this._snapshotCurateState();
       this._listsLoaded = false;
       this._queueRefreshTimer = null;
       this._statsRefreshTimer = null;
@@ -710,19 +865,27 @@ class PhotoCatApp extends LitElement {
       this._curatePressIndex = null;
       this._curatePressImageId = null;
       this._curateSuppressClick = false;
+      this._curateLongPressTriggered = false;
+      this._curateAuditPressTimer = null;
+      this._curateAuditPressActive = false;
+      this._curateAuditPressStart = null;
+      this._curateAuditPressIndex = null;
+      this._curateAuditPressImageId = null;
+      this._curateAuditLongPressTriggered = false;
+      this._curateRatingBurstIds = new Set();
+      this._curateRatingBurstTimers = new Map();
+      this._curateFlashSelectionIds = new Set();
+      this._curateFlashSelectionTimers = new Map();
+      this._curateDragOrder = null;
+      this._curateExploreReorderId = null;
+      this._curateAuditHotspotDragTarget = null;
+      this._curateExploreHotspotDragTarget = null;
       this._handleWindowResize = () => {
         this._syncHomePanelHeights();
       };
       this._handleQueueCommandComplete = (event) => {
         const detail = event?.detail;
         if (!detail) return;
-        if (detail.id && this._pendingCurateApplyIds?.has(detail.id)) {
-          this._pendingCurateApplyIds.delete(detail.id);
-          this.curateApplyPending = this._pendingCurateApplyIds.size;
-          if (this._pendingCurateApplyIds.size === 0 && this.curateApplyStatus === 'applying') {
-            this.curateApplyStatus = 'saved';
-          }
-        }
         if (
           detail.type === 'retag' ||
           detail.type === 'add-positive-permatag' ||
@@ -735,13 +898,6 @@ class PhotoCatApp extends LitElement {
       this._handleQueueCommandFailed = (event) => {
         const detail = event?.detail;
         if (!detail?.id) return;
-        if (this._pendingCurateApplyIds?.has(detail.id)) {
-          this._pendingCurateApplyIds.delete(detail.id);
-          this.curateApplyPending = this._pendingCurateApplyIds.size;
-          if (this._pendingCurateApplyIds.size === 0 && this.curateApplyStatus === 'applying') {
-            this.curateApplyStatus = 'saved';
-          }
-        }
       };
       this._handleQueueToggle = () => {
         this.showQueuePanel = !this.showQueuePanel;
@@ -777,8 +933,365 @@ class PhotoCatApp extends LitElement {
           this.curateAuditDragStartIndex = null;
           this.curateAuditDragEndIndex = null;
         }
-        this._cancelCuratePressState();
+        if (this._curateAuditLongPressTriggered) {
+          this._curateSuppressClick = true;
+          this._curateAuditLongPressTriggered = false;
+        }
+        if (this._curateLongPressTriggered) {
+          this._curateSuppressClick = true;
+          this._curateLongPressTriggered = false;
+        }
+      this._cancelCuratePressState();
+      this._cancelCurateAuditPressState();
       };
+  }
+
+  _getCurateDefaultState() {
+      return {
+          curateLimit: 100,
+          curateOrderBy: 'photo_creation',
+          curateOrderDirection: 'desc',
+          curateHideDeleted: true,
+          curateMinRating: null,
+          curateKeywordFilters: {},
+          curateKeywordOperators: {},
+          curateFilters: this._buildCurateFilters(),
+          curateImages: [],
+          curatePageOffset: 0,
+          curateTotal: null,
+          curateLoading: false,
+          curateDragSelection: [],
+          curateDragSelecting: false,
+          curateDragStartIndex: null,
+          curateDragEndIndex: null,
+          curateNoPositivePermatags: false,
+          _curateLeftOrder: [],
+          _curateRightOrder: [],
+          _curateFlashSelectionIds: null,
+      };
+  }
+
+  _snapshotCurateState() {
+      return {
+          curateLimit: this.curateLimit,
+          curateOrderBy: this.curateOrderBy,
+          curateOrderDirection: this.curateOrderDirection,
+          curateHideDeleted: this.curateHideDeleted,
+          curateMinRating: this.curateMinRating,
+          curateKeywordFilters: { ...(this.curateKeywordFilters || {}) },
+          curateKeywordOperators: { ...(this.curateKeywordOperators || {}) },
+          curateFilters: { ...(this.curateFilters || {}) },
+          curateImages: Array.isArray(this.curateImages) ? [...this.curateImages] : [],
+          curatePageOffset: this.curatePageOffset,
+          curateTotal: this.curateTotal,
+          curateLoading: this.curateLoading,
+          curateDragSelection: Array.isArray(this.curateDragSelection) ? [...this.curateDragSelection] : [],
+          curateDragSelecting: this.curateDragSelecting,
+          curateDragStartIndex: this.curateDragStartIndex,
+          curateDragEndIndex: this.curateDragEndIndex,
+          curateNoPositivePermatags: this.curateNoPositivePermatags,
+          _curateLeftOrder: Array.isArray(this._curateLeftOrder) ? [...this._curateLeftOrder] : [],
+          _curateRightOrder: Array.isArray(this._curateRightOrder) ? [...this._curateRightOrder] : [],
+          _curateFlashSelectionIds: this._curateFlashSelectionIds ? new Set(this._curateFlashSelectionIds) : null,
+      };
+  }
+
+  _restoreCurateState(state) {
+      const next = state || this._getCurateDefaultState();
+      this.curateLimit = next.curateLimit;
+      this.curateOrderBy = next.curateOrderBy;
+      this.curateOrderDirection = next.curateOrderDirection;
+      this.curateHideDeleted = next.curateHideDeleted;
+      this.curateMinRating = next.curateMinRating;
+      this.curateKeywordFilters = { ...(next.curateKeywordFilters || {}) };
+      this.curateKeywordOperators = { ...(next.curateKeywordOperators || {}) };
+      this.curateFilters = { ...(next.curateFilters || this._buildCurateFilters()) };
+      this.curateImages = Array.isArray(next.curateImages) ? [...next.curateImages] : [];
+      this.curatePageOffset = next.curatePageOffset;
+      this.curateTotal = next.curateTotal;
+      this.curateLoading = next.curateLoading;
+      this.curateDragSelection = Array.isArray(next.curateDragSelection) ? [...next.curateDragSelection] : [];
+      this.curateDragSelecting = next.curateDragSelecting;
+      this.curateDragStartIndex = next.curateDragStartIndex;
+      this.curateDragEndIndex = next.curateDragEndIndex;
+      this.curateNoPositivePermatags = next.curateNoPositivePermatags || false;
+      this._curateLeftOrder = Array.isArray(next._curateLeftOrder) ? [...next._curateLeftOrder] : [];
+      this._curateRightOrder = Array.isArray(next._curateRightOrder) ? [...next._curateRightOrder] : [];
+      this._curateFlashSelectionIds = next._curateFlashSelectionIds ? new Set(next._curateFlashSelectionIds) : null;
+      this._curateDragOrder = null;
+      this._cancelCuratePressState();
+  }
+
+  _parseUtilityKeywordValue(value) {
+      if (!value) {
+          return { category: '', keyword: '' };
+      }
+      const [rawCategory, rawKeyword] = value.split('::');
+      if (!rawKeyword) {
+          return { category: '', keyword: '' };
+      }
+      return {
+          category: decodeURIComponent(rawCategory || 'Uncategorized'),
+          keyword: decodeURIComponent(rawKeyword || ''),
+      };
+  }
+
+  _handleCurateExploreHotspotKeywordChange(event, targetId) {
+      const value = event.target.value;
+      const { category, keyword } = this._parseUtilityKeywordValue(value);
+      this.curateExploreTargets = (this.curateExploreTargets || []).map((target) => (
+          target.id === targetId ? { ...target, category, keyword, count: 0 } : target
+      ));
+  }
+
+  _handleCurateExploreHotspotActionChange(event, targetId) {
+      const action = event.target.value === 'remove' ? 'remove' : 'add';
+      this.curateExploreTargets = (this.curateExploreTargets || []).map((target) => (
+          target.id === targetId ? { ...target, action, count: 0 } : target
+      ));
+  }
+
+  _handleCurateExploreHotspotAddTarget() {
+      const nextId = this._curateExploreHotspotNextId || 1;
+      this._curateExploreHotspotNextId = nextId + 1;
+      this.curateExploreTargets = [
+          ...(this.curateExploreTargets || []),
+          { id: nextId, category: '', keyword: '', action: 'add', count: 0 },
+      ];
+  }
+
+  _handleCurateExploreHotspotRemoveTarget(targetId) {
+      if (!this.curateExploreTargets || this.curateExploreTargets.length <= 1) {
+          return;
+      }
+      const firstId = this.curateExploreTargets[0]?.id;
+      if (targetId === firstId) {
+          return;
+      }
+      this.curateExploreTargets = this.curateExploreTargets.filter((target) => target.id !== targetId);
+      if (this._curateExploreHotspotDragTarget === targetId) {
+          this._curateExploreHotspotDragTarget = null;
+      }
+  }
+
+  _handleCurateExploreHotspotDragOver(event, targetId) {
+      event.preventDefault();
+      if (this._curateExploreHotspotDragTarget !== targetId) {
+          this._curateExploreHotspotDragTarget = targetId;
+          this.requestUpdate();
+      }
+  }
+
+  _handleCurateExploreHotspotDragLeave() {
+      if (this._curateExploreHotspotDragTarget !== null) {
+          this._curateExploreHotspotDragTarget = null;
+          this.requestUpdate();
+      }
+  }
+
+  _handleCurateExploreHotspotDrop(event, targetId) {
+      event.preventDefault();
+      const raw = event.dataTransfer?.getData('text/plain') || '';
+      const ids = raw
+          .split(',')
+          .map((value) => Number.parseInt(value.trim(), 10))
+          .filter((value) => Number.isFinite(value) && value > 0);
+      if (!ids.length) {
+          this._handleCurateExploreHotspotDragLeave();
+          return;
+      }
+      const target = (this.curateExploreTargets || []).find((entry) => entry.id === targetId);
+      if (!target || !target.keyword) {
+          this._handleCurateExploreHotspotDragLeave();
+          return;
+      }
+      const signum = target.action === 'remove' ? -1 : 1;
+      const category = target.category || 'Uncategorized';
+      const operations = ids.map((imageId) => ({
+          image_id: imageId,
+          keyword: target.keyword,
+          category,
+          signum,
+      }));
+      enqueueCommand({
+          type: 'bulk-permatags',
+          tenantId: this.tenant,
+          operations,
+          description: `hotspot · ${operations.length} updates`,
+      });
+      const tags = [{ keyword: target.keyword, category }];
+      if (signum === 1) {
+          this._updateCuratePermatags(ids, tags);
+      } else {
+          this._updateCuratePermatagRemovals(ids, tags);
+      }
+      this._removeCurateImagesByIds(ids);
+      this.curateExploreTargets = this.curateExploreTargets.map((entry) => (
+          entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+      ));
+      this._handleCurateExploreHotspotDragLeave();
+  }
+
+  _removeCurateImagesByIds(ids) {
+      if (!ids?.length) return;
+      const removeSet = new Set(ids);
+      const keep = (image) => !removeSet.has(image.id);
+      this.curateImages = this.curateImages.filter(keep);
+      this.curateSelection = this.curateSelection.filter(keep);
+      this.curateDragSelection = this.curateDragSelection.filter((id) => !removeSet.has(id));
+  }
+
+  _syncAuditHotspotPrimary() {
+      const defaultAction = this.curateAuditMode === 'existing' ? 'remove' : 'add';
+      const keyword = this.curateAuditKeyword || '';
+      const category = keyword ? (this.curateAuditCategory || 'Uncategorized') : '';
+      if (!this.curateAuditTargets || !this.curateAuditTargets.length) {
+          this.curateAuditTargets = [
+              { id: 1, category, keyword, action: defaultAction, count: 0 },
+          ];
+          this._curateAuditHotspotNextId = 2;
+          return;
+      }
+      const [first, ...rest] = this.curateAuditTargets;
+      const nextFirst = {
+          ...first,
+          category,
+          keyword,
+          action: defaultAction,
+      };
+      if (!keyword || first.keyword !== keyword || first.action !== defaultAction) {
+          nextFirst.count = 0;
+      }
+      this.curateAuditTargets = [nextFirst, ...rest];
+  }
+
+  _handleCurateAuditHotspotKeywordChange(event, targetId) {
+      const value = event.target.value;
+      const { category, keyword } = this._parseUtilityKeywordValue(value);
+      this.curateAuditTargets = (this.curateAuditTargets || []).map((target) => (
+          target.id === targetId ? { ...target, category, keyword, count: 0 } : target
+      ));
+  }
+
+  _handleCurateAuditHotspotActionChange(event, targetId) {
+      const action = event.target.value === 'remove' ? 'remove' : 'add';
+      this.curateAuditTargets = (this.curateAuditTargets || []).map((target) => (
+          target.id === targetId ? { ...target, action, count: 0 } : target
+      ));
+  }
+
+  _handleCurateAuditHotspotAddTarget() {
+      const nextId = this._curateAuditHotspotNextId || 1;
+      this._curateAuditHotspotNextId = nextId + 1;
+      this.curateAuditTargets = [
+          ...(this.curateAuditTargets || []),
+          { id: nextId, category: '', keyword: '', action: 'add', count: 0 },
+      ];
+  }
+
+  _handleCurateAuditHotspotRemoveTarget(targetId) {
+      if (!this.curateAuditTargets || this.curateAuditTargets.length <= 1) {
+          return;
+      }
+      const firstId = this.curateAuditTargets[0]?.id;
+      if (targetId === firstId) {
+          return;
+      }
+      this.curateAuditTargets = this.curateAuditTargets.filter((target) => target.id !== targetId);
+      if (this._curateAuditHotspotDragTarget === targetId) {
+          this._curateAuditHotspotDragTarget = null;
+      }
+  }
+
+  _handleCurateAuditHotspotDragOver(event, targetId) {
+      event.preventDefault();
+      if (this._curateAuditHotspotDragTarget !== targetId) {
+          this._curateAuditHotspotDragTarget = targetId;
+          this.requestUpdate();
+      }
+  }
+
+  _handleCurateAuditHotspotDragLeave() {
+      if (this._curateAuditHotspotDragTarget !== null) {
+          this._curateAuditHotspotDragTarget = null;
+          this.requestUpdate();
+      }
+  }
+
+  _handleCurateAuditHotspotDrop(event, targetId) {
+      event.preventDefault();
+      const raw = event.dataTransfer?.getData('text/plain') || '';
+      const ids = raw
+          .split(',')
+          .map((value) => Number.parseInt(value.trim(), 10))
+          .filter((value) => Number.isFinite(value) && value > 0);
+      if (!ids.length) {
+          this._handleCurateAuditHotspotDragLeave();
+          return;
+      }
+      const target = (this.curateAuditTargets || []).find((entry) => entry.id === targetId);
+      if (!target || !target.keyword) {
+          this._handleCurateAuditHotspotDragLeave();
+          return;
+      }
+      const idSet = new Set(ids);
+      const additions = this.curateAuditImages.filter((img) => idSet.has(img.id));
+      if (!additions.length) {
+          this._handleCurateAuditHotspotDragLeave();
+          return;
+      }
+      const signum = target.action === 'remove' ? -1 : 1;
+      const category = target.category || 'Uncategorized';
+      const operations = additions.map((image) => ({
+          image_id: image.id,
+          keyword: target.keyword,
+          category,
+          signum,
+      }));
+      enqueueCommand({
+          type: 'bulk-permatags',
+          tenantId: this.tenant,
+          operations,
+          description: `tag audit · ${operations.length} updates`,
+      });
+      additions.forEach((image) => {
+          this._applyAuditPermatagChange(image, signum, target.keyword, category);
+      });
+      this.curateAuditImages = this.curateAuditImages.filter((img) => !idSet.has(img.id));
+      this.curateAuditDragSelection = this.curateAuditDragSelection.filter((id) => !idSet.has(id));
+      this.curateAuditTargets = this.curateAuditTargets.map((entry) => (
+          entry.id === targetId ? { ...entry, count: (entry.count || 0) + additions.length } : entry
+      ));
+      this._handleCurateAuditHotspotDragLeave();
+  }
+
+  _handleCurateExploreReorderStart(event, image) {
+      if (!image?.id) return;
+      this._handleCurateDragStart(event, image);
+      if (event.defaultPrevented) {
+          return;
+      }
+      this._curateExploreReorderId = image.id;
+  }
+
+  _handleCurateExploreReorderOver(event, targetId) {
+      if (!this._curateExploreReorderId || !targetId || this._curateExploreReorderId === targetId) {
+          return;
+      }
+      event.preventDefault();
+      const images = Array.isArray(this.curateImages) ? [...this.curateImages] : [];
+      const fromIndex = images.findIndex((img) => img.id === this._curateExploreReorderId);
+      const toIndex = images.findIndex((img) => img.id === targetId);
+      if (fromIndex < 0 || toIndex < 0) {
+          return;
+      }
+      const [moved] = images.splice(fromIndex, 1);
+      images.splice(toIndex, 0, moved);
+      this.curateImages = images;
+  }
+
+  _handleCurateExploreReorderEnd() {
+      this._curateExploreReorderId = null;
   }
 
   connectedCallback() {
@@ -928,6 +1441,19 @@ class PhotoCatApp extends LitElement {
       this._curatePressStart = null;
       this._curatePressIndex = null;
       this._curatePressImageId = null;
+      this._curateLongPressTriggered = false;
+  }
+
+  _cancelCurateAuditPressState() {
+      if (this._curateAuditPressTimer) {
+          clearTimeout(this._curateAuditPressTimer);
+          this._curateAuditPressTimer = null;
+      }
+      this._curateAuditPressActive = false;
+      this._curateAuditPressStart = null;
+      this._curateAuditPressIndex = null;
+      this._curateAuditPressImageId = null;
+      this._curateAuditLongPressTriggered = false;
   }
 
   _startCurateSelection(index, imageId) {
@@ -935,15 +1461,30 @@ class PhotoCatApp extends LitElement {
           return;
       }
       this._cancelCuratePressState();
+      this._curateLongPressTriggered = true;
       this.curateDragSelecting = true;
       this.curateDragStartIndex = index;
       this.curateDragEndIndex = index;
       this._curateSuppressClick = true;
+      this._flashCurateSelection(imageId);
       this._updateCurateDragSelection();
   }
 
+  _startCurateAuditSelection(index, imageId) {
+      if (this.curateAuditDragSelection.includes(imageId)) {
+          return;
+      }
+      this._cancelCurateAuditPressState();
+      this._curateAuditLongPressTriggered = true;
+      this.curateAuditDragSelecting = true;
+      this.curateAuditDragStartIndex = index;
+      this.curateAuditDragEndIndex = index;
+      this._curateSuppressClick = true;
+      this._updateCurateAuditDragSelection();
+  }
+
   _handleCuratePointerDown(event, index, imageId) {
-      if (this.curateTagMode || this.curateDragSelecting || this.curateAuditDragSelecting) {
+      if (this.curateDragSelecting || this.curateAuditDragSelecting) {
           return;
       }
       if (event.button !== 0) {
@@ -965,6 +1506,16 @@ class PhotoCatApp extends LitElement {
       }, 250);
   }
 
+  _handleCuratePointerDownWithOrder(event, index, imageId, order) {
+      this._curateDragOrder = Array.isArray(order) ? order : null;
+      this._handleCuratePointerDown(event, index, imageId);
+  }
+
+  _handleCurateSelectHoverWithOrder(index, order) {
+      this._curateDragOrder = Array.isArray(order) ? order : null;
+      this._handleCurateSelectHover(index);
+  }
+
   _handleCuratePointerMove(event) {
       if (!this._curatePressActive || this.curateDragSelecting) {
           return;
@@ -976,6 +1527,43 @@ class PhotoCatApp extends LitElement {
       const dy = Math.abs(event.clientY - this._curatePressStart.y);
       if (dx + dy > 6) {
           this._cancelCuratePressState();
+      }
+  }
+
+  _handleCurateAuditPointerDown(event, index, imageId) {
+      if (this.curateAuditDragSelecting) {
+          return;
+      }
+      if (event.button !== 0) {
+          return;
+      }
+      if (this.curateAuditDragSelection.length && this.curateAuditDragSelection.includes(imageId)) {
+          this._curateSuppressClick = true;
+          return;
+      }
+      this._curateSuppressClick = false;
+      this._curateAuditPressActive = true;
+      this._curateAuditPressStart = { x: event.clientX, y: event.clientY };
+      this._curateAuditPressIndex = index;
+      this._curateAuditPressImageId = imageId;
+      this._curateAuditPressTimer = setTimeout(() => {
+          if (this._curateAuditPressActive) {
+              this._startCurateAuditSelection(index, imageId);
+          }
+      }, 250);
+  }
+
+  _handleCurateAuditPointerMove(event) {
+      if (!this._curateAuditPressActive || this.curateAuditDragSelecting) {
+          return;
+      }
+      if (!this._curateAuditPressStart) {
+          return;
+      }
+      const dx = Math.abs(event.clientX - this._curateAuditPressStart.x);
+      const dy = Math.abs(event.clientY - this._curateAuditPressStart.y);
+      if (dx + dy > 6) {
+          this._cancelCurateAuditPressState();
       }
   }
 
@@ -993,10 +1581,17 @@ class PhotoCatApp extends LitElement {
               this.curateAuditLoadAll = false;
               this.curateAuditPageOffset = 0;
               this.curateAuditImages = [];
+              this.curateKeywordFilters = {};
+              this.curateKeywordOperators = {};
           } else {
               this.curateKeywordFilters = {};
               this.curateKeywordOperators = {};
               this.curateNoPositivePermatags = false;
+              this.curateAuditKeyword = '';
+              this.curateAuditCategory = '';
+              this.curateAuditSelection = [];
+              this.curateAuditDragSelection = [];
+              this.curateAuditDragTarget = null;
               this._applyCurateFilters();
           }
           return;
@@ -1006,6 +1601,8 @@ class PhotoCatApp extends LitElement {
           this.curateKeywordFilters = {};
           this.curateKeywordOperators = {};
           this.curateNoPositivePermatags = true;
+          this.curateAuditKeyword = '';
+          this.curateAuditCategory = '';
           this._applyCurateFilters({ resetOffset: true });
           return;
       }
@@ -1017,6 +1614,11 @@ class PhotoCatApp extends LitElement {
       if (mode === 'tag-audit') {
           this.curateAuditKeyword = keyword;
           this.curateAuditCategory = category;
+          this.curateKeywordFilters = keyword
+            ? { [category || 'Uncategorized']: new Set([keyword]) }
+            : {};
+          this.curateKeywordOperators = keyword ? { [category || 'Uncategorized']: 'OR' } : {};
+          this.curateNoPositivePermatags = false;
           this.curateAuditSelection = [];
           this.curateAuditDragSelection = [];
           this.curateAuditDragTarget = null;
@@ -1029,6 +1631,7 @@ class PhotoCatApp extends LitElement {
               return;
           }
           this._fetchCurateAuditImages();
+          this._applyCurateFilters({ resetOffset: true });
           return;
       }
 
@@ -1039,6 +1642,8 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordFilters = nextKeywords;
       this.curateKeywordOperators = keyword ? { [category || 'Uncategorized']: 'OR' } : {};
       this.curateNoPositivePermatags = false;
+      this.curateAuditKeyword = keyword;
+      this.curateAuditCategory = category || 'Uncategorized';
       this._applyCurateFilters({ resetOffset: true });
   }
 
@@ -1050,6 +1655,15 @@ class PhotoCatApp extends LitElement {
       });
       this.curateKeywordFilters = nextKeywords;
       this.curateKeywordOperators = { ...(detail.operators || {}) };
+      const firstCategory = Object.keys(nextKeywords).find((cat) => nextKeywords[cat]?.size);
+      const firstKeyword = firstCategory ? Array.from(nextKeywords[firstCategory])[0] : '';
+      if (firstKeyword) {
+          this.curateAuditKeyword = firstKeyword;
+          this.curateAuditCategory = firstCategory;
+      } else {
+          this.curateAuditKeyword = '';
+          this.curateAuditCategory = '';
+      }
       this._applyCurateFilters({ resetOffset: true });
   }
 
@@ -1060,21 +1674,7 @@ class PhotoCatApp extends LitElement {
 
   _updateCurateCategoryCards() {
       const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || {};
-      const categoryCards = Object.entries(sourceStats)
-        .map(([category, keywords]) => {
-          const keywordRows = (keywords || [])
-            .filter((kw) => (kw.count || 0) > 0)
-            .sort((a, b) => (b.count || 0) - (a.count || 0));
-          if (!keywordRows.length) {
-            return null;
-          }
-          const maxCount = keywordRows.reduce((max, kw) => Math.max(max, kw.count || 0), 0);
-          const totalCount = keywordRows.reduce((sum, kw) => sum + (kw.count || 0), 0);
-          return { category, keywordRows, maxCount, totalCount };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.totalCount - a.totalCount);
-      this.curateCategoryCards = categoryCards;
+      this.curateCategoryCards = this._buildCategoryCards(sourceStats, true);
   }
 
   _getAllKeywordsFlat() {
@@ -1158,15 +1758,6 @@ class PhotoCatApp extends LitElement {
       this._fetchCurateImages();
       this.curateSelection = [];
       this.curateDragSelection = [];
-      this.curateTagMode = false;
-      this.curateTagChoices = {};
-      this.curateTagFilter = '';
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
       this.curateSubTab = 'home';
       this.curateAuditMode = 'existing';
       this.curateAuditKeyword = '';
@@ -1211,17 +1802,20 @@ class PhotoCatApp extends LitElement {
         this.showUploadModal = false;
     }
 
-  async _fetchCurateImages() {
+  async _fetchCurateImages(extraFilters = {}) {
       if (!this.tenant) return;
       this.curateLoading = true;
       try {
-          const result = await getImages(this.tenant, this.curateFilters);
+          const result = await getImages(this.tenant, { ...this.curateFilters, ...extraFilters });
           this.curateImages = Array.isArray(result) ? result : (result.images || []);
           this.curateTotal = Array.isArray(result)
             ? null
             : Number.isFinite(result.total)
               ? result.total
               : null;
+          if (!Array.isArray(result) && Number.isFinite(result.offset)) {
+              this.curatePageOffset = result.offset;
+          }
       } catch (error) {
           console.error('Error fetching curate images:', error);
       } finally {
@@ -1247,107 +1841,32 @@ class PhotoCatApp extends LitElement {
       event.dataTransfer.effectAllowed = 'move';
   }
 
-  _handleCurateDragOver(event, target) {
-      event.preventDefault();
-      if (this.curateDragTarget !== target) {
-          this.curateDragTarget = target;
-      }
-  }
-
-  _handleCurateDragLeave(target) {
-      if (this.curateDragTarget === target) {
-          this.curateDragTarget = null;
-      }
-  }
-
-  _handleCurateDrop(event, target) {
-      event.preventDefault();
-      const raw = event.dataTransfer.getData('text/plain') || '';
-      const ids = raw
-          .split(',')
-          .map((value) => Number(value.trim()))
-          .filter((value) => Number.isFinite(value) && value > 0);
-      if (!ids.length) return;
-      const selectedIds = new Set(this.curateSelection.map((img) => img.id));
-      if (target === 'right') {
-          const additions = [];
-          ids.forEach((id) => {
-              if (selectedIds.has(id)) return;
-              const image = this.curateImages.find((img) => img.id === id)
-                  || this.curateSelection.find((img) => img.id === id);
-              if (image) {
-                  additions.push(image);
-                  selectedIds.add(id);
-              }
-          });
-          if (additions.length) {
-              this.curateSelection = [...this.curateSelection, ...additions];
-              this.curateDragSelection = this.curateDragSelection.filter((id) => !selectedIds.has(id));
-          }
-      } else if (target === 'left') {
-          if (ids.some((id) => selectedIds.has(id))) {
-              const removeSet = new Set(ids);
-              this.curateSelection = this.curateSelection.filter((img) => !removeSet.has(img.id));
-          }
-      }
-      this.curateDragTarget = null;
-  }
-
   _handleCurateThumbSizeChange(event) {
       this.curateThumbSize = Number(event.target.value);
-  }
-
-  _handleCurateProcess() {
-      if (!this.curateSelection.length) return;
-      this.curateTagMode = true;
-      this.curateTagChoices = {};
-      this.curateTagFilter = '';
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
-      this.curateDragSelection = [];
-      this.curateDragTarget = null;
-  }
-
-  _handleCurateClearSelection() {
-      this.curateSelection = [];
-      this.curateDragSelection = [];
-      this.curateDragTarget = null;
-      this.curateTagMode = false;
-      this.curateTagChoices = {};
-      this.curateTagFilter = '';
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
-  }
-
-  _handleCurateTagCancel() {
-      this.curateTagMode = false;
-      this.curateTagChoices = {};
-      this.curateTagFilter = '';
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
-  }
-
-  _handleCurateTagFilterChange(event) {
-      this.curateTagFilter = event.target.value;
   }
 
   _handleCurateSubTabChange(nextTab) {
       if (!nextTab || this.curateSubTab === nextTab) {
           return;
       }
+      const prevTab = this.curateSubTab;
+      if (prevTab === 'main') {
+          this._curateSubTabState[prevTab] = this._snapshotCurateState();
+          this._curateActiveWorkingTab = prevTab;
+      }
       this.curateSubTab = nextTab;
+      if (nextTab === 'main') {
+          const saved = this._curateSubTabState[nextTab];
+          if (saved) {
+              this._restoreCurateState(saved);
+          } else {
+              this._restoreCurateState(this._getCurateDefaultState());
+              this._curateSubTabState[nextTab] = this._snapshotCurateState();
+          }
+          if (!this.curateImages.length && !this.curateLoading) {
+              this._fetchCurateImages();
+          }
+      }
       if (nextTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
@@ -1622,10 +2141,7 @@ class PhotoCatApp extends LitElement {
           return;
       }
       event.preventDefault();
-      this.curateAuditDragSelecting = true;
-      this.curateAuditDragStartIndex = index;
-      this.curateAuditDragEndIndex = index;
-      this._updateCurateAuditDragSelection();
+      this._startCurateAuditSelection(index, imageId);
   }
 
   _handleCurateAuditSelectHover(index) {
@@ -1634,6 +2150,15 @@ class PhotoCatApp extends LitElement {
           this.curateAuditDragEndIndex = index;
           this._updateCurateAuditDragSelection();
       }
+  }
+
+  _refreshCurateAudit() {
+      if (this.curateAuditLoadAll) {
+          this._fetchCurateAuditImages({ loadAll: true });
+          return;
+      }
+      const offset = this.curateAuditPageOffset || 0;
+      this._fetchCurateAuditImages({ offset });
   }
 
   _updateCurateAuditDragSelection() {
@@ -1661,7 +2186,7 @@ class PhotoCatApp extends LitElement {
   }
 
   _handleCurateImageClick(event, image) {
-      if (this.curateTagMode || this.curateDragSelecting || this.curateAuditDragSelecting) {
+      if (this.curateDragSelecting || this.curateAuditDragSelecting) {
           return;
       }
       if (event.defaultPrevented) {
@@ -1675,12 +2200,51 @@ class PhotoCatApp extends LitElement {
       this.curateEditorOpen = true;
   }
 
+  async _handleZoomToPhoto(e) {
+      const imageId = e?.detail?.imageId;
+      if (!imageId) return;
+      this.activeTab = 'curate';
+      this.curateSubTab = 'main';
+      this.curateOrderBy = 'photo_creation';
+      this.curateOrderDirection = 'desc';
+      this.curatePageOffset = 0;
+      this.curateSelection = [];
+      this.curateDragSelection = [];
+      this.curateKeywordFilters = {};
+      this.curateKeywordOperators = {};
+      this.curateNoPositivePermatags = false;
+      this.curateMinRating = null;
+      this.curateFilters = this._buildCurateFilters();
+      await this._fetchCurateImages({ anchorId: imageId, offset: 0 });
+      await this.updateComplete;
+      this._scrollCurateThumbIntoView(imageId);
+  }
+
+  _scrollCurateThumbIntoView(imageId) {
+      const selector = `[data-image-id="${imageId}"]`;
+      const target = this.shadowRoot?.querySelector(selector);
+      if (target && typeof target.scrollIntoView === 'function') {
+          target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      }
+  }
+
   _applyCurateRating(imageId, rating) {
       const update = (image) => (image.id === imageId ? { ...image, rating } : image);
-      this.curateImages = this.curateImages.map(update);
-      this.curateSelection = this.curateSelection.map(update);
-      this.curateAuditImages = this.curateAuditImages.map(update);
-      this.curateAuditSelection = this.curateAuditSelection.map(update);
+      const hideZero = this.curateHideDeleted && rating === 0;
+      if (hideZero) {
+          const keep = (image) => image.id !== imageId;
+          this.curateImages = this.curateImages.filter(keep);
+          this.curateSelection = this.curateSelection.filter(keep);
+          this.curateAuditImages = this.curateAuditImages.filter(keep);
+          this.curateAuditSelection = this.curateAuditSelection.filter(keep);
+          this.curateDragSelection = this.curateDragSelection.filter((id) => id !== imageId);
+          this.curateAuditDragSelection = this.curateAuditDragSelection.filter((id) => id !== imageId);
+      } else {
+          this.curateImages = this.curateImages.map(update);
+          this.curateSelection = this.curateSelection.map(update);
+          this.curateAuditImages = this.curateAuditImages.map(update);
+          this.curateAuditSelection = this.curateAuditSelection.map(update);
+      }
       if (this.curateEditorImage?.id === imageId) {
           this.curateEditorImage = { ...this.curateEditorImage, rating };
       }
@@ -1690,6 +2254,7 @@ class PhotoCatApp extends LitElement {
       event.preventDefault();
       event.stopPropagation();
       if (!image?.id) return;
+      this._triggerCurateRatingBurst(image.id);
       this._applyCurateRating(image.id, rating);
       enqueueCommand({
           type: 'set-rating',
@@ -1699,26 +2264,67 @@ class PhotoCatApp extends LitElement {
       });
   }
 
+  _triggerCurateRatingBurst(imageId) {
+      if (!this._curateRatingBurstIds) {
+          this._curateRatingBurstIds = new Set();
+      }
+      if (!this._curateRatingBurstTimers) {
+          this._curateRatingBurstTimers = new Map();
+      }
+      const existing = this._curateRatingBurstTimers.get(imageId);
+      if (existing) {
+          clearTimeout(existing);
+      }
+      this._curateRatingBurstIds.add(imageId);
+      this.requestUpdate();
+      const timer = setTimeout(() => {
+          this._curateRatingBurstIds.delete(imageId);
+          this._curateRatingBurstTimers.delete(imageId);
+          this.requestUpdate();
+      }, 700);
+      this._curateRatingBurstTimers.set(imageId, timer);
+  }
+
   _renderCurateRatingWidget(image) {
       return html`
         <div class="curate-thumb-rating-widget" @click=${(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            class="cursor-pointer mx-0.5 ${image.rating == 0 ? 'text-gray-200' : 'text-gray-300 hover:text-gray-100'}"
-            title="0 stars"
-            @click=${(e) => this._handleCurateRating(e, image, 0)}
-          >
-            ${image.rating == 0 ? '❌' : '🗑'}
-          </button>
-          ${[1, 2, 3].map((star) => html`
+          ${this._curateRatingBurstIds?.has(image.id) ? html`
+            <span class="curate-thumb-burst" aria-hidden="true"></span>
+          ` : html``}
             <button
               type="button"
-              class="cursor-pointer mx-0.5 ${image.rating && image.rating >= star ? 'text-yellow-300' : 'text-gray-400 hover:text-gray-200'}"
-              title="${star} star${star > 1 ? 's' : ''}"
-              @click=${(e) => this._handleCurateRating(e, image, star)}
+              class="curate-thumb-trash cursor-pointer mx-0.5 ${image.rating == 0 ? 'text-red-600' : 'text-gray-600 hover:text-gray-900'}"
+              title="0 stars"
+              @click=${(e) => this._handleCurateRating(e, image, 0)}
             >
-              ${image.rating && image.rating >= star ? '★' : '☆'}
+              ${image.rating == 0 ? '❌' : '🗑'}
             </button>
+            <span class="curate-thumb-stars">
+              ${[1, 2, 3].map((star) => html`
+                <button
+                  type="button"
+                  class="cursor-pointer mx-0.5 ${image.rating && image.rating >= star ? 'text-yellow-500' : 'text-gray-500 hover:text-gray-900'}"
+                  title="${star} star${star > 1 ? 's' : ''}"
+                  @click=${(e) => this._handleCurateRating(e, image, star)}
+                >
+                  ${image.rating && image.rating >= star ? '★' : '☆'}
+                </button>
+              `)}
+            </span>
+        </div>
+      `;
+  }
+
+  _renderCurateRatingStatic(image) {
+      if (image?.rating === null || image?.rating === undefined || image?.rating === '') {
+          return html``;
+      }
+      return html`
+        <div class="curate-thumb-rating-static" aria-label="Rating ${image.rating}">
+          ${[1, 2, 3].map((star) => html`
+            <span class=${image.rating >= star ? 'text-yellow-500' : 'text-gray-400'}>
+              ${image.rating >= star ? '★' : '☆'}
+            </span>
           `)}
         </div>
       `;
@@ -1727,70 +2333,6 @@ class PhotoCatApp extends LitElement {
   _handleCurateEditorClose() {
       this.curateEditorOpen = false;
       this.curateEditorImage = null;
-  }
-
-  _setCurateTagChoice(category, keyword, choice) {
-      const key = `${category}::${keyword}`;
-      const next = { ...(this.curateTagChoices || {}) };
-      if (!choice || choice === 'skip') {
-          delete next[key];
-      } else {
-          next[key] = choice;
-      }
-      this.curateTagChoices = next;
-      this.curateApplyStatus = 'apply';
-      this.curateApplyTotal = 0;
-      this.curateApplyPending = 0;
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
-  }
-
-  _applyCurateTags() {
-      if (!this.curateSelection.length) return;
-      const { applyTags, removeTags } = this._splitCurateTagChoices();
-      if (!applyTags.length && !removeTags.length) return;
-      this.curateApplyStatus = 'applying';
-      if (this._pendingCurateApplyIds) {
-        this._pendingCurateApplyIds.clear();
-      }
-      const selectedIds = this.curateSelection.map((image) => image.id);
-      const operations = [];
-      this.curateSelection.forEach((image) => {
-          applyTags.forEach((tag) => {
-            operations.push({
-              image_id: image.id,
-              keyword: tag.keyword,
-              category: tag.category,
-              signum: 1,
-            });
-          });
-          removeTags.forEach((tag) => {
-            operations.push({
-              image_id: image.id,
-              keyword: tag.keyword,
-              category: tag.category,
-              signum: -1,
-            });
-          });
-      });
-      const commandId = enqueueCommand({
-        type: 'bulk-permatags',
-        tenantId: this.tenant,
-        operations,
-        description: `bulk permatags · ${operations.length} updates`,
-      });
-      if (commandId) {
-        this._pendingCurateApplyIds?.add(commandId);
-      }
-      this.curateApplyTotal = this._pendingCurateApplyIds?.size || 0;
-      this.curateApplyPending = this._pendingCurateApplyIds?.size || 0;
-      if (applyTags.length) {
-        this._updateCuratePermatags(selectedIds, applyTags);
-      }
-      if (removeTags.length) {
-        this._updateCuratePermatagRemovals(selectedIds, removeTags);
-      }
   }
 
   _handleCurateSelectStart(event, index, imageId) {
@@ -1810,13 +2352,35 @@ class PhotoCatApp extends LitElement {
   }
 
   _updateCurateDragSelection() {
-      if (!this._curateLeftOrder || this.curateDragStartIndex === null || this.curateDragEndIndex === null) {
+      const order = this._curateDragOrder || this._curateLeftOrder;
+      if (!order || this.curateDragStartIndex === null || this.curateDragEndIndex === null) {
           return;
       }
       const start = Math.min(this.curateDragStartIndex, this.curateDragEndIndex);
       const end = Math.max(this.curateDragStartIndex, this.curateDragEndIndex);
-      const ids = this._curateLeftOrder.slice(start, end + 1);
+      const ids = order.slice(start, end + 1);
       this.curateDragSelection = ids;
+  }
+
+  _flashCurateSelection(imageId) {
+      if (!this._curateFlashSelectionIds) {
+          this._curateFlashSelectionIds = new Set();
+      }
+      if (!this._curateFlashSelectionTimers) {
+          this._curateFlashSelectionTimers = new Map();
+      }
+      const existing = this._curateFlashSelectionTimers.get(imageId);
+      if (existing) {
+          clearTimeout(existing);
+      }
+      this._curateFlashSelectionIds.add(imageId);
+      this.requestUpdate();
+      const timer = setTimeout(() => {
+          this._curateFlashSelectionIds.delete(imageId);
+          this._curateFlashSelectionTimers.delete(imageId);
+          this.requestUpdate();
+      }, 600);
+      this._curateFlashSelectionTimers.set(imageId, timer);
   }
 
   _renderCurateFilters({ mode = 'main', showHistogramOnly = false, showHistogram = true } = {}) {
@@ -1860,10 +2424,10 @@ class PhotoCatApp extends LitElement {
         <div class="space-y-4">
           <!-- Line 1: Keyword Dropdown + Page Size + Thumbnail Slider -->
           <div class="flex gap-4 items-end">
-            <div class="flex-1 min-w-[250px]">
-              <label class="block text-xs font-semibold text-gray-600 mb-2">Keywords</label>
+            <div class="w-1/2 min-w-[260px]">
+              <label class="block text-base font-semibold text-gray-700 mb-2">Keywords</label>
               <select
-                class="w-full px-3 py-2 border rounded-lg text-sm"
+                class="w-full px-4 py-3 border rounded-lg text-lg ${selectedKeywordValue ? 'bg-yellow-100 border-yellow-200' : ''}"
                 .value=${selectedKeywordValue}
                 @change=${(event) => this._handleCurateKeywordSelect(event, mode)}
               >
@@ -1882,28 +2446,14 @@ class PhotoCatApp extends LitElement {
                 `)}
               </select>
             </div>
-            <div class="flex-1 min-w-[160px]">
-              <label class="block text-xs font-semibold text-gray-600 mb-2">Thumbnail Size</label>
-              <div class="flex items-center gap-3 text-xs text-gray-600">
-                <input
-                  type="range"
-                  min="80"
-                  max="220"
-                  step="10"
-                  .value=${String(this.curateThumbSize)}
-                  @input=${this._handleCurateThumbSizeChange}
-                  class="flex-1"
-                >
-                <span class="w-8 text-right text-xs">${this.curateThumbSize}px</span>
-              </div>
-            </div>
+            
             <button
-              class="h-9 w-9 flex items-center justify-center border rounded-lg text-gray-600 hover:bg-gray-50"
+              class="h-10 w-10 flex items-center justify-center border rounded-lg text-gray-600 hover:bg-gray-50"
               title="Advanced filters"
               aria-pressed=${this.curateAdvancedOpen ? 'true' : 'false'}
               @click=${() => { this.curateAdvancedOpen = !this.curateAdvancedOpen; }}
             >
-              <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="3"></circle>
                 <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.02.02a2 2 0 1 1-2.83 2.83l-.02-.02a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.03a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.02.02a2 2 0 1 1-2.83-2.83l.02-.02a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.03a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.02-.02a2 2 0 1 1 2.83-2.83l.02.02a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.03a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.02-.02a2 2 0 1 1 2.83 2.83l-.02.02a1.7 1.7 0 0 0-.34 1.87V9c0 .68.4 1.3 1.02 1.58.24.11.5.17.77.17H21a2 2 0 1 1 0 4h-.03a1.7 1.7 0 0 0-1.55 1z"></path>
               </svg>
@@ -2000,20 +2550,7 @@ class PhotoCatApp extends LitElement {
     const mlTagCount = this._formatStatNumber(this.imageStats?.ml_tag_count);
     const trainedTagCount = this._formatStatNumber(this.mlTrainingStats?.trained_image_count);
     const sourceStats = this.tagStatsBySource?.[this.activeTagSource] || {};
-    const categoryCards = Object.entries(sourceStats)
-      .map(([category, keywords]) => {
-        const keywordRows = (keywords || [])
-          .filter((kw) => (kw.count || 0) > 0)
-          .sort((a, b) => (b.count || 0) - (a.count || 0));
-        if (!keywordRows.length) {
-          return null;
-        }
-        const maxCount = keywordRows.reduce((max, kw) => Math.max(max, kw.count || 0), 0);
-        const totalCount = keywordRows.reduce((sum, kw) => sum + (kw.count || 0), 0);
-        return { category, keywordRows, maxCount, totalCount };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.totalCount - a.totalCount);
+    const categoryCards = this._buildCategoryCards(sourceStats);
     const navCards = [
       { key: 'search', label: 'Search', subtitle: 'Find and filter images', icon: 'fa-search' },
       { key: 'curate', label: 'Curate', subtitle: 'Build selections and stories', icon: 'fa-star' },
@@ -2023,12 +2560,9 @@ class PhotoCatApp extends LitElement {
       { key: 'ml-training', label: 'Pipeline', subtitle: 'Inspect training data', icon: 'fa-brain' },
     ];
     const curatedIds = new Set(this.curateSelection.map((img) => img.id));
-    const leftImages = this.curateTagMode
-      ? this.curateSelection
-      : this.curateImages.filter((img) => !curatedIds.has(img.id));
+    const leftImages = this.curateImages.filter((img) => !curatedIds.has(img.id));
     this._curateLeftOrder = leftImages.map((img) => img.id);
-    const leftPaneLabel = this.curateTagMode ? 'Selected' : 'Available';
-    const rightPaneLabel = this.curateTagMode ? 'Apply Tags' : 'Selection';
+    this._curateRightOrder = [];
     const curatePageOffset = this.curatePageOffset || 0;
     const curatePageSize = this.curateImages.length;
     const curateTotalCount = Number.isFinite(this.curateTotal)
@@ -2043,43 +2577,7 @@ class PhotoCatApp extends LitElement {
       : `${curatePageSize} loaded`;
     const curateHasMore = curateTotalCount !== null && curatePageEnd < curateTotalCount;
     const curateHasPrev = curatePageOffset > 0;
-    const tagFilter = (this.curateTagFilter || '').trim().toLowerCase();
-    const tagGroups = {};
-    this.keywords.forEach((tag) => {
-      const category = tag.category || 'Uncategorized';
-      const keyword = tag.keyword || '';
-      if (!keyword) return;
-      if (tagFilter) {
-        const matchesKeyword = keyword.toLowerCase().includes(tagFilter);
-        const matchesCategory = category.toLowerCase().includes(tagFilter);
-        if (!matchesKeyword && !matchesCategory) return;
-      }
-      if (!tagGroups[category]) {
-        tagGroups[category] = [];
-      }
-      tagGroups[category].push(keyword);
-    });
-    const tagCategories = Object.entries(tagGroups)
-      .map(([category, keywords]) => ({
-        category,
-        keywords: keywords.sort((a, b) => a.localeCompare(b)),
-      }))
-      .sort((a, b) => a.category.localeCompare(b.category));
-    const tagChoices = this.curateTagChoices || {};
-    const tagChoiceKeys = Object.keys(tagChoices);
-    const applyCount = tagChoiceKeys.filter((key) => tagChoices[key] === 'apply').length;
-    const removeCount = tagChoiceKeys.filter((key) => tagChoices[key] === 'remove').length;
-    const applyLabel = this.curateApplyStatus === 'applying'
-      ? 'Processing'
-      : this.curateApplyStatus === 'saved'
-        ? 'Saved'
-        : 'Process';
-    const applyTotal = this.curateApplyTotal || 0;
-    const applyPending = this.curateApplyPending || 0;
-    const applyCompleted = applyTotal > 0 ? Math.max(applyTotal - applyPending, 0) : 0;
-    const queueQueued = this.queueState?.queuedCount || 0;
-    const queueRunning = this.queueState?.inProgressCount || 0;
-    const queueSize = queueQueued + queueRunning;
+    const leftPaneLabel = 'Available';
     const auditActionVerb = this.curateAuditMode === 'existing' ? 'remove' : 'add';
     const auditKeywordLabel = this.curateAuditKeyword
       ? this.curateAuditKeyword.replace(/[-_]/g, ' ')
@@ -2231,16 +2729,45 @@ class PhotoCatApp extends LitElement {
                         >
                           Explore
                         </button>
-                        <button
-                          class="curate-subtab ${this.curateSubTab === 'tag-audit' ? 'active' : ''}"
-                          @click=${() => this._handleCurateSubTabChange('tag-audit')}
-                        >
-                          Tag audit
-                        </button>
-                    </div>
+                    <button
+                      class="curate-subtab ${this.curateSubTab === 'tag-audit' ? 'active' : ''}"
+                      @click=${() => this._handleCurateSubTabChange('tag-audit')}
+                    >
+                      Tag audit
+                    </button>
+                </div>
+                <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
+                  <label class="font-semibold text-gray-600">Thumb</label>
+                  <input
+                    type="range"
+                    min="80"
+                    max="220"
+                    step="10"
+                    .value=${String(this.curateThumbSize)}
+                    @input=${this._handleCurateThumbSizeChange}
+                    class="w-24"
+                  >
+                  <span class="w-12 text-right text-xs">${this.curateThumbSize}px</span>
+                </div>
+                <button
+                  class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                  @click=${() => {
+                    if (this.curateSubTab === 'tag-audit') {
+                      this._refreshCurateAudit();
+                    } else if (this.curateSubTab === 'home') {
+                      this.fetchStats();
+                    } else {
+                      this._fetchCurateImages();
+                    }
+                  }}
+                  title="Refresh"
+                >
+                  <span aria-hidden="true">↻</span>
+                  Refresh
+                </button>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'home'}>
-                  <div class="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+                  <div class="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6">
                     <!-- Left Column: Instructions -->
                     <div class="space-y-6">
                       <div class="bg-white rounded-lg shadow p-6">
@@ -2291,9 +2818,58 @@ class PhotoCatApp extends LitElement {
                       </div>
                     </div>
 
-                    <!-- Right Column: Histogram -->
+                    <!-- Right Column: Tag Counts -->
                     <div class="bg-white rounded-lg shadow p-4 self-start sticky top-0 max-h-[calc(100vh-200px)] overflow-y-auto">
-                      ${this._renderCurateFilters({ mode: 'home', showHistogramOnly: true })}
+                      <div class="text-xs text-gray-500 uppercase font-semibold mb-2">Tag Counts</div>
+                      <div class="flex items-center gap-2 mb-3 text-xs font-semibold text-gray-600">
+                        ${[
+                          { key: 'permatags', label: 'Permatags' },
+                          { key: 'zero_shot', label: 'Zero-Shot' },
+                          { key: 'keyword_model', label: 'Keyword-Model' },
+                        ].map((tab) => html`
+                          <button
+                            class="px-2 py-1 rounded border ${this.activeCurateTagSource === tab.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
+                            @click=${() => {
+                              this.activeCurateTagSource = tab.key;
+                              this._updateCurateCategoryCards();
+                            }}
+                          >
+                            ${tab.label}
+                          </button>
+                        `)}
+                      </div>
+                      ${(this.curateCategoryCards || []).length ? html`
+                        <div class="tag-carousel">
+                          ${(this.curateCategoryCards || []).map((item) => {
+                            const label = item.category.replace(/_/g, ' ');
+                            return html`
+                              <div class="tag-card border border-gray-200 rounded-lg p-2">
+                                <div class="text-xs font-semibold text-gray-700 truncate" title=${label}>${label}</div>
+                                <div class="tag-card-body mt-2 space-y-2">
+                                  ${item.keywordRows.length ? item.keywordRows.map((kw) => {
+                                    const width = item.maxCount
+                                      ? Math.round((kw.count / item.maxCount) * 100)
+                                      : 0;
+                                    return html`
+                                      <div>
+                                        <div class="flex items-center justify-between gap-2 text-xs text-gray-600">
+                                          <span class="truncate" title=${kw.keyword}>${kw.keyword}</span>
+                                          <span class="text-gray-500">${this._formatStatNumber(kw.count)}</span>
+                                        </div>
+                                        <div class="tag-bar mt-1">
+                                          <div class="tag-bar-fill" style="width: ${width}%"></div>
+                                        </div>
+                                      </div>
+                                    `;
+                                  }) : html`<div class="text-xs text-gray-400">No tags yet.</div>`}
+                                </div>
+                              </div>
+                            `;
+                          })}
+                        </div>
+                      ` : html`
+                        <div class="text-xs text-gray-400">No tag data yet.</div>
+                      `}
                     </div>
                   </div>
                 </div>
@@ -2321,29 +2897,22 @@ class PhotoCatApp extends LitElement {
                       </div>
                   </div>
                   <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
-                    <div
-                      class="curate-pane"
-                      @dragover=${this.curateTagMode ? null : (e) => this._handleCurateDragOver(e, 'left')}
-                      @dragleave=${this.curateTagMode ? null : () => this._handleCurateDragLeave('left')}
-                      @drop=${this.curateTagMode ? null : (e) => this._handleCurateDrop(e, 'left')}
-                    >
+                    <div class="curate-pane">
                         <div class="curate-pane-header">
                             <div class="curate-pane-header-row">
                                 <span>${leftPaneLabel}</span>
-                                ${!this.curateTagMode ? html`
-                                  <div class="curate-pane-header-actions">
-                                    ${renderPaginationControls({
-                                      countLabel: curateCountLabel,
-                                      hasPrev: curateHasPrev,
-                                      hasNext: curateHasMore,
-                                      onPrev: this._handleCuratePagePrev,
-                                      onNext: this._handleCuratePageNext,
-                                      pageSize: this.curateLimit,
-                                      onPageSizeChange: this._handleCurateLimitChange,
-                                      disabled: this.curateLoading,
-                                    })}
-                                  </div>
-                                ` : html``}
+                                <div class="curate-pane-header-actions">
+                                  ${renderPaginationControls({
+                                    countLabel: curateCountLabel,
+                                    hasPrev: curateHasPrev,
+                                    hasNext: curateHasMore,
+                                    onPrev: this._handleCuratePagePrev,
+                                    onNext: this._handleCuratePageNext,
+                                    pageSize: this.curateLimit,
+                                    onPageSizeChange: this._handleCurateLimitChange,
+                                    disabled: this.curateLoading,
+                                  })}
+                                </div>
                             </div>
                         </div>
                         ${this.curateLoading ? html`
@@ -2353,316 +2922,189 @@ class PhotoCatApp extends LitElement {
                         ` : html``}
                         <div class="curate-pane-body">
                             ${leftImages.length ? html`
-                              ${this.curateTagMode ? html`
-                                <div class="curate-process-list">
-                                  ${leftImages.map((image) => {
-                                    const groups = this._getCuratePermatagGroups(image);
-                                    return html`
-                                    <div class="curate-process-item">
+                              <div class="curate-grid">
+                                  ${leftImages.map((image, index) => html`
+                                  <div
+                                    class="curate-thumb-wrapper ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}"
+                                    data-image-id="${image.id}"
+                                    draggable="true"
+                                    @dragstart=${(event) => this._handleCurateExploreReorderStart(event, image)}
+                                    @dragover=${(event) => this._handleCurateExploreReorderOver(event, image.id)}
+                                    @dragend=${this._handleCurateExploreReorderEnd}
+                                    @click=${(event) => this._handleCurateImageClick(event, image)}
+                                  >
                                       <img
                                         src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
                                         alt=${image.filename}
-                                        class="curate-process-thumb"
-                                      >
-                                      <div class="curate-process-tags">
-                                        ${groups.length ? groups.map((group) => html`
-                                          <div class="curate-process-tag-group">
-                                            <div class="curate-process-tag-label">${group.category.replace(/_/g, ' ')}</div>
-                                            <div class="curate-process-tag-list">
-                                              ${group.keywords.map((keyword) => html`
-                                                <span class="curate-process-tag-chip">
-                                                  <span>${keyword}</span>
-                                                  <button
-                                                    type="button"
-                                                    class="curate-process-tag-remove"
-                                                    title="Remove tag"
-                                                    @click=${(event) => this._removeCuratePermatag(event, image, keyword, group.category)}
-                                                  >
-                                                    ❌
-                                                  </button>
-                                                </span>
-                                              `)}
-                                            </div>
-                                          </div>
-                                        `) : html`
-                                          <span class="text-xs text-gray-400">No permatags</span>
-                                        `}
-                                      </div>
-                                    </div>
-                                  `;
-                                  })}
-                                </div>
-                              ` : html`
-                                <div class="curate-grid">
-                                    ${leftImages.map((image, index) => html`
-                                    <div class="curate-thumb-wrapper ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}" @click=${(event) => this._handleCurateImageClick(event, image)}>
-                                        <img
-                                          src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                                          alt=${image.filename}
-                                          class="curate-thumb ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}"
-                                          draggable=${this.curateTagMode ? 'false' : 'true'}
-                                          @dragstart=${this.curateTagMode ? null : (event) => this._handleCurateDragStart(event, image)}
-                                          @pointerdown=${this.curateTagMode ? null : (event) => this._handleCuratePointerDown(event, index, image.id)}
-                                          @pointermove=${this.curateTagMode ? null : (event) => this._handleCuratePointerMove(event)}
-                                          @pointerenter=${this.curateTagMode ? null : () => this._handleCurateSelectHover(index)}
-                                        >
-                                        ${this._renderCurateRatingWidget(image)}
-                                        ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
-                                          <div class="curate-thumb-rating">Rating ${image.rating}</div>
-                                        ` : html``}
-                                        ${this._formatCurateDate(image) ? html`
-                                          <div class="curate-thumb-date">
-                                            <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
-                                          </div>
-                                        ` : html``}
-                                        ${this._formatCurateProcessedDate(image) ? html`
-                                          <div class="curate-thumb-date processed">
-                                            <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
-                                          </div>
-                                        ` : html``}
-                                        <div class="curate-thumb-info">
-                                          ${this._getCurateHoverLines(image).map((line) => html`
-                                            <span class="curate-thumb-line">${line}</span>
-                                          `)}
-                                        </div>
-                                      </div>
-                                    `)}
-                                </div>
-                              `}
-                            ` : html`
-                              <div class="curate-drop">
-                                ${this.curateTagMode ? 'No images selected.' : 'No images available.'}
-                              </div>
-                            `}
-                            ${!this.curateTagMode ? html`
-                              <div class="mt-3">
-                                ${renderPaginationControls({
-                                  countLabel: curateCountLabel,
-                                  hasPrev: curateHasPrev,
-                                  hasNext: curateHasMore,
-                                  onPrev: this._handleCuratePagePrev,
-                                  onNext: this._handleCuratePageNext,
-                                  pageSize: this.curateLimit,
-                                  onPageSizeChange: this._handleCurateLimitChange,
-                                  disabled: this.curateLoading,
-                                  showPageSize: false,
-                                })}
-                              </div>
-                            ` : html``}
-                        </div>
-                    </div>
-                    <div
-                      class="curate-pane"
-                      @dragover=${this.curateTagMode ? null : (e) => this._handleCurateDragOver(e, 'right')}
-                      @dragleave=${this.curateTagMode ? null : () => this._handleCurateDragLeave('right')}
-                      @drop=${this.curateTagMode ? null : (e) => this._handleCurateDrop(e, 'right')}
-                    >
-                        <div class="curate-pane-header">
-                            <div class="curate-pane-header-row">
-                                <span>${rightPaneLabel}</span>
-                                <div class="curate-pane-header-actions">
-                                  ${!this.curateTagMode ? html`
-                                    <button
-                                      class="curate-pane-action"
-                                      ?disabled=${!this.curateSelection.length}
-                                      @click=${this._handleCurateProcess}
+                                      class="curate-thumb ${this.curateDragSelection.includes(image.id) ? 'selected' : ''} ${this._curateFlashSelectionIds?.has(image.id) ? 'flash' : ''}"
+                                      draggable="false"
+                                      @pointerdown=${(event) => this._handleCuratePointerDownWithOrder(event, index, image.id, this._curateLeftOrder)}
+                                      @pointermove=${(event) => this._handleCuratePointerMove(event)}
+                                      @pointerenter=${() => this._handleCurateSelectHoverWithOrder(index, this._curateLeftOrder)}
                                     >
-                                      Process
-                                    </button>
-                                  ` : html``}
-                                  ${!this.curateTagMode ? html`
-                                    <button
-                                      class="curate-pane-action secondary"
-                                      ?disabled=${!this.curateSelection.length}
-                                      @click=${this._handleCurateClearSelection}
-                                    >
-                                      Clear
-                                    </button>
-                                  ` : html``}
-                                </div>
-                            </div>
-                        </div>
-                        ${this.curateTagMode ? html`
-                          <div class="curate-pane-body">
-                            <div class="curate-tags-panel">
-                              <div class="text-xs text-gray-500">
-                                ${this.curateSelection.length} selected · apply ${applyCount} · remove ${removeCount}
-                              </div>
-                              <div class="curate-tags-actions">
-                                ${this.curateApplyStatus === 'applying' ? html`
-                                  <div class="curate-tags-status">
-                                    <span class="curate-spinner"></span>
-                                    <span>Applying ${applyCompleted}/${applyTotal}</span>
-                                    <span>• Queue ${queueSize}</span>
-                                  </div>
-                                ` : html``}
-                                <button
-                                  class="curate-tags-cancel"
-                                  ?disabled=${this.curateApplyStatus === 'applying'}
-                                  @click=${this._handleCurateClearSelection}
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  class="curate-tags-apply"
-                                  ?disabled=${!applyCount && !removeCount}
-                                  @click=${this._applyCurateTags}
-                                >
-                                  ${applyLabel}
-                                </button>
-                              </div>
-                              <input
-                                type="text"
-                                class="curate-tags-search"
-                                placeholder="Search tags"
-                                .value=${this.curateTagFilter}
-                                @input=${this._handleCurateTagFilterChange}
-                              >
-                              <div class="curate-tags-list">
-                                ${tagCategories.length ? tagCategories.map((group) => html`
-                                  <div class="curate-tag-category">
-                                    <div class="curate-tag-category-title">${group.category}</div>
-                                    <div class="curate-tag-options">
-                                      ${group.keywords.map((keyword) => {
-                                        const key = `${group.category}::${keyword}`;
-                                        const choice = tagChoices[key] || '';
-                                        return html`
-                                          <div class="curate-tag-option">
-                                            <span class="curate-tag-option-label">${keyword}</span>
-                                            <div class="curate-tag-choice">
-                                              <label>
-                                                <input
-                                                  type="radio"
-                                                  name=${`tag-${key}`}
-                                                  value="apply"
-                                                  ?checked=${choice === 'apply'}
-                                                  @change=${() => this._setCurateTagChoice(group.category, keyword, 'apply')}
-                                                >
-                                                Apply
-                                              </label>
-                                              <label>
-                                                <input
-                                                  type="radio"
-                                                  name=${`tag-${key}`}
-                                                  value="remove"
-                                                  ?checked=${choice === 'remove'}
-                                                  @change=${() => this._setCurateTagChoice(group.category, keyword, 'remove')}
-                                                >
-                                                Remove
-                                              </label>
-                                            </div>
-                                          </div>
-                                        `;
-                                      })}
-                                    </div>
-                                  </div>
-                                `) : html`
-                                  <div class="text-xs text-gray-400">No tags available.</div>
-                                `}
-                              </div>
-                            </div>
-                          </div>
-                        ` : html`
-                          ${this.curateSelection.length ? html`
-                            <div class="curate-pane-body">
-                                <div class="curate-grid">
-                                    ${this.curateSelection.map((image) => html`
-                                    <div class="curate-thumb-wrapper">
-                                      <img
-                                        src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                                        alt=${image.filename}
-                                        class="curate-thumb"
-                                        draggable="true"
-                                        @dragstart=${(event) => this._handleCurateDragStart(event, image)}
-                                      >
                                       ${this._renderCurateRatingWidget(image)}
-                                      ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
-                                        <div class="curate-thumb-rating">Rating ${image.rating}</div>
-                                      ` : html``}
+                                      ${this._renderCurateRatingStatic(image)}
+                                      ${this._renderCuratePermatagSummary(image)}
                                       ${this._formatCurateDate(image) ? html`
                                         <div class="curate-thumb-date">
+                                          <span class="curate-thumb-id">#${image.id}</span>
                                           <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                         </div>
                                       ` : html``}
-                                      ${this._formatCurateProcessedDate(image) ? html`
-                                        <div class="curate-thumb-date processed">
-                                          <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
-                                        </div>
-                                      ` : html``}
-                                      <div class="curate-thumb-info">
-                                        ${this._getCurateHoverLines(image).map((line) => html`
-                                          <span class="curate-thumb-line">${line}</span>
-                                        `)}
-                                      </div>
                                     </div>
                                   `)}
-                                </div>
+                              </div>
+                            ` : html`
+                              <div class="curate-drop">
+                                No images available.
+                              </div>
+                            `}
+                            <div class="mt-3">
+                              ${renderPaginationControls({
+                                countLabel: curateCountLabel,
+                                hasPrev: curateHasPrev,
+                                hasNext: curateHasMore,
+                                onPrev: this._handleCuratePagePrev,
+                                onNext: this._handleCuratePageNext,
+                                pageSize: this.curateLimit,
+                                onPageSizeChange: this._handleCurateLimitChange,
+                                disabled: this.curateLoading,
+                                showPageSize: false,
+                              })}
                             </div>
-                          ` : html`
-                            <div class="curate-drop ${this.curateDragTarget === 'right' ? 'active' : ''}">
-                                select and drag photos here. to edit tags
-                            </div>
-                          `}
-                        `}
+                        </div>
                     </div>
-                </div>
+                    <div class="curate-pane utility-targets">
+                        <div class="curate-pane-header">
+                            <div class="curate-pane-header-row">
+                                <span>Hotspots</span>
+                            </div>
+                        </div>
+                        <div class="curate-pane-body">
+                          <div class="curate-utility-panel">
+                            ${(this.curateExploreTargets || []).map((target) => {
+                              const isFirstTarget = (this.curateExploreTargets?.[0]?.id === target.id);
+                              const selectedValue = target.keyword
+                                ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
+                                : '';
+                              return html`
+                                <div
+                                  class="curate-utility-box ${this._curateExploreHotspotDragTarget === target.id ? 'active' : ''}"
+                                  @dragover=${(event) => this._handleCurateExploreHotspotDragOver(event, target.id)}
+                                  @dragleave=${this._handleCurateExploreHotspotDragLeave}
+                                  @drop=${(event) => this._handleCurateExploreHotspotDrop(event, target.id)}
+                                >
+                                  <div class="curate-utility-controls">
+                                    <select
+                                      class="curate-utility-select ${selectedValue ? 'selected' : ''}"
+                                      .value=${selectedValue}
+                                      @change=${(event) => this._handleCurateExploreHotspotKeywordChange(event, target.id)}
+                                    >
+                                      <option value="">Select keyword…</option>
+                                      ${this._getKeywordsByCategory().map(([category, keywords]) => html`
+                                        <optgroup label="${category}">
+                                          ${keywords.map((kw) => html`
+                                            <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
+                                              ${kw.keyword}
+                                            </option>
+                                          `)}
+                                        </optgroup>
+                                      `)}
+                                    </select>
+                                    <select
+                                      class="curate-utility-action"
+                                      .value=${target.action || 'add'}
+                                      @change=${(event) => this._handleCurateExploreHotspotActionChange(event, target.id)}
+                                    >
+                                      <option value="add">Add</option>
+                                      <option value="remove">Remove</option>
+                                    </select>
+                                    ${!isFirstTarget ? html`
+                                      <button
+                                        type="button"
+                                        class="curate-utility-remove"
+                                        title="Remove box"
+                                        @click=${() => this._handleCurateExploreHotspotRemoveTarget(target.id)}
+                                      >
+                                        ×
+                                      </button>
+                                    ` : html``}
+                                  </div>
+                                  <div class="curate-utility-count">${target.count || 0}</div>
+                                  <div class="curate-utility-drop-hint">Drop images here</div>
+                                </div>
+                              `;
+                            })}
+                            <button class="curate-utility-add" @click=${this._handleCurateExploreHotspotAddTarget}>
+                              +
+                            </button>
+                          </div>
+                        </div>
+                    </div>
+                  </div>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'tag-audit'}>
                     ${this._renderCurateFilters({ mode: 'tag-audit', showHistogram: false })}
-                    <div class="bg-white rounded-lg shadow p-4 mb-4">
-                        <div class="flex flex-wrap items-start gap-4">
-                            <div>
-                                <div class="text-xs font-semibold text-gray-600 mb-1">Audit mode</div>
-                                <div class="curate-audit-toggle">
-                                    <button
-                                      class=${this.curateAuditMode === 'existing' ? 'active' : ''}
-                                      @click=${() => this._handleCurateAuditModeChange('existing')}
-                                    >
-                                      Verify Existing Tags
-                                    </button>
-                                    <button
-                                      class=${this.curateAuditMode === 'missing' ? 'active' : ''}
-                                      @click=${() => this._handleCurateAuditModeChange('missing')}
-                                    >
-                                      Find Missing Tags
-                                    </button>
-                                </div>
-                            </div>
-                            ${this.curateAuditMode === 'missing' ? html`
+                    ${this.curateAuditKeyword ? html`
+                      <div class="text-center text-xl font-semibold text-gray-800 mb-3">
+                        Auditing tag : ${this.curateAuditKeyword}
+                      </div>
+                    ` : html``}
+                    ${this.curateAuditKeyword ? html`
+                      <div class="bg-white rounded-lg shadow p-4 mb-4">
+                          <div class="flex flex-wrap items-start gap-4">
                               <div>
-                                <div class="text-xs font-semibold text-gray-600 mb-1">Find with AI</div>
-                                <div class="curate-ai-toggle text-xs text-gray-600">
-                                  <label class="inline-flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      class="h-4 w-4"
-                                      .checked=${this.curateAuditAiEnabled}
-                                      @change=${this._handleCurateAuditAiEnabledChange}
-                                    >
-                                    <span>Enable</span>
-                                  </label>
-                                  ${this.curateAuditAiEnabled ? html`
-                                    <div class="flex items-center gap-2">
-                                      ${[
-                                        { key: 'siglip', label: 'Zero-shot' },
-                                        { key: 'trained', label: 'Keyword model' },
-                                      ].map((model) => html`
-                                        <button
-                                          class="px-2 py-1 rounded border text-xs ${this.curateAuditAiModel === model.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
-                                          aria-pressed=${this.curateAuditAiModel === model.key ? 'true' : 'false'}
-                                          @click=${() => this._handleCurateAuditAiModelChange(model.key)}
-                                        >
-                                          ${model.label}
-                                        </button>
-                                      `)}
-                                    </div>
-                                  ` : html``}
-                                </div>
+                                  <div class="text-xs font-semibold text-gray-600 mb-1">Audit mode</div>
+                                  <div class="curate-audit-toggle">
+                                      <button
+                                        class=${this.curateAuditMode === 'existing' ? 'active' : ''}
+                                        @click=${() => this._handleCurateAuditModeChange('existing')}
+                                      >
+                                        Verify Existing Tags
+                                      </button>
+                                      <button
+                                        class=${this.curateAuditMode === 'missing' ? 'active' : ''}
+                                        @click=${() => this._handleCurateAuditModeChange('missing')}
+                                      >
+                                        Find Missing Tags
+                                      </button>
+                                  </div>
                               </div>
-                            ` : html``}
-                        </div>
-                    </div>
-                    <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+                              ${this.curateAuditMode === 'missing' ? html`
+                                <div>
+                                  <div class="text-xs font-semibold text-gray-600 mb-1">Find with AI</div>
+                                  <div class="curate-ai-toggle text-xs text-gray-600">
+                                    <label class="inline-flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        class="h-4 w-4"
+                                        .checked=${this.curateAuditAiEnabled}
+                                        @change=${this._handleCurateAuditAiEnabledChange}
+                                      >
+                                      <span>Enable</span>
+                                    </label>
+                                    ${this.curateAuditAiEnabled ? html`
+                                      <div class="flex items-center gap-2">
+                                        ${[
+                                          { key: 'siglip', label: 'Zero-shot' },
+                                          { key: 'trained', label: 'Keyword model' },
+                                        ].map((model) => html`
+                                          <button
+                                            class="px-2 py-1 rounded border text-xs ${this.curateAuditAiModel === model.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
+                                            aria-pressed=${this.curateAuditAiModel === model.key ? 'true' : 'false'}
+                                            @click=${() => this._handleCurateAuditAiModelChange(model.key)}
+                                          >
+                                            ${model.label}
+                                          </button>
+                                        `)}
+                                      </div>
+                                    ` : html``}
+                                  </div>
+                                </div>
+                              ` : html``}
+                          </div>
+                      </div>
+                      <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
                         <div class="curate-pane">
                             <div class="curate-pane-header">
                                 <div class="curate-pane-header-row">
@@ -2699,27 +3141,19 @@ class PhotoCatApp extends LitElement {
                                           class="curate-thumb ${this.curateAuditDragSelection.includes(image.id) ? 'selected' : ''}"
                                           draggable="true"
                                           @dragstart=${(event) => this._handleCurateAuditDragStart(event, image)}
-                                          @pointerdown=${(event) => this._handleCurateAuditSelectStart(event, index, image.id)}
+                                          @pointerdown=${(event) => this._handleCurateAuditPointerDown(event, index, image.id)}
+                                          @pointermove=${(event) => this._handleCurateAuditPointerMove(event)}
                                           @pointerenter=${() => this._handleCurateAuditSelectHover(index)}
                                         >
-                                        ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
-                                          <div class="curate-thumb-rating">Rating ${image.rating}</div>
-                                        ` : html``}
+                                        ${this._renderCurateRatingWidget(image)}
+                                        ${this._renderCurateRatingStatic(image)}
+                                        ${this._renderCuratePermatagSummary(image)}
                                         ${this._formatCurateDate(image) ? html`
                                           <div class="curate-thumb-date">
+                                            <span class="curate-thumb-id">#${image.id}</span>
                                             <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
                                           </div>
                                         ` : html``}
-                                        ${this._formatCurateProcessedDate(image) ? html`
-                                          <div class="curate-thumb-date processed">
-                                            <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
-                                          </div>
-                                        ` : html``}
-                                        <div class="curate-thumb-info">
-                                          ${this._getCurateHoverLines(image).map((line) => html`
-                                            <span class="curate-thumb-line">${line}</span>
-                                          `)}
-                                        </div>
                                       </div>
                                     `)}
                                   </div>
@@ -2748,64 +3182,82 @@ class PhotoCatApp extends LitElement {
                             </div>
                         </div>
                         <div
-                          class="curate-pane"
-                          @dragover=${(e) => this._handleCurateAuditDragOver(e)}
-                          @dragleave=${() => this._handleCurateAuditDragLeave()}
-                          @drop=${(e) => this._handleCurateAuditDrop(e)}
+                          class="curate-pane utility-targets"
                         >
                             <div class="curate-pane-header">
                                 <div class="curate-pane-header-row">
-                                    <span>${auditRightLabel}</span>
-                                    <div class="curate-pane-header-actions">
-                                        <button
-                                          class="curate-pane-action secondary"
-                                          ?disabled=${!this.curateAuditSelection.length}
-                                          @click=${this._handleCurateAuditClearSelection}
-                                        >
-                                          Clear
-                                        </button>
-                                    </div>
+                                    <span>Hotspots</span>
                                 </div>
                             </div>
-                            ${this.curateAuditSelection.length ? html`
-                              <div class="curate-pane-body">
-                                <div class="curate-grid">
-                                  ${this.curateAuditSelection.map((image) => html`
-                                    <div class="curate-thumb-wrapper">
-                                      <img
-                                        src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                                        alt=${image.filename}
-                                        class="curate-thumb"
-                                      >
-                                      ${image.rating !== null && image.rating !== undefined && image.rating !== '' ? html`
-                                        <div class="curate-thumb-rating">Rating ${image.rating}</div>
-                                      ` : html``}
-                                      ${this._formatCurateDate(image) ? html`
-                                        <div class="curate-thumb-date">
-                                          <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
-                                        </div>
-                                      ` : html``}
-                                      ${this._formatCurateProcessedDate(image) ? html`
-                                        <div class="curate-thumb-date processed">
-                                          <span class="curate-thumb-icon" aria-hidden="true">⚙︎</span>${this._formatCurateProcessedDate(image)}
-                                        </div>
-                                      ` : html``}
-                                      <div class="curate-thumb-info">
-                                        ${this._getCurateHoverLines(image).map((line) => html`
-                                          <span class="curate-thumb-line">${line}</span>
-                                        `)}
+                            <div class="curate-pane-body">
+                              <div class="curate-utility-panel">
+                                ${(this.curateAuditTargets || []).map((target) => {
+                                  const isPrimary = (this.curateAuditTargets?.[0]?.id === target.id);
+                                  const selectedValue = target.keyword
+                                    ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
+                                    : '';
+                                  return html`
+                                    <div
+                                      class="curate-utility-box ${this._curateAuditHotspotDragTarget === target.id ? 'active' : ''}"
+                                      @dragover=${(event) => this._handleCurateAuditHotspotDragOver(event, target.id)}
+                                      @dragleave=${this._handleCurateAuditHotspotDragLeave}
+                                      @drop=${(event) => this._handleCurateAuditHotspotDrop(event, target.id)}
+                                    >
+                                      <div class="curate-utility-controls">
+                                        <select
+                                          class="curate-utility-select ${selectedValue ? 'selected' : ''}"
+                                          .value=${selectedValue}
+                                          ?disabled=${isPrimary}
+                                          @change=${(event) => this._handleCurateAuditHotspotKeywordChange(event, target.id)}
+                                        >
+                                          <option value="">Select keyword…</option>
+                                          ${this._getKeywordsByCategory().map(([category, keywords]) => html`
+                                            <optgroup label="${category}">
+                                              ${keywords.map((kw) => html`
+                                                <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
+                                                  ${kw.keyword}
+                                                </option>
+                                              `)}
+                                            </optgroup>
+                                          `)}
+                                        </select>
+                                        <select
+                                          class="curate-utility-action"
+                                          .value=${target.action || 'add'}
+                                          ?disabled=${isPrimary}
+                                          @change=${(event) => this._handleCurateAuditHotspotActionChange(event, target.id)}
+                                        >
+                                          <option value="add">Add</option>
+                                          <option value="remove">Remove</option>
+                                        </select>
+                                        ${!isPrimary ? html`
+                                          <button
+                                            type="button"
+                                            class="curate-utility-remove"
+                                            title="Remove box"
+                                            @click=${() => this._handleCurateAuditHotspotRemoveTarget(target.id)}
+                                          >
+                                            ×
+                                          </button>
+                                        ` : html``}
                                       </div>
+                                      <div class="curate-utility-count">${target.count || 0}</div>
+                                      <div class="curate-utility-drop-hint">Drop images here</div>
                                     </div>
-                                  `)}
-                                </div>
+                                  `;
+                                })}
+                                <button class="curate-utility-add" @click=${this._handleCurateAuditHotspotAddTarget}>
+                                  +
+                                </button>
                               </div>
-                            ` : html`
-                              <div class="curate-drop ${this.curateAuditDragTarget === 'right' ? 'active' : ''}">
-                                ${auditDropLabel}
-                              </div>
-                            `}
+                            </div>
                         </div>
                     </div>
+                    ` : html`
+                      <div class="bg-white rounded-lg shadow p-6 text-sm text-gray-600">
+                        This screen lets you scan your collection for all images tagged to a Keyword. You can verify existing images, and look for images that should have it. Select a keyword to proceed.
+                      </div>
+                    `}
                 </div>
             </div>
             <div slot="search" class="container">
@@ -2821,15 +3273,15 @@ class PhotoCatApp extends LitElement {
                     <div class="home-panel home-panel-right border border-gray-200 rounded-lg p-3 bg-white shadow">
                         <div class="text-xs text-gray-500 uppercase font-semibold mb-2">Tag Counts</div>
                         <div class="flex items-center gap-2 mb-3 text-xs font-semibold text-gray-600">
-                          ${[
-                            { key: 'permatags', label: 'Permatags' },
-                            { key: 'keyword_model', label: 'Keyword-Model' },
-                            { key: 'zero_shot', label: 'Zero-Shot' },
-                          ].map((tab) => html`
-                            <button
-                              class="px-2 py-1 rounded border ${this.activeTagSource === tab.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
-                              @click=${() => this.activeTagSource = tab.key}
-                            >
+                        ${[
+                          { key: 'permatags', label: 'Permatags' },
+                          { key: 'zero_shot', label: 'Zero-Shot' },
+                          { key: 'keyword_model', label: 'Keyword-Model' },
+                        ].map((tab) => html`
+                          <button
+                            class="px-2 py-1 rounded border ${this.activeTagSource === tab.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
+                            @click=${() => this.activeTagSource = tab.key}
+                          >
                               ${tab.label}
                             </button>
                           `)}
@@ -2842,7 +3294,7 @@ class PhotoCatApp extends LitElement {
                                 <div class="tag-card border border-gray-200 rounded-lg p-2">
                                   <div class="text-xs font-semibold text-gray-700 truncate" title=${label}>${label}</div>
                                   <div class="tag-card-body mt-2 space-y-2">
-                                    ${item.keywordRows.map((kw) => {
+                                    ${item.keywordRows.length ? item.keywordRows.map((kw) => {
                                       const width = item.maxCount
                                         ? Math.round((kw.count / item.maxCount) * 100)
                                         : 0;
@@ -2857,7 +3309,7 @@ class PhotoCatApp extends LitElement {
                                           </div>
                                         </div>
                                       `;
-                                    })}
+                                    }) : html`<div class="text-xs text-gray-400">No tags yet.</div>`}
                                   </div>
                                 </div>
                               `;
@@ -2985,6 +3437,8 @@ class PhotoCatApp extends LitElement {
             .image=${this.curateEditorImage}
             .open=${this.curateEditorOpen}
             @close=${this._handleCurateEditorClose}
+            @image-rating-updated=${this._handleImageRatingUpdated}
+            @zoom-to-photo=${this._handleZoomToPhoto}
           ></image-editor>
         ` : ''}
     `;
@@ -3122,6 +3576,9 @@ class PhotoCatApp extends LitElement {
   }
 
   async _handleImageRatingUpdated(e) {
+      if (e?.detail?.imageId !== undefined && e?.detail?.rating !== undefined) {
+          this._applyCurateRating(e.detail.imageId, e.detail.rating);
+      }
       const gallery = this.shadowRoot.querySelector('image-gallery');
       if (gallery && typeof gallery.applyRatingUpdate === 'function') {
           const hideZero = Boolean(this.filters?.hideZeroRating);
@@ -3243,6 +3700,73 @@ class PhotoCatApp extends LitElement {
       return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   }
 
+  _buildCategoryCards(sourceStats, includeEmptyPreferred = false) {
+      const preferredOrder = ['Circus Skills', 'Costume Colors', 'Performers'];
+      const normalize = (label) => label.toLowerCase().replace(/[_\s]+/g, ' ').trim();
+      const preferredNormalized = preferredOrder.map((label) => normalize(label));
+
+      const cards = Object.entries(sourceStats || {})
+        .map(([category, keywords]) => {
+            const keywordRows = (keywords || [])
+              .filter((kw) => (kw.count || 0) > 0)
+              .sort((a, b) => (b.count || 0) - (a.count || 0));
+            const maxCount = keywordRows.reduce((max, kw) => Math.max(max, kw.count || 0), 0);
+            const totalCount = keywordRows.reduce((sum, kw) => sum + (kw.count || 0), 0);
+            return { category, keywordRows, maxCount, totalCount };
+        })
+        .filter((card) => includeEmptyPreferred || card.keywordRows.length)
+        .sort((a, b) => {
+            const aLabel = normalize(a.category.replace(/_/g, ' '));
+            const bLabel = normalize(b.category.replace(/_/g, ' '));
+            const aIndex = preferredNormalized.indexOf(aLabel);
+            const bIndex = preferredNormalized.indexOf(bLabel);
+            if (aIndex !== -1 || bIndex !== -1) {
+                return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+            }
+            return aLabel.localeCompare(bLabel);
+        });
+
+      if (includeEmptyPreferred) {
+          preferredOrder.forEach((label) => {
+              const exists = cards.some((card) => normalize(card.category.replace(/_/g, ' ')) === normalize(label));
+              if (!exists) {
+                  cards.push({
+                      category: label,
+                      keywordRows: [],
+                      maxCount: 0,
+                      totalCount: 0,
+                  });
+              }
+          });
+          cards.sort((a, b) => {
+              const aLabel = normalize(a.category.replace(/_/g, ' '));
+              const bLabel = normalize(b.category.replace(/_/g, ' '));
+              const aIndex = preferredNormalized.indexOf(aLabel);
+              const bIndex = preferredNormalized.indexOf(bLabel);
+              if (aIndex !== -1 || bIndex !== -1) {
+                  return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+              }
+              return aLabel.localeCompare(bLabel);
+          });
+      }
+
+      return cards;
+  }
+
+  _renderCuratePermatagSummary(image) {
+      const permatags = Array.isArray(image?.permatags) ? image.permatags : [];
+      const positives = permatags.filter((tag) => tag.signum === 1 && tag.keyword);
+      if (!positives.length) return html``;
+      const keywords = positives
+        .map((tag) => tag.keyword)
+        .filter(Boolean);
+      if (!keywords.length) return html``;
+      const unique = Array.from(new Set(keywords));
+      return html`
+        <div class="curate-thumb-rating">Tags: ${unique.join(', ')}</div>
+      `;
+  }
+
   _getCurateHoverLines(image) {
       const lines = [];
       const path = this._formatDropboxPath(image?.dropbox_path);
@@ -3343,22 +3867,6 @@ class PhotoCatApp extends LitElement {
       return Array.from(map.values());
   }
 
-  _splitCurateTagChoices() {
-      const choices = this.curateTagChoices || {};
-      const applyTags = [];
-      const removeTags = [];
-      Object.entries(choices).forEach(([key, choice]) => {
-          const [category, keyword] = key.split('::');
-          if (!keyword) return;
-          if (choice === 'apply') {
-              applyTags.push({ category, keyword });
-          } else if (choice === 'remove') {
-              removeTags.push({ category, keyword });
-          }
-      });
-      return { applyTags, removeTags };
-  }
-
   _updateCuratePermatagRemovals(imageIds, tags) {
       if (!imageIds?.length || !tags?.length) return;
       const targetIds = new Set(imageIds);
@@ -3403,6 +3911,9 @@ class PhotoCatApp extends LitElement {
       this._ensureHomePanelSync();
       if (changedProperties.has('activeTab')) {
           this._maybeFetchListsForTab(this.activeTab);
+      }
+      if (changedProperties.has('curateAuditKeyword') || changedProperties.has('curateAuditMode')) {
+          this._syncAuditHotspotPrimary();
       }
   }
 

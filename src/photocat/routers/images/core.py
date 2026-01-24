@@ -52,6 +52,7 @@ async def list_images(
     tenant: Tenant = Depends(get_tenant),
     limit: int = None,
     offset: int = 0,
+    anchor_id: Optional[int] = None,
     keywords: Optional[str] = None,  # Comma-separated keywords (deprecated)
     operator: str = "OR",  # "AND" or "OR" (deprecated)
     category_filters: Optional[str] = None,  # JSON string with per-category filters
@@ -103,6 +104,21 @@ async def list_images(
             "limit": limit,
             "offset": offset
         }
+
+    def resolve_anchor_offset(query, current_offset):
+        if anchor_id is None or limit is None:
+            return current_offset
+        order_by_clauses = getattr(query, "_order_by_clauses", None)
+        if not order_by_clauses:
+            return current_offset
+        subquery = query.with_entities(
+            ImageMetadata.id.label("image_id"),
+            func.row_number().over(order_by=order_by_clauses).label("rn")
+        ).subquery()
+        rn = db.query(subquery.c.rn).filter(subquery.c.image_id == anchor_id).scalar()
+        if rn is None:
+            return current_offset
+        return max(int(rn) - 1, 0)
 
     # Handle per-category filters if provided
     ml_keyword_id = None
@@ -220,6 +236,14 @@ async def list_images(
                             )
                         )
 
+                    # Apply anchor offset if requested
+                    if anchor_id is not None and limit is not None:
+                        try:
+                            anchor_index = sorted_ids.index(anchor_id)
+                            offset = anchor_index
+                        except ValueError:
+                            pass
+
                     # Apply offset and limit
                     paginated_ids = builder.paginate_id_list(sorted_ids, offset, limit)
 
@@ -246,7 +270,9 @@ async def list_images(
             # Fall back to returning all images
             query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
             total = query.count()
-            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+            query = query.order_by(*order_by_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
 
     # Apply keyword filtering if provided (legacy support)
     elif keywords:
@@ -307,6 +333,7 @@ async def list_images(
                 query = builder.apply_subqueries(query, subqueries_list)
 
                 total = builder.get_total_count(query)
+                offset = resolve_anchor_offset(query, offset)
                 results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
 
@@ -371,6 +398,7 @@ async def list_images(
                 )
 
                 total = builder.get_total_count(query)
+                offset = resolve_anchor_offset(query, offset)
                 results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
         else:
@@ -399,10 +427,14 @@ async def list_images(
                 order_by_date_clause,
                 id_order_clause
             )
-            images = query.order_by(*order_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_clauses).offset(offset).all()
+            query = query.order_by(*order_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
         else:
             order_by_clauses = builder.build_order_clauses()
-            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+            query = query.order_by(*order_by_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
 
         total = query.count()
 

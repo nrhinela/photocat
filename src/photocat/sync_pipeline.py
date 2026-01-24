@@ -253,7 +253,7 @@ def process_dropbox_entry(
             model_name=model_name,
             model_version=model_version,
             model_type=model_type,
-            threshold=0.15,
+            threshold=settings.keyword_model_threshold,
             model_weight=settings.keyword_model_weight
         )
         _log(log, f"[Sync] Keyword-model: {len(trained_tags)} trained tags")
@@ -263,7 +263,7 @@ def process_dropbox_entry(
         image_data=image_data,
         keywords_by_category=keywords_by_category,
         model_type=model_type,
-        threshold=0.15
+        threshold=settings.keyword_model_threshold
     )
     _log(log, f"[Sync] SigLIP: {len(all_tags)} tags")
 

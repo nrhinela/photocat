@@ -66,6 +66,12 @@ class ImageEditor extends LitElement {
       align-items: stretch;
       min-height: 0;
     }
+    .panel-right {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: auto;
+    }
     .right-pane {
       text-align: left;
       font-size: inherit;
@@ -81,16 +87,19 @@ class ImageEditor extends LitElement {
     .image-wrap {
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      overflow: auto;
+      align-items: stretch;
+      justify-content: center;
+      overflow: hidden;
       max-height: 100%;
+      min-height: 0;
+      position: relative;
     }
     .image-wrap img {
-      width: auto;
-      height: auto;
-      max-width: none;
-      max-height: none;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
       border-radius: 12px;
       border: 1px solid #e5e7eb;
       background: #f3f4f6;
@@ -101,6 +110,53 @@ class ImageEditor extends LitElement {
       max-width: 100%;
       max-height: 100%;
       object-fit: contain;
+    }
+    .high-res-button {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      background: rgba(255, 255, 255, 0.9);
+      color: #374151;
+      font-size: 11px;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+    }
+    .high-res-button:hover {
+      background: #ffffff;
+    }
+    .high-res-button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .high-res-loading {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      background: rgba(17, 24, 39, 0.75);
+      color: #f9fafb;
+      font-size: 11px;
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25);
+    }
+    .high-res-spinner {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #fbbf24;
+      animation: high-res-spin 0.8s linear infinite;
+    }
+    @keyframes high-res-spin {
+      to { transform: rotate(360deg); }
     }
     .skeleton-block {
       background: linear-gradient(90deg, #f3f4f6 25%, #e5e7eb 37%, #f3f4f6 63%);
@@ -196,6 +252,63 @@ class ImageEditor extends LitElement {
       grid-template-columns: 1fr 180px auto;
       gap: 8px;
       align-items: center;
+    }
+    .detail-rating-widget {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      position: relative;
+    }
+    .detail-rating-widget button {
+      font-size: 16px;
+      line-height: 1;
+    }
+    .detail-rating-trash {
+      background: rgba(255, 255, 255, 0.98);
+      color: #111827;
+      border-radius: 999px;
+      padding: 8px 10px;
+      box-shadow: 0 6px 16px rgba(17, 24, 39, 0.22);
+    }
+    .detail-rating-stars {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.98);
+      color: #111827;
+      border-radius: 999px;
+      padding: 8px 10px;
+      box-shadow: 0 6px 16px rgba(17, 24, 39, 0.22);
+    }
+    .detail-rating-burst {
+      position: absolute;
+      top: -8px;
+      right: -8px;
+      width: 34px;
+      height: 34px;
+      pointer-events: none;
+      animation: detail-burst 0.7s ease-out forwards;
+    }
+    .detail-rating-burst::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(250, 204, 21, 0.95) 0 30%, rgba(250, 204, 21, 0) 65%);
+      box-shadow: 0 0 14px rgba(250, 204, 21, 0.8);
+    }
+    .detail-rating-burst::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 2px solid rgba(250, 204, 21, 0.8);
+      opacity: 0.9;
+    }
+    @keyframes detail-burst {
+      0% { transform: scale(0.35); opacity: 0.1; }
+      45% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(1.35); opacity: 0; }
     }
     .tag-input,
     .tag-select {
@@ -313,11 +426,31 @@ class ImageEditor extends LitElement {
     this.ratingSaving = false;
     this.ratingError = '';
     this.metadataRefreshing = false;
+    this._ratingBurstActive = false;
+    this._ratingBurstTimer = null;
+    this._suppressPermatagRefresh = false;
+    this._prevBodyOverflow = null;
     this._handlePermatagEvent = (event) => {
       if ((this.open || this.embedded) && event?.detail?.imageId === this.image?.id) {
+        if (event?.detail?.source === 'image-editor' && this._suppressPermatagRefresh) {
+          this._suppressPermatagRefresh = false;
+          return;
+        }
         this.fetchDetails();
       }
     };
+  }
+
+  updated(changedProperties) {
+    if (changedProperties.has('image')) {
+      this._resetFullImage();
+    }
+    if (changedProperties.has('open') || changedProperties.has('image')) {
+      this._syncBodyScrollLock();
+      if (this.activeTab !== 'edit') {
+        this.activeTab = 'edit';
+      }
+    }
   }
 
   connectedCallback() {
@@ -328,7 +461,28 @@ class ImageEditor extends LitElement {
   disconnectedCallback() {
     window.removeEventListener('permatags-changed', this._handlePermatagEvent);
     this._resetFullImage();
+    this._restoreBodyScroll();
     super.disconnectedCallback();
+  }
+
+  _syncBodyScrollLock() {
+    if (this.embedded) return;
+    if (this.open) {
+      if (this._prevBodyOverflow === null) {
+        this._prevBodyOverflow = document.body.style.overflow || '';
+      }
+      document.body.style.overflow = 'hidden';
+    } else {
+      this._restoreBodyScroll();
+    }
+  }
+
+  _restoreBodyScroll() {
+    if (this.embedded) return;
+    if (this._prevBodyOverflow !== null) {
+      document.body.style.overflow = this._prevBodyOverflow;
+      this._prevBodyOverflow = null;
+    }
   }
 
   willUpdate(changedProperties) {
@@ -403,6 +557,7 @@ class ImageEditor extends LitElement {
 
   async _handleRatingClick(value) {
     if (!this.details || !this.tenant || this.ratingSaving) return;
+    this._triggerRatingBurst();
     this.ratingSaving = true;
     this.ratingError = '';
     try {
@@ -419,6 +574,19 @@ class ImageEditor extends LitElement {
     } finally {
       this.ratingSaving = false;
     }
+  }
+
+  _triggerRatingBurst() {
+    if (this._ratingBurstTimer) {
+      clearTimeout(this._ratingBurstTimer);
+    }
+    this._ratingBurstActive = true;
+    this.requestUpdate();
+    this._ratingBurstTimer = setTimeout(() => {
+      this._ratingBurstActive = false;
+      this._ratingBurstTimer = null;
+      this.requestUpdate();
+    }, 700);
   }
 
   _resetFullImage() {
@@ -474,14 +642,20 @@ class ImageEditor extends LitElement {
     const category = this.tagCategory || keywordMap[keyword] || 'Uncategorized';
     try {
       await addPermatag(this.tenant, this.details.id, keyword, category, 1);
+      const existing = Array.isArray(this.details.permatags) ? this.details.permatags : [];
+      const nextPermatags = [
+        ...existing,
+        { keyword, category, signum: 1 },
+      ];
+      this.details = { ...this.details, permatags: nextPermatags };
       this.tagInput = '';
       this.tagCategory = '';
+      this._suppressPermatagRefresh = true;
       this.dispatchEvent(new CustomEvent('permatags-changed', {
-        detail: { imageId: this.details.id },
+        detail: { imageId: this.details.id, source: 'image-editor' },
         bubbles: true,
         composed: true,
       }));
-      await this.fetchDetails();
     } catch (error) {
       this.error = 'Failed to add tag.';
       console.error('ImageEditor: add tag failed', error);
@@ -492,12 +666,19 @@ class ImageEditor extends LitElement {
     if (!this.details) return;
     try {
       await addPermatag(this.tenant, this.details.id, tag.keyword, tag.category, -1);
+      const existing = Array.isArray(this.details.permatags) ? this.details.permatags : [];
+      const nextPermatags = existing.filter((entry) => !(
+        entry.signum === 1 &&
+        entry.keyword === tag.keyword &&
+        (entry.category || 'Uncategorized') === (tag.category || 'Uncategorized')
+      ));
+      this.details = { ...this.details, permatags: nextPermatags };
+      this._suppressPermatagRefresh = true;
       this.dispatchEvent(new CustomEvent('permatags-changed', {
-        detail: { imageId: this.details.id },
+        detail: { imageId: this.details.id, source: 'image-editor' },
         bubbles: true,
         composed: true,
       }));
-      await this.fetchDetails();
     } catch (error) {
       this.error = 'Failed to remove tag.';
       console.error('ImageEditor: remove tag failed', error);
@@ -515,6 +696,10 @@ class ImageEditor extends LitElement {
     const permatags = (this.details?.permatags || []).filter((tag) => tag.signum === 1);
     const categories = Object.keys(this.keywordsByCategory || {}).sort((a, b) => a.localeCompare(b));
     const keywordList = [];
+    const dropboxPath = this.details?.dropbox_path || '';
+    const dropboxHref = dropboxPath
+      ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
+      : '';
     Object.values(this.keywordsByCategory || {}).forEach((keywords) => {
       keywords.forEach((entry) => {
         if (entry.keyword) {
@@ -524,6 +709,27 @@ class ImageEditor extends LitElement {
     });
     return html`
       <div class="tag-section">
+        <div class="space-y-1 text-xs text-gray-600">
+          <div>
+            <span class="font-semibold text-gray-700">ID:</span>
+            <span class="ml-1">${this.details?.id ?? 'Unknown'}</span>
+            ${this.details?.id ? html`
+              <button
+                type="button"
+                class="ml-2 text-blue-600 hover:text-blue-700 underline underline-offset-2"
+                @click=${this._handleZoomToPhoto}
+              >
+                [time travel]
+              </button>
+            ` : html``}
+          </div>
+          <div>
+            <span class="font-semibold text-gray-700">Dropbox:</span>
+            ${dropboxHref
+              ? html`<a class="ml-1 text-blue-600 hover:text-blue-700 break-all" href=${dropboxHref} target="dropbox" rel="noopener noreferrer">${dropboxPath}</a>`
+              : html`<span class="ml-1 text-gray-400">Unknown</span>`}
+          </div>
+        </div>
         ${this._renderRatingControl()}
         <div class="right-pane">
           <div class="text-xs font-semibold text-gray-600 uppercase mb-2">Active Tags</div>
@@ -560,6 +766,18 @@ class ImageEditor extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  _handleZoomToPhoto() {
+    if (!this.details?.id) return;
+    this.dispatchEvent(new CustomEvent('zoom-to-photo', {
+      detail: {
+        imageId: this.details.id,
+        captureTimestamp: this.details.capture_timestamp,
+      },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   _renderTagsReadOnly() {
@@ -720,25 +938,37 @@ class ImageEditor extends LitElement {
 
   _renderRatingControl() {
     if (!this.details) return html``;
-    const currentRating = this.details.rating;
     return html`
       <div class="space-y-2">
         <div class="text-xs font-semibold text-gray-600 uppercase">Rating</div>
         <div class="flex flex-wrap items-center gap-2">
-          ${[0, 1, 2, 3].map((value) => {
-            const isActive = currentRating === value;
-            return html`
-              <button
-                class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${isActive ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-100 text-gray-500 border-gray-200'}"
-                title=${`Rating ${value}`}
-                ?disabled=${this.ratingSaving}
-                @click=${() => this._handleRatingClick(value)}
-              >
-                <i class="fas fa-star"></i>
-                <span>${value}</span>
-              </button>
-            `;
-          })}
+          <div class="detail-rating-widget">
+            ${this._ratingBurstActive ? html`
+              <span class="detail-rating-burst" aria-hidden="true"></span>
+            ` : html``}
+            <button
+              type="button"
+              class="detail-rating-trash cursor-pointer mx-0.5 ${this.details.rating == 0 ? 'text-red-600' : 'text-gray-600 hover:text-gray-900'}"
+              title="0 stars"
+              ?disabled=${this.ratingSaving}
+              @click=${() => this._handleRatingClick(0)}
+            >
+              ${this.details.rating == 0 ? '❌' : '🗑'}
+            </button>
+            <span class="detail-rating-stars">
+              ${[1, 2, 3].map((star) => html`
+                <button
+                  type="button"
+                  class="cursor-pointer mx-0.5 ${this.details.rating && this.details.rating >= star ? 'text-yellow-500' : 'text-gray-500 hover:text-gray-900'}"
+                  title="${star} star${star > 1 ? 's' : ''}"
+                  ?disabled=${this.ratingSaving}
+                  @click=${() => this._handleRatingClick(star)}
+                >
+                  ${this.details.rating && this.details.rating >= star ? '★' : '☆'}
+                </button>
+              `)}
+            </span>
+          </div>
           ${this.ratingSaving ? html`<span class="text-xs text-gray-500">Saving...</span>` : ''}
         </div>
         ${this.ratingError ? html`<div class="text-xs text-red-600">${this.ratingError}</div>` : ''}
@@ -829,22 +1059,27 @@ class ImageEditor extends LitElement {
     if (!this.details) {
       return html`<div class="empty-text">Select an image.</div>`;
     }
-    const showFullImage = this.activeTab === 'image' && this.fullImageUrl;
-    const imageSrc = showFullImage
+    const imageSrc = this.fullImageUrl
       ? this.fullImageUrl
       : (this.details.thumbnail_url || `/api/v1/images/${this.details.id}/thumbnail`);
+    const showHighResButton = !this.fullImageUrl && !this.fullImageLoading;
     return html`
       <div class="panel-body">
-        <div class="image-wrap ${this.activeTab === 'image' ? 'image-full' : ''}">
+        <div class="image-wrap image-full">
           <img src="${imageSrc}" alt="${this.details.filename}">
+          ${showHighResButton ? html`
+            <button class="high-res-button" @click=${this._loadFullImage}>High Res</button>
+          ` : this.fullImageLoading ? html`
+            <div class="high-res-loading" aria-live="polite">
+              <span class="high-res-spinner" aria-hidden="true"></span>
+              Loading high res…
+            </div>
+          ` : html``}
         </div>
-        <div>
+        <div class="panel-right">
           <div class="tab-row">
             <button class="tab-button ${this.activeTab === 'edit' ? 'active' : ''}" @click=${() => this._setTab('edit')}>
               Edit
-            </button>
-            <button class="tab-button ${this.activeTab === 'image' ? 'active' : ''}" @click=${() => this._setTab('image')}>
-              Image
             </button>
             <button class="tab-button ${this.activeTab === 'metadata' ? 'active' : ''}" @click=${() => this._setTab('metadata')}>
               Metadata
@@ -857,9 +1092,7 @@ class ImageEditor extends LitElement {
             </button>
           </div>
           <div class="mt-3">
-            ${this.activeTab === 'image'
-              ? this._renderImageTab()
-              : this.activeTab === 'metadata'
+            ${this.activeTab === 'metadata'
               ? this._renderMetadataTab()
               : this.activeTab === 'tags'
                 ? this._renderTagsReadOnly()

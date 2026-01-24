@@ -74,7 +74,7 @@ async def upload_images(
                     category_tags = tagger.tag_image(
                         image_data,
                         keywords,
-                        threshold=0.15
+                        threshold=settings.keyword_model_threshold
                     )
                     all_tags.extend(category_tags)
 
@@ -175,7 +175,7 @@ async def analyze_image_keywords(
             "image_id": image_id,
             "filename": image.filename,
             "model": settings.tagging_model,
-            "threshold": 0.15,  # Show current threshold
+            "threshold": settings.keyword_model_threshold,  # Show current threshold
             "scores_by_category": all_scores_by_category
         }
 
@@ -241,7 +241,7 @@ async def retag_single_image(
             image_data=image_data,
             keywords_by_category=by_category,
             model_type=model_type,
-            threshold=0.15
+            threshold=settings.keyword_model_threshold
         )
 
         # Create new tags - look up keyword_ids from database
@@ -349,7 +349,7 @@ async def retag_all_images(
                 image_data=image_data,
                 keywords_by_category=by_category,
                 model_type=model_type,
-                threshold=0.15
+                threshold=settings.keyword_model_threshold
             )
 
             for keyword, confidence in all_tags:
