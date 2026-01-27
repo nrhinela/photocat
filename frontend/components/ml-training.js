@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
-import { getMlTrainingImages, getMlTrainingStats, sync, retagAll } from '../services/api.js';
+import { getMlTrainingImages, getMlTrainingStats } from '../services/api.js';
 
 class MlTraining extends LitElement {
   static styles = [tailwind, css`
@@ -44,13 +44,7 @@ class MlTraining extends LitElement {
     isLoading: { type: Boolean },
     error: { type: String },
     useKeywordModels: { type: Boolean },
-    keywordModelWeight: { type: Number },
     stats: { type: Object },
-    isSyncing: { type: Boolean },
-    syncCount: { type: Number },
-    syncStatus: { type: String },
-    lastSyncAt: { type: String },
-    lastSyncCount: { type: Number },
   };
 
   constructor() {
@@ -64,14 +58,7 @@ class MlTraining extends LitElement {
     this.isLoading = false;
     this.error = '';
     this.useKeywordModels = null;
-    this.keywordModelWeight = null;
     this.stats = null;
-    this.isSyncing = false;
-    this.syncCount = 0;
-    this._stopRequested = false;
-    this.syncStatus = 'idle';
-    this.lastSyncAt = '';
-    this.lastSyncCount = 0;
   }
 
   connectedCallback() {
@@ -83,7 +70,6 @@ class MlTraining extends LitElement {
     if (changedProperties.has('tenant')) {
       this.fetchImages();
       this.fetchStats();
-      this._loadSyncStatus();
     }
   }
 
@@ -95,11 +81,9 @@ class MlTraining extends LitElement {
       }
       const data = await response.json();
       this.useKeywordModels = data.use_keyword_models ?? null;
-      this.keywordModelWeight = data.keyword_model_weight ?? null;
     } catch (error) {
       console.error('Failed to fetch ML training config:', error);
       this.useKeywordModels = null;
-      this.keywordModelWeight = null;
     }
   }
 
@@ -134,106 +118,6 @@ class MlTraining extends LitElement {
       this.error = 'Failed to load ML training data.';
     } finally {
       this.isLoading = false;
-    }
-  }
-
-  _persistSyncStatus() {
-    if (!this.tenant) return;
-    const payload = {
-      lastSyncAt: this.lastSyncAt,
-      lastSyncCount: this.lastSyncCount,
-      syncStatus: this.syncStatus,
-    };
-    localStorage.setItem(`photocat-sync-status-${this.tenant}`, JSON.stringify(payload));
-  }
-
-  _loadSyncStatus() {
-    if (!this.tenant) return;
-    const raw = localStorage.getItem(`photocat-sync-status-${this.tenant}`);
-    if (!raw) {
-      this.lastSyncAt = '';
-      this.lastSyncCount = 0;
-      this.syncStatus = 'idle';
-      return;
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      this.lastSyncAt = parsed.lastSyncAt || '';
-      this.lastSyncCount = parsed.lastSyncCount || 0;
-      this.syncStatus = parsed.syncStatus || 'idle';
-    } catch (error) {
-      console.warn('Failed to parse sync status cache', error);
-      this.lastSyncAt = '';
-      this.lastSyncCount = 0;
-      this.syncStatus = 'idle';
-    }
-  }
-
-  _getSyncLabel() {
-    if (this.isSyncing || this.syncStatus === 'running') {
-      return `Syncing: ${this.syncCount}`;
-    }
-    if (this.syncStatus === 'stopped' && this.lastSyncCount) {
-      return `Sync stopped (${this.lastSyncCount})`;
-    }
-    if (this.syncStatus === 'complete' && this.lastSyncAt) {
-      const date = new Date(this.lastSyncAt).toLocaleString();
-      return `Last sync: ${date} (${this.lastSyncCount})`;
-    }
-    if (this.syncStatus === 'error') {
-      return 'Sync error';
-    }
-    return 'Sync idle';
-  }
-
-  async _sync() {
-    if (this.isSyncing || !this.tenant) return;
-    this.isSyncing = true;
-    this.syncCount = 0;
-    this._stopRequested = false;
-    this.syncStatus = 'running';
-    this.lastSyncAt = '';
-    this.lastSyncCount = 0;
-    this._persistSyncStatus();
-
-    try {
-      let hasMore = true;
-      while (hasMore && !this._stopRequested) {
-        const result = await sync(this.tenant);
-        if (result.processed > 0) {
-          this.syncCount += result.processed;
-          this.lastSyncCount = this.syncCount;
-          this._persistSyncStatus();
-        }
-        hasMore = result.has_more;
-      }
-
-      this.syncStatus = this._stopRequested ? 'stopped' : 'complete';
-      if (!this._stopRequested) {
-        this.lastSyncAt = new Date().toISOString();
-        this.lastSyncCount = this.syncCount;
-      }
-    } catch (error) {
-      console.error('Sync error:', error);
-      this.syncStatus = 'error';
-    } finally {
-      this._persistSyncStatus();
-      this.isSyncing = false;
-      this._stopRequested = false;
-    }
-  }
-
-  _stopSync() {
-    this._stopRequested = true;
-  }
-
-  async _retagAll() {
-    if (!this.tenant) return;
-    try {
-      await retagAll(this.tenant);
-    } catch (error) {
-      console.error('Retag error:', error);
-      this.error = 'Failed to start retag job.';
     }
   }
 
@@ -336,20 +220,9 @@ class MlTraining extends LitElement {
   }
 
   render() {
-    const keywordModelsLabel = this.useKeywordModels === null
-      ? '--'
-      : this.useKeywordModels
-        ? 'true'
-        : 'false';
-    const keywordWeightLabel = this.keywordModelWeight === null
-      ? '--'
-      : String(this.keywordModelWeight);
-
     const imageCount = this._formatStatNumber(this.stats?.image_count);
     const embeddingCount = this._formatStatNumber(this.stats?.embedding_count);
     const lastModelUpdate = this._formatStatDate(this.stats?.keyword_model_last_trained);
-    const zeroShotCount = this._formatStatNumber(this.stats?.zero_shot_image_count);
-    const trainedImageCount = this._formatStatNumber(this.stats?.trained_image_count);
     const pageStart = this.images.length ? this.offset + 1 : 0;
     const pageEnd = this.images.length ? this.offset + this.images.length : 0;
     const hasPrev = !this.limitAll && this.offset > 0;
@@ -383,9 +256,6 @@ class MlTraining extends LitElement {
               Next
             </button>
           </div>
-          <button class="text-sm text-blue-600 hover:text-blue-700" @click=${() => this.fetchImages({ refresh: true })}>
-            Recompute
-          </button>
         </div>
       </div>
     `;
@@ -402,14 +272,6 @@ class MlTraining extends LitElement {
             <div class="text-xl font-semibold text-gray-900">${embeddingCount}</div>
           </div>
           <div class="border border-gray-200 rounded-lg p-2 bg-white shadow">
-            <div class="text-xs text-gray-500 uppercase">Zero-Shot</div>
-            <div class="text-xl font-semibold text-gray-900">${zeroShotCount}</div>
-          </div>
-          <div class="border border-gray-200 rounded-lg p-2 bg-white shadow">
-            <div class="text-xs text-gray-500 uppercase">Keyword-Model</div>
-            <div class="text-xl font-semibold text-gray-900">${trainedImageCount}</div>
-          </div>
-          <div class="border border-gray-200 rounded-lg p-2 bg-white shadow">
             <div class="text-xs text-gray-500 uppercase">Model Updated</div>
             <div class="text-sm font-semibold text-gray-900">${lastModelUpdate}</div>
           </div>
@@ -418,48 +280,7 @@ class MlTraining extends LitElement {
         <div class="flex flex-wrap items-start justify-between gap-4 mb-4">
           <div>
             <h2 class="text-xl font-semibold text-gray-800">Pipeline</h2>
-            <p class="text-sm text-gray-500">Compare verified tags with zero-shot and keyword-model output.</p>
-            <div class="text-xs text-gray-500 mt-1 space-y-1">
-              <div>USE_KEYWORD_MODELS: ${keywordModelsLabel} · KEYWORD_MODEL_WEIGHT: ${keywordWeightLabel}</div>
-              <div class="text-gray-400">Rebuild model:</div>
-              <pre class="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-[11px] text-gray-700 whitespace-pre-wrap">
-photocat build-embeddings --tenant-id &lt;tenant&gt; --force
-photocat train-keyword-models --tenant-id &lt;tenant&gt; --min-positive 3 --min-negative 3
-              </pre>
-              <div class="text-gray-400">Retag keyword-model tags (batch):</div>
-              <pre class="bg-gray-50 border border-gray-200 rounded px-2 py-1 text-[11px] text-gray-700 whitespace-pre-wrap">
-photocat recompute-trained-tags --tenant-id &lt;tenant&gt; --batch-size 50 --limit 500 --offset 0
-# Backfill only (default). Use --replace to overwrite existing keyword-model tags.
-photocat recompute-trained-tags --tenant-id &lt;tenant&gt; --batch-size 50 --limit 500 --offset 0 --replace
-              </pre>
-            </div>
-          </div>
-          <div class="border border-gray-200 rounded-lg p-3 bg-white shadow-sm">
-            <div class="text-xs text-gray-500 uppercase mb-2">Pipeline Actions</div>
-            <div class="flex items-center gap-2">
-              ${this.isSyncing ? html`
-                <button
-                  class="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 text-sm"
-                  @click=${this._stopSync}
-                >
-                  <i class="fas fa-stop mr-2"></i>Stop (${this.syncCount})
-                </button>
-              ` : html`
-                <button
-                  class="bg-teal-600 text-white px-3 py-1.5 rounded-lg hover:bg-teal-700 text-sm"
-                  @click=${this._sync}
-                >
-                  <i class="fas fa-sync mr-2"></i>Sync
-                </button>
-              `}
-              <button
-                class="bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 text-sm"
-                @click=${this._retagAll}
-              >
-                <i class="fas fa-tags mr-2"></i>Retag All
-              </button>
-            </div>
-            <div class="text-xs text-gray-500 mt-2">${this._getSyncLabel()}</div>
+            <p class="text-sm text-gray-500">Review ML tags alongside verified tags.</p>
           </div>
         </div>
 
@@ -476,8 +297,8 @@ photocat recompute-trained-tags --tenant-id &lt;tenant&gt; --batch-size 50 --lim
                 <th class="text-left px-3 py-2 font-semibold">Image</th>
                 <th class="text-left px-3 py-2 font-semibold">Embedding</th>
                 <th class="text-left px-3 py-2 font-semibold">Positive Permatags</th>
-                <th class="text-left px-3 py-2 font-semibold">Zero-Shot</th>
-                <th class="text-left px-3 py-2 font-semibold">Keyword-Model</th>
+                <th class="text-left px-3 py-2 font-semibold">ML Tags</th>
+                <th class="text-left px-3 py-2 font-semibold">Trained Tags</th>
               </tr>
             </thead>
             <tbody>
@@ -507,7 +328,7 @@ photocat recompute-trained-tags --tenant-id &lt;tenant&gt; --batch-size 50 --lim
                     ${this.renderTagList(image.ml_tags, 'No ML tags')}
                   </td>
                   <td class="px-3 py-3 align-top">
-                    ${this.renderTagList(image.trained_tags, 'No keyword-model tags')}
+                    ${this.renderTagList(image.trained_tags, 'No trained tags')}
                   </td>
                 </tr>
               `)}
