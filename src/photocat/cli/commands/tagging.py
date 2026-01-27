@@ -103,7 +103,7 @@ class RetagCommand(CliCommand):
                         category_tags = tagger.tag_image(
                             image_data,
                             keywords,
-                            threshold=0.15
+                            threshold=settings.keyword_model_threshold
                         )
                         all_tags.extend(category_tags)
 

@@ -47,6 +47,9 @@ export async function getImages(tenantId, filters = {}) {
   if (filters.offset !== undefined && filters.offset !== null && filters.offset !== '') {
     params.append('offset', String(filters.offset));
   }
+  if (filters.anchorId !== undefined && filters.anchorId !== null && filters.anchorId !== '') {
+    params.append('anchor_id', String(filters.anchorId));
+  }
 
   if (filters.keywords && Object.keys(filters.keywords).length > 0) {
       const categoryFilters = {};

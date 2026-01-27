@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     tagging_model: str = "siglip"  # Currently only 'siglip' is active (clip and siglip2 are commented out)
     use_keyword_models: bool = False
     keyword_model_weight: float = 0.6
+    keyword_model_threshold: float = 0.5
     keyword_model_min_positive: int = 2
     keyword_model_min_negative: int = 2
     

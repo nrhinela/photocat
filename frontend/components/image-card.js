@@ -23,30 +23,31 @@ class ImageCard extends LitElement {
     .image-hover img {
       border-radius: 12px 12px 0 0;
     }
-    .image-hover-info {
+    .thumb-rating {
       position: absolute;
-      left: 8px;
-      right: auto;
+      right: 8px;
       bottom: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
       background: rgba(17, 24, 39, 0.85);
       color: #f9fafb;
-      font-size: 12px;
-      line-height: 1.35;
-      padding: 8px 10px;
-      border-radius: 8px;
-      min-width: 220px;
-      max-width: min(70vw, 320px);
-      width: max-content;
+      padding: 6px 8px;
+      border-radius: 999px;
       opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
       pointer-events: none;
-      transition: opacity 0.15s ease;
-      transition-delay: 0s;
-      z-index: 10;
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+      z-index: 12;
     }
-    .image-hover:hover .image-hover-info {
+    .thumb-rating button {
+      font-size: 14px;
+      line-height: 1;
+    }
+    .image-hover:hover .thumb-rating {
       opacity: 1;
-      transition-delay: 0.5s;
+      transform: translateY(0);
+      pointer-events: auto;
     }
     .hover-label {
       color: #d1d5db;
@@ -200,7 +201,32 @@ class ImageCard extends LitElement {
       composed: true,
     }));
   }
-  
+
+  _renderThumbRating() {
+    return html`
+      <div class="thumb-rating" @click=${(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          class="cursor-pointer mx-0.5 ${this.image.rating == 0 ? 'text-gray-200' : 'text-gray-300 hover:text-gray-100'}"
+          title="0 stars"
+          @click=${(e) => this._handleRating(e, 0)}
+        >
+          ${this.image.rating == 0 ? '❌' : '🗑'}
+        </button>
+        ${[1, 2, 3].map((star) => html`
+          <button
+            type="button"
+            class="cursor-pointer mx-0.5 ${this.image.rating && this.image.rating >= star ? 'text-yellow-300' : 'text-gray-400 hover:text-gray-200'}"
+            title="${star} star${star > 1 ? 's' : ''}"
+            @click=${(e) => this._handleRating(e, star)}
+          >
+            ${this.image.rating && this.image.rating >= star ? '★' : '☆'}
+          </button>
+        `)}
+      </div>
+    `;
+  }
+
   _handleCardClick() {
       this.dispatchEvent(new CustomEvent('image-selected', { detail: this.image, bubbles: true, composed: true }));
   }
@@ -262,21 +288,6 @@ class ImageCard extends LitElement {
       return 'Unrated';
     }
     return String(value);
-  }
-
-  _renderHoverInfo() {
-    const photoTaken = this._formatDateTime(this.image.capture_timestamp);
-    const dropboxPath = this.image.dropbox_path
-      ? this._formatDropboxPath(this.image.dropbox_path)
-      : 'Unknown';
-    const rating = this._formatRating(this.image.rating);
-    return html`
-      <div class="image-hover-info">
-        <span class="hover-line"><span class="hover-label">Photo taken:</span>${photoTaken}</span>
-        <span class="hover-line"><span class="hover-label">Path:</span>${dropboxPath}</span>
-        <span class="hover-line"><span class="hover-label">Rating:</span>${rating}</span>
-      </div>
-    `;
   }
 
   _handleMetadataToggle(event) {
@@ -348,7 +359,6 @@ class ImageCard extends LitElement {
       : '';
     const formattedPath = this._formatDropboxPath(dropboxPath);
     const photoCreatedAt = this.image.capture_timestamp ? this._formatDateTime(this.image.capture_timestamp) : null;
-    const uploadedAt = this._formatDateTime(this.image.modified_time);
     const listName = this.activeListName || 'None';
     const canAddToList = !!this.activeListName && this.showAddToList;
     const addLabel = this.isInActiveList ? 'Added' : 'Add';
@@ -364,7 +374,7 @@ class ImageCard extends LitElement {
             onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 400 400%22%3E%3Crect fill=%22%23ddd%22 width=%22400%22 height=%22400%22/%3E%3Ctext fill=%22%23999%22 x=%2250%25%22 y=%2250%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22%3ENo Image%3C/text%3E%3C/svg%3E';"
           />
           ${this.image.tags_applied ? html`<div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs"><i class="fas fa-tag"></i></div>` : ''}
-          ${this._renderHoverInfo()}
+          ${this._renderThumbRating()}
         </div>
         <div class="p-3 text-sm text-gray-700 space-y-2">
           ${photoCreatedAt ? html`
@@ -373,10 +383,6 @@ class ImageCard extends LitElement {
               <span class="ml-1">${photoCreatedAt}</span>
             </div>
           ` : html``}
-          <div>
-            <span class="font-semibold text-gray-700">uploaded:</span>
-            <span class="ml-1">${uploadedAt}</span>
-          </div>
           <div>
             <span class="font-semibold text-gray-700">file:</span>
             ${dropboxHref ? html`
@@ -478,7 +484,6 @@ class ImageCard extends LitElement {
       ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
       : '';
     const photoCreatedAt = this.image.capture_timestamp ? this._formatDateTime(this.image.capture_timestamp) : null;
-    const uploadedAt = this._formatDateTime(this.image.modified_time);
     const listName = this.activeListName || 'None';
     const canAddToList = !!this.activeListName && this.showAddToList;
     const addLabel = this.isInActiveList ? 'Added' : `Add to list: ${listName}`;
@@ -494,14 +499,13 @@ class ImageCard extends LitElement {
             loading="lazy"
             @click=${this._handleCardClick}
           />
-          ${this._renderHoverInfo()}
+          ${this._renderThumbRating()}
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-semibold text-gray-800 truncate">${this.image.filename}</div>
           ${photoCreatedAt ? html`
             <div class="text-xs text-gray-500">photo created: ${photoCreatedAt}</div>
           ` : html``}
-          <div class="text-xs text-gray-500">uploaded: ${uploadedAt}</div>
           ${dropboxHref ? html`
             <a
               href=${dropboxHref}

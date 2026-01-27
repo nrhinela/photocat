@@ -24,6 +24,7 @@ class TabContainer extends LitElement {
         ${this.activeTab === 'curate' ? html`<slot name="curate"></slot>` : ''}
         ${this.activeTab === 'search' ? html`<slot name="search"></slot>` : ''}
         ${this.activeTab === 'lists' ? html`<slot name="lists"></slot>` : ''}
+        ${this.activeTab === 'people' ? html`<slot name="people"></slot>` : ''}
         ${this.activeTab === 'tagging' ? html`<slot name="tagging"></slot>` : ''}
         ${this.activeTab === 'ml-training' ? html`<slot name="ml-training"></slot>` : ''}
         ${this.activeTab === 'cli' ? html`<slot name="cli"></slot>` : ''}

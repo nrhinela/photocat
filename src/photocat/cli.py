@@ -4,6 +4,7 @@ import sys
 import io
 from pathlib import Path
 from typing import Optional
+from datetime import datetime, timedelta
 import click
 from sqlalchemy import create_engine, func, or_
 from sqlalchemy.orm import sessionmaker
@@ -594,7 +595,8 @@ def train_keyword_models(tenant_id: str, min_positive: Optional[int], min_negati
 @click.option('--limit', default=None, type=int, help='Maximum number of images to process (unlimited if not specified)')
 @click.option('--offset', default=0, type=int, help='Skip first N images in the list (useful for resuming)')
 @click.option('--replace', is_flag=True, default=False, help='Replace all existing tags (--replace flag), otherwise only backfill missing ones')
-def recompute_trained_tags(tenant_id: str, batch_size: int, limit: Optional[int], offset: int, replace: bool):
+@click.option('--older-than-days', default=None, type=float, help='Only process images with trained tags older than this many days')
+def recompute_trained_tags(tenant_id: str, batch_size: int, limit: Optional[int], offset: int, replace: bool, older_than_days: Optional[float]):
     """Recompute ML keyword tags using tenant-trained models.
 
     This command applies trained keyword models to all images to:
@@ -649,7 +651,27 @@ def recompute_trained_tags(tenant_id: str, batch_size: int, limit: Optional[int]
     storage_client = storage.Client(project=settings.gcp_project_id)
     thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
 
-    base_query = session.query(ImageMetadata).filter_by(tenant_id=tenant.id).order_by(ImageMetadata.id.desc())
+    base_query = session.query(ImageMetadata).filter_by(tenant_id=tenant.id)
+    if older_than_days is not None:
+        cutoff = datetime.utcnow() - timedelta(days=older_than_days)
+        last_tagged_subquery = session.query(
+            MachineTag.image_id.label('image_id'),
+            func.max(MachineTag.created_at).label('last_tagged_at')
+        ).filter(
+            MachineTag.tenant_id == tenant.id,
+            MachineTag.tag_type == 'trained',
+            MachineTag.model_name == model_name
+        ).group_by(
+            MachineTag.image_id
+        ).subquery()
+        base_query = base_query.outerjoin(
+            last_tagged_subquery,
+            ImageMetadata.id == last_tagged_subquery.c.image_id
+        ).filter(
+            (last_tagged_subquery.c.last_tagged_at.is_(None)) |
+            (last_tagged_subquery.c.last_tagged_at < cutoff)
+        )
+    base_query = base_query.order_by(ImageMetadata.id.desc())
     total = base_query.count()
 
     processed = 0
@@ -683,20 +705,20 @@ def recompute_trained_tags(tenant_id: str, batch_size: int, limit: Optional[int]
                 skipped += 1
                 continue
             image_data = blob.download_as_bytes()
-            recompute_trained_tags_for_image(
-                db=session,
-                tenant_id=tenant.id,
-                image_id=image.id,
-                image_data=image_data,
-                keywords_by_category=by_category,
-                keyword_models=keyword_models,
-                keyword_to_category=keyword_to_category,
-                model_name=model_name,
-                model_version=model_version,
-                model_type=settings.tagging_model,
-                threshold=0.15,
-                model_weight=settings.keyword_model_weight
-            )
+                recompute_trained_tags_for_image(
+                    db=session,
+                    tenant_id=tenant.id,
+                    image_id=image.id,
+                    image_data=image_data,
+                    keywords_by_category=by_category,
+                    keyword_models=keyword_models,
+                    keyword_to_category=keyword_to_category,
+                    model_name=model_name,
+                    model_version=model_version,
+                    model_type=settings.tagging_model,
+                    threshold=settings.keyword_model_threshold,
+                    model_weight=settings.keyword_model_weight
+                )
             processed += 1
             if limit is not None and processed >= limit:
                 reached_limit = True
@@ -872,7 +894,7 @@ def retag(tenant_id: str):
                     category_tags = tagger.tag_image(
                         image_data,
                         keywords,
-                        threshold=0.15
+                        threshold=settings.keyword_model_threshold
                     )
                     all_tags.extend(category_tags)
                 
@@ -1120,7 +1142,7 @@ def sync_dropbox(tenant_id: str, count: int):
                         image_data=thumbnail_data,
                         keywords_by_category=by_category,
                         model_type=settings.tagging_model,
-                        threshold=0.15
+                        threshold=settings.keyword_model_threshold
                     )
 
                     click.echo(f"  Found {len(all_tags)} tags")

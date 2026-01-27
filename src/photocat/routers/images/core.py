@@ -50,8 +50,9 @@ def get_keyword_category_name(db: Session, keyword_id: int) -> Optional[str]:
 @router.get("/images", response_model=dict, operation_id="list_images")
 async def list_images(
     tenant: Tenant = Depends(get_tenant),
-    limit: int = None,
+    limit: int = 100,
     offset: int = 0,
+    anchor_id: Optional[int] = None,
     keywords: Optional[str] = None,  # Comma-separated keywords (deprecated)
     operator: str = "OR",  # "AND" or "OR" (deprecated)
     category_filters: Optional[str] = None,  # JSON string with per-category filters
@@ -104,6 +105,21 @@ async def list_images(
             "offset": offset
         }
 
+    def resolve_anchor_offset(query, current_offset):
+        if anchor_id is None or limit is None:
+            return current_offset
+        order_by_clauses = getattr(query, "_order_by_clauses", None)
+        if not order_by_clauses:
+            return current_offset
+        subquery = query.with_entities(
+            ImageMetadata.id.label("image_id"),
+            func.row_number().over(order_by=order_by_clauses).label("rn")
+        ).subquery()
+        rn = db.query(subquery.c.rn).filter(subquery.c.image_id == anchor_id).scalar()
+        if rn is None:
+            return current_offset
+        return max(int(rn) - 1, 0)
+
     # Handle per-category filters if provided
     ml_keyword_id = None
     if ml_keyword:
@@ -120,11 +136,14 @@ async def list_images(
     if date_order not in ("asc", "desc"):
         date_order = "desc"
     order_by_value = (order_by or "").lower()
-    if order_by_value not in ("photo_creation", "image_id", "ml_score"):
+    if order_by_value not in ("photo_creation", "image_id", "processed", "ml_score"):
         order_by_value = None
     if order_by_value == "ml_score" and not ml_keyword_id:
         order_by_value = None
-    order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
+    if order_by_value == "processed":
+        order_by_date = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
+    else:
+        order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
     order_by_date = order_by_date.desc() if date_order == "desc" else order_by_date.asc()
     id_order = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
     order_by_clauses = (id_order,) if order_by_value == "image_id" else (order_by_date, id_order)
@@ -167,17 +186,25 @@ async def list_images(
                         ImageMetadata.id,
                         ImageMetadata.capture_timestamp,
                         ImageMetadata.modified_time,
+                        ImageMetadata.last_processed,
+                        ImageMetadata.created_at,
                     ).filter(ImageMetadata.id.in_(unique_image_ids)).all()
-                    date_map = {
-                        row[0]: row[1] or row[2]
-                        for row in date_rows
-                    }
+                    if order_by_value == "processed":
+                        date_map = {
+                            row[0]: row[3] or row[4]
+                            for row in date_rows
+                        }
+                    else:
+                        date_map = {
+                            row[0]: row[1] or row[2]
+                            for row in date_rows
+                        }
                     if order_by_value == "image_id":
                         sorted_ids = sorted(
                             unique_image_ids,
                             key=lambda img_id: -img_id if date_order == "desc" else img_id
                         )
-                    elif order_by_value == "photo_creation":
+                    elif order_by_value in ("photo_creation", "processed"):
                         def date_key(img_id: int) -> float:
                             date_value = date_map.get(img_id)
                             if not date_value:
@@ -209,6 +236,14 @@ async def list_images(
                             )
                         )
 
+                    # Apply anchor offset if requested
+                    if anchor_id is not None and limit is not None:
+                        try:
+                            anchor_index = sorted_ids.index(anchor_id)
+                            offset = anchor_index
+                        except ValueError:
+                            pass
+
                     # Apply offset and limit
                     paginated_ids = builder.paginate_id_list(sorted_ids, offset, limit)
 
@@ -235,7 +270,9 @@ async def list_images(
             # Fall back to returning all images
             query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
             total = query.count()
-            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+            query = query.order_by(*order_by_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
 
     # Apply keyword filtering if provided (legacy support)
     elif keywords:
@@ -296,6 +333,7 @@ async def list_images(
                 query = builder.apply_subqueries(query, subqueries_list)
 
                 total = builder.get_total_count(query)
+                offset = resolve_anchor_offset(query, offset)
                 results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
 
@@ -360,6 +398,7 @@ async def list_images(
                 )
 
                 total = builder.get_total_count(query)
+                offset = resolve_anchor_offset(query, offset)
                 results = builder.apply_pagination(query, offset, limit)
                 images = [img for img, _ in results]
         else:
@@ -388,10 +427,14 @@ async def list_images(
                 order_by_date_clause,
                 id_order_clause
             )
-            images = query.order_by(*order_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_clauses).offset(offset).all()
+            query = query.order_by(*order_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
         else:
             order_by_clauses = builder.build_order_clauses()
-            images = query.order_by(*order_by_clauses).limit(limit).offset(offset).all() if limit else query.order_by(*order_by_clauses).offset(offset).all()
+            query = query.order_by(*order_by_clauses)
+            offset = resolve_anchor_offset(query, offset)
+            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
 
         total = query.count()
 
