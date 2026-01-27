@@ -131,6 +131,10 @@ class PhotoListItem(Base):
     list = relationship("PhotoList", back_populates="items")
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     updated_at = Column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_list_items_list_photo", "list_id", "photo_id"),
+    )
     
     def to_dict(self):
         return {

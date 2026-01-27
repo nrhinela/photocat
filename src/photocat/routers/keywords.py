@@ -35,156 +35,104 @@ async def get_available_keywords(
     config_mgr = ConfigManager(db, tenant.id)
     all_keywords = config_mgr.get_all_keywords()
 
-    # Build filter_ids based on active filters (same logic as images endpoint)
-    filter_ids = None
+    image_ids_query = db.query(ImageMetadata.id).filter(ImageMetadata.tenant_id == tenant.id)
 
     if list_id is not None:
         lst = db.query(PhotoList).filter_by(id=list_id, tenant_id=tenant.id).first()
-        if lst:
-            list_image_ids = db.query(PhotoListItem.photo_id).filter(
-                PhotoListItem.list_id == list_id
-            ).all()
-            filter_ids = {row[0] for row in list_image_ids}
+        if not lst:
+            return {"tenant_id": tenant.id, "keywords_by_category": {}, "all_keywords": []}
+        list_ids_subq = db.query(PhotoListItem.photo_id).filter(
+            PhotoListItem.list_id == list_id
+        )
+        image_ids_query = image_ids_query.filter(ImageMetadata.id.in_(list_ids_subq))
 
     if rating is not None:
-        rating_query = db.query(ImageMetadata.id).filter(
-            ImageMetadata.tenant_id == tenant.id
-        )
         if rating_operator == "gte":
-            rating_query = rating_query.filter(ImageMetadata.rating >= rating)
+            image_ids_query = image_ids_query.filter(ImageMetadata.rating >= rating)
         elif rating_operator == "gt":
-            rating_query = rating_query.filter(ImageMetadata.rating > rating)
+            image_ids_query = image_ids_query.filter(ImageMetadata.rating > rating)
         else:
-            rating_query = rating_query.filter(ImageMetadata.rating == rating)
-        rating_image_ids = rating_query.all()
-        rating_ids = {row[0] for row in rating_image_ids}
-        if filter_ids is None:
-            filter_ids = rating_ids
-        else:
-            filter_ids = filter_ids.intersection(rating_ids)
+            image_ids_query = image_ids_query.filter(ImageMetadata.rating == rating)
 
     if hide_zero_rating:
-        zero_rating_ids = db.query(ImageMetadata.id).filter(
-            ImageMetadata.tenant_id == tenant.id,
-            ImageMetadata.rating == 0
-        ).all()
-        zero_ids = {row[0] for row in zero_rating_ids}
-        if filter_ids is None:
-            all_image_ids = db.query(ImageMetadata.id).filter(
-                ImageMetadata.tenant_id == tenant.id
-            ).all()
-            filter_ids = {row[0] for row in all_image_ids} - zero_ids
-        else:
-            filter_ids = filter_ids - zero_ids
+        image_ids_query = image_ids_query.filter(ImageMetadata.rating != 0)
 
     if reviewed is not None:
-        reviewed_rows = db.query(Permatag.image_id).join(
+        reviewed_subq = db.query(distinct(Permatag.image_id)).join(
             ImageMetadata, ImageMetadata.id == Permatag.image_id
         ).filter(
             ImageMetadata.tenant_id == tenant.id
-        ).distinct().all()
-        reviewed_ids = {row[0] for row in reviewed_rows}
-        if filter_ids is None:
-            all_image_ids = db.query(ImageMetadata.id).filter(
-                ImageMetadata.tenant_id == tenant.id
-            ).all()
-            base_ids = {row[0] for row in all_image_ids}
-            filter_ids = reviewed_ids if reviewed else (base_ids - reviewed_ids)
+        )
+        if reviewed:
+            image_ids_query = image_ids_query.filter(ImageMetadata.id.in_(reviewed_subq))
         else:
-            filter_ids = filter_ids.intersection(reviewed_ids) if reviewed else (filter_ids - reviewed_ids)
+            image_ids_query = image_ids_query.filter(ImageMetadata.id.notin_(reviewed_subq))
 
-    # Apply permatag filtering to get "current keywords" for each image
-    # This matches the logic in the images endpoint
-    effective_images = filter_ids if filter_ids is not None else None
-
-    if effective_images is None:
-        # Get all images if no filters
-        all_img_ids = db.query(ImageMetadata.id).filter_by(tenant_id=tenant.id).all()
-        effective_images = {row[0] for row in all_img_ids}
+    image_ids_subq = image_ids_query.subquery()
 
     source_mode = (source or "current").lower()
-    # Get active tag type from tenant config (must be added in PR 2 or earlier)
-    # Fallback to 'siglip' if not configured (for backward compatibility)
     active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
 
-    # Get all tags for filtered images (from primary algorithm only)
-    all_tags = []
-    if effective_images and source_mode != "permatags":
-        all_tags = db.query(MachineTag).filter(
-            MachineTag.tenant_id == tenant.id,
-            MachineTag.image_id.in_(effective_images),
-            MachineTag.tag_type == active_tag_type  # Filter by primary algorithm
-        ).all()
-
-    # Get all permatags for filtered images
-    all_permatags = db.query(Permatag).filter(
-        Permatag.image_id.in_(effective_images)
-    ).all() if effective_images else []
-
-    # Load keyword info for all tags and permatags
-    all_keyword_ids = set()
-    for tag in all_tags:
-        all_keyword_ids.add(tag.keyword_id)
-    for p in all_permatags:
-        all_keyword_ids.add(p.keyword_id)
-
-    # Build keyword lookup map
-    keywords_map = {}
-    if all_keyword_ids:
-        keywords_data = db.query(
-            Keyword.id,
+    counts_query = None
+    if source_mode == "permatags":
+        counts_query = db.query(
             Keyword.keyword,
-            KeywordCategory.name
+            KeywordCategory.name.label("category"),
+            func.count(distinct(Permatag.image_id)).label("count")
+        ).join(
+            Keyword, Keyword.id == Permatag.keyword_id
         ).join(
             KeywordCategory, Keyword.category_id == KeywordCategory.id
+        ).join(
+            image_ids_subq, image_ids_subq.c.id == Permatag.image_id
         ).filter(
-            Keyword.id.in_(all_keyword_ids)
-        ).all()
-        for kw_id, kw_name, cat_name in keywords_data:
-            keywords_map[kw_id] = {"keyword": kw_name, "category": cat_name}
-
-    keyword_image_counts = {}
-    if source_mode == "permatags":
-        for p in all_permatags:
-            if p.signum != 1:
-                continue
-            keyword_name = keywords_map.get(p.keyword_id, {}).get("keyword", "unknown")
-            keyword_image_counts[keyword_name] = keyword_image_counts.get(keyword_name, 0) + 1
+            Permatag.signum == 1
+        ).group_by(
+            Keyword.keyword, KeywordCategory.name
+        )
     else:
-        # Build permatag map by image_id and keyword_id
-        permatag_map = {}
-        for p in all_permatags:
-            if p.image_id not in permatag_map:
-                permatag_map[p.image_id] = {}
-            permatag_map[p.image_id][p.keyword_id] = p.signum
+        machine_base = db.query(
+            MachineTag.keyword_id.label("keyword_id"),
+            MachineTag.image_id.label("image_id")
+        ).join(
+            image_ids_subq, image_ids_subq.c.id == MachineTag.image_id
+        ).outerjoin(
+            Permatag,
+            (Permatag.image_id == MachineTag.image_id)
+            & (Permatag.keyword_id == MachineTag.keyword_id)
+            & (Permatag.signum == -1)
+        ).filter(
+            MachineTag.tenant_id == tenant.id,
+            MachineTag.tag_type == active_tag_type,
+            Permatag.id.is_(None)
+        )
 
-        # Compute "current tags" for each image (with permatag overrides)
-        current_tags_by_image = {}
-        for img_id in effective_images:
-            current_tags_by_image[img_id] = []
+        permatag_base = db.query(
+            Permatag.keyword_id.label("keyword_id"),
+            Permatag.image_id.label("image_id")
+        ).join(
+            image_ids_subq, image_ids_subq.c.id == Permatag.image_id
+        ).filter(
+            Permatag.signum == 1
+        )
 
-        for tag in all_tags:
-            # Include machine tag only if not negatively permatagged
-            if tag.image_id in permatag_map and permatag_map[tag.image_id].get(tag.keyword_id) == -1:
-                continue  # Skip negatively permatagged machine tags
-            keyword_name = keywords_map.get(tag.keyword_id, {}).get("keyword", "unknown")
-            current_tags_by_image[tag.image_id].append(keyword_name)
+        union_tags = machine_base.union_all(permatag_base).subquery()
+        counts_query = db.query(
+            Keyword.keyword,
+            KeywordCategory.name.label("category"),
+            func.count(distinct(union_tags.c.image_id)).label("count")
+        ).join(
+            Keyword, Keyword.id == union_tags.c.keyword_id
+        ).join(
+            KeywordCategory, Keyword.category_id == KeywordCategory.id
+        ).group_by(
+            Keyword.keyword, KeywordCategory.name
+        )
 
-        # Add positive permatags
-        for p in all_permatags:
-            if p.signum == 1:
-                keyword_name = keywords_map.get(p.keyword_id, {}).get("keyword", "unknown")
-                if keyword_name not in current_tags_by_image.get(p.image_id, []):
-                    if p.image_id not in current_tags_by_image:
-                        current_tags_by_image[p.image_id] = []
-                    current_tags_by_image[p.image_id].append(keyword_name)
-
-        # Count images by keyword (using current/effective tags)
-        for img_id, current_keywords in current_tags_by_image.items():
-            for keyword in current_keywords:
-                keyword_image_counts[keyword] = keyword_image_counts.get(keyword, 0) + 1
-
-    counts_dict = keyword_image_counts
+    counts_dict = {}
+    if counts_query is not None:
+        for keyword, category, count in counts_query.all():
+            counts_dict[keyword] = count
 
     # Group by category with counts
     by_category = {}

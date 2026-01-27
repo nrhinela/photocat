@@ -145,6 +145,7 @@ class ImageMetadata(Base):
         Index("idx_tenant_modified", "tenant_id", "modified_time"),
         Index("idx_tenant_capture", "tenant_id", "capture_timestamp"),
         Index("idx_tenant_location", "tenant_id", "gps_latitude", "gps_longitude"),
+        Index("idx_image_metadata_tenant_rating", "tenant_id", "rating"),
     )
 
 
@@ -198,6 +199,7 @@ class Permatag(Base):
     __table_args__ = (
         Index("idx_permatag_image_id", "image_id"),
         Index("idx_permatag_keyword_id", "keyword_id"),
+        Index("idx_permatag_image_keyword_signum", "image_id", "keyword_id", "signum"),
     )
 
 
@@ -376,6 +378,7 @@ class MachineTag(Base):
     __table_args__ = (
         # Per-image lookup with algorithm filter
         Index("idx_machine_tags_per_image", "tenant_id", "image_id", "tag_type"),
+        Index("idx_machine_tags_tenant_type_keyword", "tenant_id", "tag_type", "keyword_id", "image_id"),
 
         # Prevent duplicate outputs from same algorithm for same image/keyword/model
         Index("idx_machine_tags_unique",
