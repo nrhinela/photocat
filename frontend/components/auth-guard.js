@@ -147,8 +147,8 @@ export class AuthGuard extends LitElement {
       }
     });
 
-    // Redirect to login if not authenticated
-    if (!this.authenticated && !this.loading) {
+    // Redirect to login if not authenticated (do this AFTER setting loading = false)
+    if (!this.authenticated) {
       window.location.href = '/login';
     }
   }
