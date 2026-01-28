@@ -100,7 +100,12 @@ class UserTenant(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships
-    user = relationship("UserProfile", back_populates="tenant_memberships", foreign_keys=[supabase_uid])
+    user = relationship(
+        "UserProfile",
+        back_populates="tenant_memberships",
+        foreign_keys=[supabase_uid],
+        primaryjoin="UserTenant.supabase_uid == UserProfile.supabase_uid"
+    )
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'user')", name="ck_user_tenants_role"),
