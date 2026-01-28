@@ -33,13 +33,13 @@ class AppHeader extends LitElement {
             position: absolute;
             right: 0;
             top: 100%;
-            margin-top: 4px;
+            margin-top: 8px;
             background: white;
             border: 1px solid #e5e7eb;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            min-width: 240px;
-            z-index: 50;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            min-width: 260px;
+            z-index: 1000;
         }
         .user-menu-header {
             padding: 12px 16px;
@@ -113,12 +113,15 @@ class AppHeader extends LitElement {
       this.fetchEnvironment();
       this._loadSyncStatus();
       this.fetchCurrentUser();
-      document.addEventListener('click', this._handleDocumentClick.bind(this));
+      this._clickHandler = this._handleDocumentClick.bind(this);
+      document.addEventListener('click', this._clickHandler);
   }
 
   disconnectedCallback() {
       super.disconnectedCallback();
-      document.removeEventListener('click', this._handleDocumentClick.bind(this));
+      if (this._clickHandler) {
+          document.removeEventListener('click', this._clickHandler);
+      }
   }
 
   async fetchCurrentUser() {
@@ -159,14 +162,20 @@ class AppHeader extends LitElement {
   }
 
   _handleDocumentClick(e) {
+      // Check if click is inside the user menu container
       const userMenu = this.shadowRoot?.querySelector('.user-menu-container');
-      if (userMenu && !userMenu.contains(e.target) && !e.target.closest('.user-menu-container')) {
-          this.userMenuOpen = false;
-      }
+      if (!userMenu) return;
+
+      // If the click is from inside the component, don't close
+      if (userMenu.contains(e.target)) return;
+
+      // Close the menu if clicking outside
+      this.userMenuOpen = false;
   }
 
   _toggleUserMenu() {
       this.userMenuOpen = !this.userMenuOpen;
+      console.log('User menu toggled:', this.userMenuOpen);
   }
 
   async _handleLogout() {
@@ -200,7 +209,7 @@ class AppHeader extends LitElement {
                             <i class="fas fa-cog mr-2"></i>Admin
                         </button>
                         <div class="user-menu-container">
-                            <button class="user-menu-button" @click=${this._toggleUserMenu}>
+                            <button class="user-menu-button" @click=${(e) => { e.stopPropagation(); this._toggleUserMenu(); }}>
                                 <i class="fas fa-user-circle text-gray-600"></i>
                                 <span>${this.currentUser?.user?.display_name || 'Login'}</span>
                                 <i class="fas fa-chevron-down text-gray-400" style="font-size: 12px;"></i>
