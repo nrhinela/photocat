@@ -1,20 +1,36 @@
-"""Retagging command."""
+"""SigLIP tag recompute command."""
 
 import click
+from datetime import datetime, timedelta
+from typing import Optional
 from google.cloud import storage
+from sqlalchemy import func
 
 from photocat.settings import settings
 from photocat.config import TenantConfig
 from photocat.tagging import get_tagger
-from photocat.metadata import ImageMetadata, MachineTag
+from photocat.metadata import ImageMetadata, MachineTag, ImageEmbedding
+from photocat.learning import ensure_image_embedding
 from photocat.tenant import Tenant, TenantContext
 from photocat.cli.base import CliCommand
 
 
-@click.command(name='retag')
+@click.command(name='recompute-siglip-tags')
 @click.option('--tenant-id', required=True, help='Tenant ID for which to recompute tags')
-def retag_command(tenant_id: str):
-    """Recompute ML-based keyword tags for all images in a tenant.
+@click.option('--batch-size', default=50, type=int, help='Process images in batches')
+@click.option('--limit', default=None, type=int, help='Limit number of images to process')
+@click.option('--offset', default=0, type=int, help='Offset into image list')
+@click.option('--replace', is_flag=True, default=False, help='Replace existing SigLIP tags')
+@click.option('--older-than-days', default=None, type=float, help='Only process images with SigLIP tags older than this many days')
+def recompute_siglip_tags_command(
+    tenant_id: str,
+    batch_size: int,
+    limit: Optional[int],
+    offset: int,
+    replace: bool,
+    older_than_days: Optional[float]
+):
+    """Recompute SigLIP-based keyword tags for all images in a tenant.
 
     This command reprocesses all images using the tenant's configured keyword models to:
 
@@ -27,19 +43,32 @@ def retag_command(tenant_id: str):
     to recalculate keyword assignments with different model weights.
 
     Storage: Tag data is stored in PostgreSQL database, not GCP buckets."""
-    cmd = RetagCommand(tenant_id)
+    cmd = RecomputeSiglipTagsCommand(tenant_id, batch_size, limit, offset, replace, older_than_days)
     cmd.run()
 
 
-class RetagCommand(CliCommand):
-    """Command to retag images."""
+class RecomputeSiglipTagsCommand(CliCommand):
+    """Command to recompute SigLIP tags."""
 
-    def __init__(self, tenant_id: str):
+    def __init__(
+        self,
+        tenant_id: str,
+        batch_size: int,
+        limit: Optional[int],
+        offset: int,
+        replace: bool,
+        older_than_days: Optional[float]
+    ):
         super().__init__()
         self.tenant_id = tenant_id
+        self.batch_size = batch_size
+        self.limit = limit
+        self.offset = offset
+        self.replace = replace
+        self.older_than_days = older_than_days
 
     def run(self):
-        """Execute retag command."""
+        """Execute recompute SigLIP tags command."""
         self.setup_db()
         try:
             self._retag_images()
@@ -47,7 +76,7 @@ class RetagCommand(CliCommand):
             self.cleanup_db()
 
     def _retag_images(self):
-        """Reprocess all images to regenerate tags with current keywords."""
+        """Reprocess all images to regenerate SigLIP tags with current keywords."""
         # Set tenant context
         tenant = Tenant(id=self.tenant_id, name=self.tenant_id, active=True)
         TenantContext.set(tenant)
@@ -55,91 +84,178 @@ class RetagCommand(CliCommand):
         # Load config
         config = TenantConfig.load(self.tenant_id)
         all_keywords = config.get_all_keywords()
-
-        # Get all images
-        images = self.db.query(ImageMetadata).filter(
-            ImageMetadata.tenant_id == self.tenant_id
-        ).all()
-
-        click.echo(f"Reprocessing {len(images)} images for tenant {self.tenant_id}")
+        by_category = {}
+        for kw in all_keywords:
+            cat = kw['category']
+            if cat not in by_category:
+                by_category[cat] = []
+            by_category[cat].append(kw)
+        keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
 
         # Setup tagger and storage
         tagger = get_tagger()
         model_name = getattr(tagger, "model_name", settings.tagging_model)
         model_version = getattr(tagger, "model_version", model_name)
+        text_embeddings_by_category = {}
+        for category, keywords in by_category.items():
+            keywords_list, text_embeddings = tagger.build_text_embeddings(keywords)
+            if keywords_list:
+                text_embeddings_by_category[category] = (keywords_list, text_embeddings)
         storage_client = storage.Client(project=settings.gcp_project_id)
         thumbnail_bucket = storage_client.bucket(settings.thumbnail_bucket)
 
-        with click.progressbar(images, label='Retagging images') as bar:
-            for image in bar:
-                try:
-                    # Delete existing SigLIP tags
-                    self.db.query(MachineTag).filter(
-                        MachineTag.image_id == image.id,
-                        MachineTag.tag_type == 'siglip'
-                    ).delete()
+        base_query = self.db.query(ImageMetadata).filter(
+            ImageMetadata.tenant_id == self.tenant_id
+        )
+        if self.older_than_days is not None:
+            cutoff = datetime.utcnow() - timedelta(days=self.older_than_days)
+            last_tagged_subquery = self.db.query(
+                MachineTag.image_id.label('image_id'),
+                func.max(MachineTag.created_at).label('last_tagged_at')
+            ).filter(
+                MachineTag.tenant_id == self.tenant_id,
+                MachineTag.tag_type == 'siglip',
+                MachineTag.model_name == model_name
+            ).group_by(
+                MachineTag.image_id
+            ).subquery()
+            base_query = base_query.outerjoin(
+                last_tagged_subquery,
+                ImageMetadata.id == last_tagged_subquery.c.image_id
+            ).filter(
+                (last_tagged_subquery.c.last_tagged_at.is_(None)) |
+                (last_tagged_subquery.c.last_tagged_at < cutoff)
+            )
+        base_query = base_query.order_by(ImageMetadata.id.desc())
+        total = base_query.count()
+        total_remaining = max(total - self.offset, 0)
 
-                    # Download thumbnail from Cloud Storage
-                    blob = thumbnail_bucket.blob(image.thumbnail_path)
-                    if not blob.exists():
-                        click.echo(f"\n  Skipping {image.filename}: thumbnail not found")
-                        continue
+        processed = 0
+        skipped = 0
+        current_offset = self.offset
+        if total_remaining == 0:
+            click.echo("No images available for processing.")
+            return
 
-                    image_data = blob.download_as_bytes()
+        click.echo(
+            f"Processing {total_remaining} images "
+            f"(batch {self.batch_size}, offset {self.offset}"
+            f"{', limit ' + str(self.limit) if self.limit is not None else ''})"
+        )
 
-                    # Run CLIP tagging with category separation
-                    all_tags = []
+        with click.progressbar(
+            length=total_remaining,
+            label='Recomputing SigLIP tags',
+            show_eta=True,
+            show_pos=True
+        ) as bar:
+            while True:
+                batch = base_query.offset(current_offset).limit(self.batch_size).all()
+                if not batch:
+                    break
+                reached_limit = False
+                for image in batch:
+                    if self.limit is not None and processed >= self.limit:
+                        reached_limit = True
+                        break
+                    try:
+                        if not image.thumbnail_path:
+                            skipped += 1
+                            bar.update(1)
+                            continue
+                        if not self.replace:
+                            existing = self.db.query(MachineTag.id).filter(
+                                MachineTag.tenant_id == self.tenant_id,
+                                MachineTag.image_id == image.id,
+                                MachineTag.tag_type == 'siglip',
+                                MachineTag.model_name == model_name
+                            ).first()
+                            if existing:
+                                skipped += 1
+                                bar.update(1)
+                                continue
+                        # Delete existing SigLIP tags
+                        self.db.query(MachineTag).filter(
+                            MachineTag.image_id == image.id,
+                            MachineTag.tag_type == 'siglip',
+                            MachineTag.model_name == model_name
+                        ).delete()
 
-                    # Group keywords by category
-                    by_category = {}
-                    for kw in all_keywords:
-                        cat = kw['category']
-                        if cat not in by_category:
-                            by_category[cat] = []
-                        by_category[cat].append(kw)
+                        embedding_row = self.db.query(ImageEmbedding).filter(
+                            ImageEmbedding.tenant_id == self.tenant_id,
+                            ImageEmbedding.image_id == image.id
+                        ).first()
+                        if embedding_row:
+                            image_embedding = embedding_row.embedding
+                        else:
+                            # Download thumbnail from Cloud Storage only if needed for embedding
+                            blob = thumbnail_bucket.blob(image.thumbnail_path)
+                            if not blob.exists():
+                                skipped += 1
+                                bar.update(1)
+                                continue
 
-                    # Run CLIP separately for each category to avoid softmax suppression
-                    for category, keywords in by_category.items():
-                        category_tags = tagger.tag_image(
-                            image_data,
-                            keywords,
-                            threshold=settings.keyword_model_threshold
-                        )
-                        all_tags.extend(category_tags)
+                            image_data = blob.download_as_bytes()
+                            embedding_record = ensure_image_embedding(
+                                self.db,
+                                self.tenant_id,
+                                image.id,
+                                image_data,
+                                model_name,
+                                model_version
+                            )
+                            image_embedding = embedding_record.embedding
 
-                    tags_with_confidence = all_tags
+                        # Score with precomputed text embeddings per category
+                        all_tags = []
+                        for category, payload in text_embeddings_by_category.items():
+                            keywords, text_embeddings = payload
+                            category_tags = tagger.score_with_embedding(
+                                image_embedding,
+                                keywords,
+                                text_embeddings,
+                                threshold=settings.keyword_model_threshold
+                            )
+                            all_tags.extend(category_tags)
 
-                    # Debug: show top scores per category
-                    click.echo(f"\n  Tags for {image.filename}:")
-                    for category, keywords in by_category.items():
-                        scores = tagger.tag_image(image_data, keywords, threshold=0.0)
-                        top = sorted(scores, key=lambda x: x[1], reverse=True)[:2]
-                        if top:
-                            click.echo(f"    {category}: {top[0][0]} ({top[0][1]:.3f})")
+                        tags_with_confidence = all_tags
 
-                    # Create new tags
-                    keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
+                        # Create new tags
+                        for keyword, confidence in tags_with_confidence:
+                            tag = MachineTag(
+                                image_id=image.id,
+                                tenant_id=self.tenant_id,
+                                keyword=keyword,
+                                category=keyword_to_category[keyword],
+                                confidence=confidence,
+                                tag_type='siglip',
+                                model_name=model_name,
+                                model_version=model_version
+                            )
+                            self.db.add(tag)
 
-                    for keyword, confidence in tags_with_confidence:
-                        tag = MachineTag(
-                            image_id=image.id,
-                            tenant_id=self.tenant_id,
-                            keyword=keyword,
-                            category=keyword_to_category[keyword],
-                            confidence=confidence,
-                            tag_type='siglip',
-                            model_name=model_name,
-                            model_version=model_version
-                        )
-                        self.db.add(tag)
+                        # Update tags_applied flag
+                        image.tags_applied = len(tags_with_confidence) > 0
 
-                    # Update tags_applied flag
-                    image.tags_applied = len(tags_with_confidence) > 0
+                        self.db.commit()
+                        processed += 1
+                        bar.update(1)
+                        if self.limit is not None and processed >= self.limit:
+                            reached_limit = True
+                            break
 
-                    self.db.commit()
+                    except Exception as e:
+                        click.echo(f"\n  Error processing {image.filename}: {e}")
+                        self.db.rollback()
+                        skipped += 1
+                        bar.update(1)
 
-                except Exception as e:
-                    click.echo(f"\n  Error processing {image.filename}: {e}")
-                    self.db.rollback()
+                    if reached_limit:
+                        break
 
-        click.echo(f"\n✓ Retagging complete!")
+                current_offset += len(batch)
+
+                if reached_limit:
+                    break
+
+        click.echo(f"\n✓ SigLIP tag recompute complete: {processed} · Skipped: {skipped} · Total: {total}")

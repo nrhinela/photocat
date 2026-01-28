@@ -16,6 +16,8 @@ from photocat.settings import settings
 
 # Import all routers
 from photocat.routers import (
+    auth,
+    admin_users,
     keywords,
     lists,
     images,
@@ -44,6 +46,11 @@ app.add_middleware(
 )
 
 # Register all routers
+# Auth routers (no tenant required for register/login/me endpoints)
+app.include_router(auth.router)
+app.include_router(admin_users.router)
+
+# Content routers (require authentication and tenant access)
 app.include_router(keywords.router)
 app.include_router(lists.router)
 app.include_router(images.router)

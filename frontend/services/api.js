@@ -1,5 +1,64 @@
+import { getAccessToken } from './supabase.js';
+
 // Use relative URL - works in both dev (via Vite proxy) and production
 const API_BASE_URL = '/api/v1';
+
+/**
+ * Fetch with authentication headers
+ *
+ * Automatically adds:
+ * - Authorization: Bearer <JWT> (from Supabase session)
+ * - X-Tenant-ID: <tenant_id> (if provided)
+ * - Content-Type: application/json
+ *
+ * Handles common errors:
+ * - 401: Redirects to login
+ * - 403: Shows access denied error
+ * - Other errors: Shows error message
+ *
+ * @param {string} url - API endpoint URL (relative to /api/v1)
+ * @param {Object} options - Fetch options (method, body, headers, etc.)
+ * @returns {Promise<Object>} Parsed JSON response
+ * @throws {Error} If request fails
+ */
+export async function fetchWithAuth(url, options = {}) {
+  const token = await getAccessToken();
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  // Add Authorization header with JWT token
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${url}`, {
+    ...options,
+    headers,
+  });
+
+  // Handle 401 Unauthorized (redirect to login)
+  if (response.status === 401) {
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  // Handle 403 Forbidden (access denied)
+  if (response.status === 403) {
+    const error = await response.json().catch(() => ({ detail: 'Access denied' }));
+    throw new Error(error.detail);
+  }
+
+  // Handle other errors
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+    throw new Error(error.detail || 'Request failed');
+  }
+
+  return response.json();
+}
 
 export async function getImages(tenantId, filters = {}) {
   const params = new URLSearchParams();

@@ -192,6 +192,63 @@ class SigLIPTagger:
         results.sort(key=lambda x: x[1], reverse=True)
         return results
 
+    def build_text_embeddings(
+        self,
+        candidate_keywords: List[dict]
+    ) -> Tuple[List[str], torch.Tensor]:
+        """Build normalized text embeddings for keyword prompts."""
+        if not candidate_keywords:
+            return [], torch.empty(0)
+
+        text_prompts = []
+        keywords = []
+        for kw in candidate_keywords:
+            keyword = kw['keyword']
+            prompt = kw.get('prompt') or f"a photo of {keyword}"
+            text_prompts.append(prompt)
+            keywords.append(keyword)
+
+        with torch.no_grad():
+            inputs = self.processor(
+                text=text_prompts,
+                return_tensors="pt",
+                padding=True
+            )
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            text_embeds = self.model.get_text_features(**inputs)
+            text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
+
+        return keywords, text_embeds
+
+    def score_with_embedding(
+        self,
+        image_embedding: List[float],
+        keywords: List[str],
+        text_embeddings: torch.Tensor,
+        threshold: float = 0.25
+    ) -> List[Tuple[str, float]]:
+        """Score keywords using a precomputed image embedding."""
+        if not keywords or text_embeddings.numel() == 0:
+            return []
+
+        with torch.no_grad():
+            image_tensor = torch.tensor(
+                image_embedding,
+                dtype=text_embeddings.dtype,
+                device=text_embeddings.device
+            )
+            image_tensor = image_tensor / image_tensor.norm(dim=-1, keepdim=True)
+            logits = torch.matmul(image_tensor, text_embeddings.t())
+            probs = torch.softmax(logits, dim=0).cpu().numpy()
+
+        results = []
+        for keyword, confidence in zip(keywords, probs):
+            if confidence >= threshold:
+                results.append((keyword, float(confidence)))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        return results
+
     def image_embedding(self, image_data: bytes) -> List[float]:
         """Return a normalized image embedding for downstream models."""
         image = Image.open(io.BytesIO(image_data))
