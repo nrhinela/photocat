@@ -54,7 +54,12 @@ export async function signUp(email, password, displayName = null) {
       const token = data.session?.access_token;
       console.log('Token available:', !!token);
 
-      if (token) {
+      if (!token) {
+        console.error('❌ No access token in session - cannot complete registration');
+        throw new Error('No access token - Supabase session not established');
+      }
+
+      try {
         console.log('Calling /api/v1/auth/register with token...');
         const response = await fetch('/api/v1/auth/register', {
           method: 'POST',
@@ -68,14 +73,16 @@ export async function signUp(email, password, displayName = null) {
         console.log('Register response:', { status: response.status, ok: response.ok });
 
         if (!response.ok) {
-          const error = await response.json().catch(() => ({ detail: 'Registration failed' }));
-          throw new Error(error.detail);
+          const errorData = await response.json().catch(() => ({ detail: 'Registration failed' }));
+          console.error('Registration error response:', errorData);
+          throw new Error(`Registration failed: ${errorData.detail || 'Unknown error'}`);
         }
 
         const result = await response.json();
         console.log('✅ Registration complete:', result);
-      } else {
-        console.warn('⚠️ No access token in session');
+      } catch (registrationError) {
+        console.error('❌ Registration error:', registrationError.message);
+        throw registrationError;
       }
     }
 
