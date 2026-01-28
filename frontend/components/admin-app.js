@@ -3,6 +3,7 @@ import { tailwind } from './tailwind-lit.js';
 import './app-header.js';
 import './admin-tenant-list.js';
 import './admin-tenant-editor.js';
+import './admin-users.js';
 import { getTenants } from '../services/api.js';
 
 /**
@@ -11,7 +12,8 @@ import { getTenants } from '../services/api.js';
  */
 class AdminApp extends LitElement {
   static properties = {
-    view: { type: String }, // 'list' or 'editor'
+    activeTab: { type: String }, // 'tenants' or 'users'
+    view: { type: String }, // 'list' or 'editor' (for tenants)
     currentTenantId: { type: String },
     tenants: { type: Array },
     loading: { type: Boolean }
@@ -83,11 +85,40 @@ class AdminApp extends LitElement {
         padding: 40px;
         color: #666;
       }
+
+      .tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 2px solid #e5e7eb;
+        margin-bottom: 20px;
+      }
+
+      .tab-button {
+        padding: 12px 20px;
+        background: none;
+        border: none;
+        border-bottom: 3px solid transparent;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: #6b7280;
+        transition: all 0.2s;
+      }
+
+      .tab-button:hover {
+        color: #374151;
+      }
+
+      .tab-button.active {
+        color: #2563eb;
+        border-bottom-color: #2563eb;
+      }
     `
   ];
 
   constructor() {
     super();
+    this.activeTab = 'tenants';
     this.view = 'list';
     this.currentTenantId = null;
     this.tenants = [];
@@ -131,6 +162,11 @@ class AdminApp extends LitElement {
     window.location.href = '/';
   }
 
+  switchTab(tab) {
+    this.activeTab = tab;
+    this.view = 'list'; // Reset tenant view when switching tabs
+  }
+
   render() {
     return html`
       <div class="container">
@@ -138,7 +174,7 @@ class AdminApp extends LitElement {
           <div class="header-content">
             <div>
               <h1><i class="fas fa-cog"></i> PhotoCat System Administration</h1>
-              <p class="header-subtitle">Tenant configuration and system management</p>
+              <p class="header-subtitle">Tenant configuration, user management, and system settings</p>
             </div>
             <div>
               <button class="btn btn-secondary" @click="${this.handleBack}">
@@ -148,18 +184,35 @@ class AdminApp extends LitElement {
           </div>
         </div>
 
-        ${this.loading
-          ? html`<div class="loading">Loading tenants...</div>`
-          : this.view === 'list'
-            ? html`<admin-tenant-list
-                .tenants="${this.tenants}"
-                @edit-tenant="${this.handleEditTenant}"
-                @create-tenant="${this.handleCreateTenant}"
-              ></admin-tenant-list>`
-            : html`<admin-tenant-editor
-                .tenantId="${this.currentTenantId}"
-                @close="${this.handleCloseEditor}"
-              ></admin-tenant-editor>`}
+        <div class="tabs">
+          <button
+            class="tab-button ${this.activeTab === 'tenants' ? 'active' : ''}"
+            @click="${() => this.switchTab('tenants')}"
+          >
+            <i class="fas fa-building mr-2"></i>Tenants
+          </button>
+          <button
+            class="tab-button ${this.activeTab === 'users' ? 'active' : ''}"
+            @click="${() => this.switchTab('users')}"
+          >
+            <i class="fas fa-users-cog mr-2"></i>Users
+          </button>
+        </div>
+
+        ${this.activeTab === 'tenants'
+          ? this.loading
+            ? html`<div class="loading">Loading tenants...</div>`
+            : this.view === 'list'
+              ? html`<admin-tenant-list
+                  .tenants="${this.tenants}"
+                  @edit-tenant="${this.handleEditTenant}"
+                  @create-tenant="${this.handleCreateTenant}"
+                ></admin-tenant-list>`
+              : html`<admin-tenant-editor
+                  .tenantId="${this.currentTenantId}"
+                  @close="${this.handleCloseEditor}"
+                ></admin-tenant-editor>`
+          : html`<admin-users></admin-users>`}
       </div>
     `;
   }
