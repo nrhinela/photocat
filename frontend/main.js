@@ -3,6 +3,7 @@ import './styles.css';
 // Import all page components
 import './components/login-page.js';
 import './components/signup-page.js';
+import './components/auth-callback.js';
 import './components/auth-guard.js';
 import './components/photocat-app.js';
 
@@ -51,35 +52,7 @@ if (path === '/login') {
   appContainer.innerHTML = '<signup-page></signup-page>';
 } else if (path === '/auth/callback') {
   console.log('✅ Route: auth callback');
-  appContainer.innerHTML = `
-    <div style="
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: white;
-    ">
-      <div style="text-align: center;">
-        <div style="
-          width: 50px;
-          height: 50px;
-          margin: 0 auto 1rem;
-          border: 4px solid rgba(255, 255, 255, 0.3);
-          border-top: 4px solid white;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-        "></div>
-        <div>Processing login...</div>
-      </div>
-    </div>
-  `;
-
-  // Redirect to home after OAuth is processed
-  setTimeout(() => {
-    window.location.href = '/';
-  }, 1000);
+  appContainer.innerHTML = '<auth-callback></auth-callback>';
 } else {
   // All other routes require authentication
   console.log('🔒 Route: protected (auth-guard)');
