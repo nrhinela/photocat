@@ -11,9 +11,24 @@ import './image-editor.js';
 import './cli-commands.js';
 import './person-manager.js';
 import './people-tagger.js';
+import './filter-chips.js';
 
 import { tailwind } from './tailwind-lit.js';
-import { getKeywords, getImageStats, getMlTrainingStats, getTagStats, getImages, getDropboxFolders } from '../services/api.js';
+import {
+  getKeywords,
+  getImageStats,
+  getMlTrainingStats,
+  getTagStats,
+  getImages,
+  getDropboxFolders,
+  getLists,
+  getListItems,
+  createList,
+  updateList,
+  getActiveList,
+  addToList,
+  deleteListItem,
+} from '../services/api.js';
 import { enqueueCommand, subscribeQueue, retryFailedCommand } from '../services/command-queue.js';
 
 class PhotoCatApp extends LitElement {
@@ -195,6 +210,9 @@ class PhotoCatApp extends LitElement {
     @media (min-width: 1024px) {
         .curate-layout {
             grid-template-columns: 2fr 1fr;
+        }
+        .search-layout {
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
         }
     }
     .curate-pane {
@@ -768,7 +786,12 @@ class PhotoCatApp extends LitElement {
     }
     .search-layout {
         display: grid;
-        grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
+        grid-template-columns: 1fr;
+    }
+    @media (min-width: 1024px) {
+        .search-layout {
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        }
     }
     .search-saved-pane {
         min-width: 200px;
@@ -776,14 +799,94 @@ class PhotoCatApp extends LitElement {
     .search-accordion .curate-control-grid {
         grid-template-columns: 1fr;
     }
-    .search-inline-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 16px;
-        align-items: flex-end;
+    .search-saved-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+        gap: 8px;
     }
-    .search-advanced-btn {
-        margin-left: auto;
+    .search-saved-item {
+        position: relative;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #fff;
+        overflow: hidden;
+        cursor: grab;
+    }
+    .search-saved-item:active {
+        cursor: grabbing;
+    }
+    .search-saved-thumb {
+        width: 100%;
+        height: 90px;
+        object-fit: cover;
+        display: block;
+    }
+    .search-saved-meta {
+        font-size: 10px;
+        color: #6b7280;
+        padding: 4px 6px;
+        display: flex;
+        justify-content: space-between;
+        gap: 6px;
+    }
+    .search-saved-remove {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        width: 20px;
+        height: 20px;
+        border-radius: 9999px;
+        border: 1px solid #e5e7eb;
+        background: rgba(255, 255, 255, 0.9);
+        color: #6b7280;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+    .search-saved-remove:hover {
+        color: #dc2626;
+        border-color: #fecaca;
+        background: #fef2f2;
+    }
+    .search-saved-pane.drag-active .curate-pane-body {
+        background: #eff6ff;
+        box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.25);
+        border-radius: 12px;
+    }
+    .search-list-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: stretch;
+        width: 100%;
+    }
+    .search-list-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+    }
+    .search-list-label {
+        font-size: 12px;
+        color: #6b7280;
+        white-space: nowrap;
+        min-width: 92px;
+    }
+    .search-list-controls input,
+    .search-list-controls select {
+        padding: 6px 8px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 12px;
+        color: #374151;
+        background: #fff;
+    }
+    .search-list-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
     }
   `];
 
@@ -817,6 +920,8 @@ class PhotoCatApp extends LitElement {
       curateEditorImage: { type: Object },
       curateEditorOpen: { type: Boolean },
       curateSubTab: { type: String, attribute: false },
+      searchSubTab: { type: String, attribute: false },
+      searchChipFilters: { type: Array },
       curateAuditMode: { type: String },
       curateAuditKeyword: { type: String },
       curateAuditCategory: { type: String },
@@ -835,6 +940,7 @@ class PhotoCatApp extends LitElement {
       curateAuditPageOffset: { type: Number },
       curateAuditAiEnabled: { type: Boolean },
       curateAuditAiModel: { type: String },
+      curateHomeRefreshing: { type: Boolean },
       curateAdvancedOpen: { type: Boolean },
       curateNoPositivePermatags: { type: Boolean },
       activeCurateTagSource: { type: String },
@@ -842,6 +948,13 @@ class PhotoCatApp extends LitElement {
       curateAuditTargets: { type: Array },
       curateExploreTargets: { type: Array },
       searchSavedItems: { type: Array },
+      searchSavedDragTarget: { type: Boolean },
+      searchLists: { type: Array },
+      searchListId: { type: Number },
+      searchListTitle: { type: String },
+      searchListLoading: { type: Boolean },
+      searchListSaving: { type: Boolean },
+      searchListPromptNewTitle: { type: Boolean },
       searchDropboxQuery: { type: String },
       searchDropboxOptions: { type: Array },
       searchDropboxPathPrefix: { type: String },
@@ -881,6 +994,8 @@ class PhotoCatApp extends LitElement {
       this.curateEditorImage = null;
       this.curateEditorOpen = false;
       this.curateSubTab = 'home';
+      this.searchSubTab = 'home';
+      this.searchChipFilters = [];
       this.curateAuditMode = 'existing';
       this.curateAuditKeyword = '';
       this.curateAuditCategory = '';
@@ -899,11 +1014,19 @@ class PhotoCatApp extends LitElement {
       this.curateAuditPageOffset = 0;
       this.curateAuditAiEnabled = false;
       this.curateAuditAiModel = '';
+      this.curateHomeRefreshing = false;
       this.curateAdvancedOpen = false;
       this.curateNoPositivePermatags = false;
       this.activeCurateTagSource = 'permatags';
       this.curateCategoryCards = [];
       this.searchSavedItems = [];
+      this.searchSavedDragTarget = false;
+      this.searchLists = [];
+      this.searchListId = null;
+      this.searchListTitle = this._getDefaultNewListTitle();
+      this.searchListLoading = false;
+      this.searchListSaving = false;
+      this.searchListPromptNewTitle = false;
       this.searchDropboxQuery = '';
       this.searchDropboxOptions = [];
       this.searchDropboxPathPrefix = '';
@@ -913,7 +1036,6 @@ class PhotoCatApp extends LitElement {
         { id: 1, category: '', keyword: '', action: 'add', count: 0 },
       ];
       this._curateExploreHotspotNextId = 2;
-      this._searchSavedNextId = 1;
       this._searchDropboxFetchTimer = null;
       this.curateAuditTargets = [
         { id: 1, category: '', keyword: '', action: 'remove', count: 0 },
@@ -1358,6 +1480,7 @@ class PhotoCatApp extends LitElement {
       this.fetchKeywords();
       this.fetchStats();
       this._fetchCurateImages();
+      this._fetchSearchLists();
       this._unsubscribeQueue = subscribeQueue((state) => {
         this.queueState = state;
       });
@@ -1794,10 +1917,217 @@ class PhotoCatApp extends LitElement {
       this._applyCurateFilters({ resetOffset: true });
   }
 
+  _getDefaultNewListTitle() {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, '0');
+      const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      return `${date}:${time} new list`;
+  }
+
+  _getUniqueNewListTitle() {
+      const base = this._getDefaultNewListTitle();
+      if (!this._isDuplicateListTitle(base)) {
+          return base;
+      }
+      let suffix = 2;
+      let candidate = `${base} (${suffix})`;
+      while (this._isDuplicateListTitle(candidate)) {
+          suffix += 1;
+          candidate = `${base} (${suffix})`;
+      }
+      return candidate;
+  }
+
+  _focusSearchListTitleInput() {
+      this.updateComplete.then(() => {
+          const input = this.renderRoot?.querySelector('[data-search-list-title]');
+          if (input) {
+              input.focus();
+              input.select?.();
+          }
+      });
+  }
+
+  async _refreshCurateHome() {
+      if (this.curateHomeRefreshing) return;
+      this.curateHomeRefreshing = true;
+      try {
+          await this.fetchStats();
+      } finally {
+          this.curateHomeRefreshing = false;
+      }
+  }
+
+  async _fetchSearchLists() {
+      if (!this.tenant) return;
+      this.searchListLoading = true;
+      try {
+          const selectedId = this.searchListId;
+          const selectedTitle = this.searchListTitle;
+          const lists = await getLists(this.tenant);
+          const hasSelected = selectedId
+            ? lists.some((list) => list.id === selectedId)
+            : false;
+          this.searchLists = hasSelected || !selectedId
+            ? lists
+            : [...lists, { id: selectedId, title: selectedTitle || `List ${selectedId}` }];
+      } catch (error) {
+          console.error('Error fetching lists:', error);
+          this.searchLists = [];
+      } finally {
+          this.searchListLoading = false;
+      }
+  }
+
+  _resetSearchListDraft() {
+      this.searchListId = null;
+      this.searchListTitle = this._getUniqueNewListTitle();
+      this.searchSavedItems = [];
+      this.searchListPromptNewTitle = false;
+  }
+
+  async _loadSearchList(listId) {
+      if (!this.tenant || !listId) return;
+      this.searchListId = listId;
+      this.searchListLoading = true;
+      try {
+          const items = await getListItems(this.tenant, listId);
+          this.searchSavedItems = items.map((item) => ({
+              id: item.image?.id ?? item.photo_id,
+              listItemId: item.id,
+              filename: item.image?.filename,
+              thumbnail_url: item.image?.thumbnail_url,
+              rating: item.image?.rating,
+              dropbox_path: item.image?.dropbox_path,
+          })).filter((item) => Number.isFinite(item.id));
+          const listMeta = (this.searchLists || []).find((list) => list.id === listId);
+          this.searchListTitle = listMeta?.title || this.searchListTitle || '';
+      } catch (error) {
+          console.error('Error loading list items:', error);
+          this.searchSavedItems = [];
+      } finally {
+          this.searchListLoading = false;
+      }
+  }
+
+  _handleSearchListSelect(event) {
+      const value = event.target.value;
+      if (!value) {
+          this._resetSearchListDraft();
+          return;
+      }
+      const listId = Number.parseInt(value, 10);
+      if (!Number.isFinite(listId)) {
+          this._resetSearchListDraft();
+          return;
+      }
+      this.searchListId = listId;
+      const listMeta = (this.searchLists || []).find((list) => list.id === listId);
+      this.searchListTitle = listMeta?.title || '';
+      this.searchListPromptNewTitle = false;
+      this._loadSearchList(listId);
+  }
+
+  _handleSearchListTitleChange(event) {
+      this.searchListTitle = event.target.value;
+      if (this.searchListPromptNewTitle) {
+          this.searchListPromptNewTitle = false;
+      }
+  }
+
+  _isDuplicateListTitle(title, excludeId = null) {
+      const normalized = (title || '').trim().toLowerCase();
+      if (!normalized) return false;
+      return (this.searchLists || []).some((list) => {
+          if (excludeId && list.id === excludeId) return false;
+          return (list.title || '').trim().toLowerCase() === normalized;
+      });
+  }
+
+  async _persistSearchListItems(listId) {
+      if (!this.tenant || !listId) return;
+      const desiredIds = new Set(this.searchSavedItems.map((item) => item.id));
+      const currentItems = await getListItems(this.tenant, listId, { idsOnly: true });
+      const currentIds = new Set(currentItems.map((item) => item.photo_id));
+      const toAdd = Array.from(desiredIds).filter((id) => !currentIds.has(id));
+      const toRemove = currentItems.filter((item) => !desiredIds.has(item.photo_id));
+
+      const prevActive = await getActiveList(this.tenant);
+      const prevActiveId = Number.parseInt(prevActive?.id, 10);
+      if (!Number.isFinite(prevActiveId) || prevActiveId !== listId) {
+          await updateList(this.tenant, { id: listId, is_active: true });
+      }
+
+      for (const photoId of toAdd) {
+          await addToList(this.tenant, photoId);
+      }
+      for (const item of toRemove) {
+          await deleteListItem(this.tenant, item.id);
+      }
+
+      if (Number.isFinite(prevActiveId) && prevActiveId !== listId) {
+          await updateList(this.tenant, { id: prevActiveId, is_active: true });
+      }
+  }
+
+  async _handleSearchSaveNewList() {
+      if (!this.tenant) return;
+      if (this.searchListId) {
+          this.searchListId = null;
+          this.searchListTitle = this._getUniqueNewListTitle();
+          this.searchListPromptNewTitle = true;
+          this._focusSearchListTitleInput();
+          return;
+      }
+      this.searchListSaving = true;
+      try {
+          const title = (this.searchListTitle || '').trim();
+          if (!title) return;
+          if (this._isDuplicateListTitle(title)) return;
+          const created = await createList(this.tenant, { title, is_active: false });
+          const listId = Number.parseInt(created?.id, 10);
+          if (!listId) return;
+          this.searchListId = listId;
+          this.searchListTitle = title;
+          const existing = (this.searchLists || []).some((list) => list.id === listId);
+          if (!existing) {
+              this.searchLists = [...(this.searchLists || []), { id: listId, title }];
+          }
+          await this._fetchSearchLists();
+          await this._persistSearchListItems(listId);
+          await this._loadSearchList(listId);
+          this.searchListPromptNewTitle = false;
+          this.searchListId = listId;
+          this.searchListTitle = title;
+      } catch (error) {
+          console.error('Error saving new list:', error);
+      } finally {
+          this.searchListSaving = false;
+      }
+  }
+
+  async _handleSearchSaveExistingList() {
+      if (!this.tenant || !this.searchListId) return;
+      this.searchListSaving = true;
+      try {
+          const title = (this.searchListTitle || '').trim() || 'Untitled List';
+          await updateList(this.tenant, { id: this.searchListId, title });
+          await this._fetchSearchLists();
+          await this._persistSearchListItems(this.searchListId);
+          await this._loadSearchList(this.searchListId);
+      } catch (error) {
+          console.error('Error saving list:', error);
+      } finally {
+          this.searchListSaving = false;
+      }
+  }
+
   _handleTenantChange(e) {
       this.tenant = e.detail;
       this.fetchKeywords();
       this.fetchStats();
+      this._fetchSearchLists();
       this.curateHideDeleted = true;
       this.curateMinRating = null;
       this.curateNoPositivePermatags = false;
@@ -1826,6 +2156,7 @@ class PhotoCatApp extends LitElement {
       this.curateAuditPageOffset = 0;
       this.curateAuditAiEnabled = false;
       this.curateAuditAiModel = '';
+      this._resetSearchListDraft();
   }
 
   _handleOpenUploadModal() {
@@ -1842,20 +2173,122 @@ class PhotoCatApp extends LitElement {
         this.showUploadModal = false;
     }
 
-  _handleSearchSaveSelection() {
-      const count = this.curateDragSelection.length;
-      const label = count ? `Selection (${count})` : 'Selection';
-      const entry = {
-          id: this._searchSavedNextId++,
-          label,
-          count,
-          createdAt: new Date().toISOString(),
-      };
-      this.searchSavedItems = [...this.searchSavedItems, entry];
+  _parseSearchDragIds(event) {
+      const raw = event.dataTransfer?.getData('text/plain') || '';
+      return raw
+          .split(',')
+          .map((value) => Number.parseInt(value.trim(), 10))
+          .filter((value) => Number.isFinite(value) && value > 0);
+  }
+
+  _addSearchSavedImagesByIds(ids) {
+      if (!ids?.length) return;
+      const existingIds = new Set(this.searchSavedItems.map((item) => item.id));
+      const additions = [];
+      ids.forEach((id) => {
+          if (existingIds.has(id)) return;
+          const image = (this.curateImages || []).find((img) => img.id === id);
+          if (!image) return;
+          additions.push({
+              id: image.id,
+              filename: image.filename,
+              thumbnail_url: image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`,
+              rating: image.rating,
+              dropbox_path: image.dropbox_path,
+          });
+      });
+      if (additions.length) {
+          this.searchSavedItems = [...this.searchSavedItems, ...additions];
+      }
   }
 
   _handleSearchRemoveSaved(id) {
       this.searchSavedItems = this.searchSavedItems.filter((item) => item.id !== id);
+  }
+
+  _handleSearchSavedDragStart(event, image) {
+      if (!image?.id) return;
+      event.dataTransfer.setData('text/plain', String(image.id));
+      event.dataTransfer.setData('application/x-photocat-source', 'saved');
+      event.dataTransfer.effectAllowed = 'move';
+  }
+
+  _handleSearchSavedDragOver(event) {
+      event.preventDefault();
+      if (!this.searchSavedDragTarget) {
+          this.searchSavedDragTarget = true;
+      }
+  }
+
+  _handleSearchSavedDragLeave() {
+      if (this.searchSavedDragTarget) {
+          this.searchSavedDragTarget = false;
+      }
+  }
+
+  _handleSearchSavedDrop(event) {
+      event.preventDefault();
+      const ids = this._parseSearchDragIds(event);
+      if (!ids.length) {
+          this._handleSearchSavedDragLeave();
+          return;
+      }
+      this._addSearchSavedImagesByIds(ids);
+      this._handleSearchSavedDragLeave();
+  }
+
+  _handleSearchAvailableDragOver(event) {
+      event.preventDefault();
+  }
+
+  _handleSearchAvailableDrop(event) {
+      event.preventDefault();
+      const source = event.dataTransfer?.getData('application/x-photocat-source');
+      if (source !== 'saved') {
+          return;
+      }
+      const ids = this._parseSearchDragIds(event);
+      if (!ids.length) return;
+      const removeSet = new Set(ids);
+      this.searchSavedItems = this.searchSavedItems.filter((item) => !removeSet.has(item.id));
+  }
+
+  _handleChipFiltersChanged(event) {
+      const filters = event.detail.filters;
+
+      // Store the chip filters
+      this.searchChipFilters = filters;
+
+      // Reset all filters first
+      this.curateKeywordFilters = {};
+      this.curateMinRating = null;
+      this.searchDropboxPathPrefix = '';
+
+      // Apply each filter
+      filters.forEach(filter => {
+          switch (filter.type) {
+              case 'keyword':
+                  if (filter.value === '__untagged__') {
+                      this.curateNoPositivePermatags = true;
+                  } else {
+                      this.curateKeywordFilters = { [filter.category]: new Set([filter.value]) };
+                  }
+                  break;
+              case 'rating':
+                  this.curateMinRating = filter.value;
+                  break;
+              case 'folder':
+                  this.searchDropboxPathPrefix = filter.value;
+                  break;
+          }
+      });
+
+      // Reset page offset and rebuild filters
+      this.curatePageOffset = 0;
+      this._applyCurateFilters({ resetOffset: true });
+
+      // Fetch images with new filters
+      this._fetchCurateImages();
   }
 
   async _fetchDropboxFolders(query) {
@@ -1873,7 +2306,8 @@ class PhotoCatApp extends LitElement {
   }
 
   _handleSearchDropboxInput(event) {
-      const value = event.target.value || '';
+      // Handle both native input events and custom events from filter-chips
+      const value = event.detail?.query ?? event.target?.value ?? '';
       this.searchDropboxQuery = value;
       this.searchDropboxOpen = !!value.trim();
       if (this._searchDropboxFetchTimer) {
@@ -1935,6 +2369,13 @@ class PhotoCatApp extends LitElement {
             : Number.isFinite(result.total)
               ? result.total
               : null;
+          if (!Array.isArray(result) && Number.isFinite(result.limit)) {
+              const allowedSizes = new Set([50, 100, 200]);
+              if (allowedSizes.has(result.limit) && result.limit !== this.curateLimit) {
+                  this.curateLimit = result.limit;
+                  this.curateFilters = { ...(this.curateFilters || {}), limit: result.limit };
+              }
+          }
           if (!Array.isArray(result) && Number.isFinite(result.offset)) {
               this.curatePageOffset = result.offset;
           }
@@ -1960,6 +2401,7 @@ class PhotoCatApp extends LitElement {
           this.curateDragSelection = [image.id];
       }
       event.dataTransfer.setData('text/plain', ids.join(','));
+      event.dataTransfer.setData('application/x-photocat-source', 'available');
       event.dataTransfer.effectAllowed = 'move';
   }
 
@@ -1992,6 +2434,13 @@ class PhotoCatApp extends LitElement {
       if (nextTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
+  }
+
+  _handleSearchSubTabChange(nextTab) {
+      if (!nextTab || this.searchSubTab === nextTab) {
+          return;
+      }
+      this.searchSubTab = nextTab;
   }
 
   _handleCurateAuditModeChange(valueOrEvent) {
@@ -2736,8 +3185,14 @@ class PhotoCatApp extends LitElement {
       : `${curatePageSize} loaded`;
     const curateHasMore = curateTotalCount !== null && curatePageEnd < curateTotalCount;
     const curateHasPrev = curatePageOffset > 0;
-    const leftPaneLabel = 'Available';
+    const leftPaneCount = Number.isFinite(curateTotalCount)
+      ? curateTotalCount
+      : curatePageSize;
+    const leftPaneLabel = `${this._formatStatNumber(leftPaneCount)} Items`;
     const untaggedCountLabel = this._formatStatNumber(this.imageStats?.untagged_positive_count);
+    const trimmedSearchListTitle = (this.searchListTitle || '').trim();
+    const hasSearchListTitle = !!trimmedSearchListTitle;
+    const duplicateNewListTitle = !this.searchListId && this._isDuplicateListTitle(this.searchListTitle);
     const selectedKeywordValueMain = (() => {
       if (this.curateNoPositivePermatags) {
         return '__untagged__';
@@ -2768,6 +3223,9 @@ class PhotoCatApp extends LitElement {
     const auditDropLabel = this.curateAuditKeyword
       ? `Drag here to ${auditActionVerb} tag: ${auditKeywordLabel}`
       : 'Select a keyword to start';
+    const curateRefreshBusy = this.curateSubTab === 'home'
+      ? this.curateHomeRefreshing
+      : (this.curateSubTab === 'tag-audit' ? this.curateAuditLoading : this.curateLoading);
     const auditLeftImages = this.curateAuditImages;
     this._curateAuditLeftOrder = auditLeftImages.map((img) => img.id);
     const auditLoadAll = this.curateAuditLoadAll;
@@ -2795,7 +3253,7 @@ class PhotoCatApp extends LitElement {
 
     const renderPageSizeSelect = (value, onChange) => html`
       <label class="inline-flex items-center gap-2 text-xs text-gray-500">
-        <span>Rows per page:</span>
+        <span>Results per page:</span>
         <select
           class="px-2 py-1 border rounded-md text-xs bg-white"
           .value=${String(value)}
@@ -2891,9 +3349,13 @@ class PhotoCatApp extends LitElement {
             </div>
             <div slot="search" class="container">
                 <div class="flex items-center justify-between mb-4">
-                    <div>
-                      <div class="text-xs text-gray-500 uppercase font-semibold">Search</div>
-                      <div class="text-lg font-semibold text-gray-900">Explore and save results</div>
+                    <div class="curate-subtabs">
+                        <button
+                          class="curate-subtab ${this.searchSubTab === 'home' ? 'active' : ''}"
+                          @click=${() => this._handleSearchSubTabChange('home')}
+                        >
+                          Search Home
+                        </button>
                     </div>
                     <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
                       <label class="font-semibold text-gray-600">Thumb</label>
@@ -2917,192 +3379,236 @@ class PhotoCatApp extends LitElement {
                       Refresh
                     </button>
                 </div>
-                <div class="curate-header-layout search-header-layout mb-4">
-                    <div class="bg-white rounded-lg shadow p-4 w-full">
-                      <div class="curate-control-grid">
-                        <div>
-                          <div class="text-xs font-semibold text-gray-600 mb-1">Quick sort</div>
-                          <div class="curate-audit-toggle">
-                              <button
-                                class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
-                                @click=${() => this._handleCurateQuickSort('photo_creation')}
-                              >
-                                Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                              </button>
-                              <button
-                                class=${this.curateOrderBy === 'processed' ? 'active' : ''}
-                                @click=${() => this._handleCurateQuickSort('processed')}
-                              >
-                                Process Date ${this._getCurateQuickSortArrow('processed')}
-                              </button>
-                          </div>
-                        </div>
-                        <div class="search-inline-row">
-                          <div>
-                            <div class="text-xs font-semibold text-gray-600 mb-1">Optional filter by keyword</div>
-                            <div class="curate-control-row">
-                              <select
-                                class="w-72 px-3 py-2 border rounded-lg ${selectedKeywordValueMain ? 'bg-yellow-100 border-yellow-200' : ''}"
-                                .value=${selectedKeywordValueMain}
-                                @change=${(event) => this._handleCurateKeywordSelect(event, 'main')}
-                              >
-                                <option value="">Select a keyword...</option>
-                                <option value="__untagged__">Untagged (${untaggedCountLabel})</option>
-                                ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                                  <optgroup label="${category} (${this._getCategoryCount(category)})">
-                                    ${keywords.map(kw => html`
-                                      <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                        ${kw.keyword} (${kw.count})
-                                      </option>
-                                    `)}
-                                  </optgroup>
-                                `)}
-                              </select>
-                            </div>
-                          </div>
-                          <div>
-                            <div class="text-xs font-semibold text-gray-600 mb-1">Rating</div>
-                            <div class="flex flex-wrap items-center gap-2">
-                              <label class="inline-flex items-center gap-2 text-xs text-gray-600">
-                                <input
-                                  type="checkbox"
-                                  class="h-4 w-4"
-                                  .checked=${this.curateHideDeleted}
-                                  @change=${this._handleCurateHideDeletedChange}
-                                >
-                                <span class="inline-flex items-center gap-2">
-                                  <i class="fas fa-trash"></i>
-                                  hide deleted
-                                </span>
-                              </label>
-                              <div class="flex items-center gap-1">
-                                ${[0, 1, 2, 3].map((value) => {
-                                  const label = value === 0 ? '0' : `${value}+`;
-                                  const title = value === 0 ? 'Quality = 0' : `Quality >= ${value}`;
-                                  return html`
-                                    <button
-                                      class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${this.curateMinRating === value ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-100 text-gray-500 border-gray-200'}"
-                                      title=${title}
-                                      @click=${() => this._handleCurateMinRating(value)}
-                                    >
-                                      <i class="fas fa-star"></i>
-                                      <span>${label}</span>
-                                    </button>
-                                  `;
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                          <button
-                            class="search-advanced-btn h-10 w-10 flex items-center justify-center border rounded-lg text-gray-600 hover:bg-gray-50"
-                            title="Advanced filters"
-                            aria-pressed=${this.curateAdvancedOpen ? 'true' : 'false'}
-                            @click=${() => { this.curateAdvancedOpen = !this.curateAdvancedOpen; }}
-                          >
-                            <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                              <circle cx="12" cy="12" r="3"></circle>
-                              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.02.02a2 2 0 1 1-2.83 2.83l-.02-.02a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.03a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.02.02a2 2 0 1 1-2.83-2.83l.02-.02a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.03a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.02-.02a2 2 0 1 1 2.83-2.83l.02.02a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.03a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.02-.02a2 2 0 1 1 2.83 2.83l-.02.02a1.7 1.7 0 0 0-.34 1.87V9c0 .68.4 1.3 1.02 1.58.24.11.5.17.77.17H21a2 2 0 1 1 0 4h-.03a1.7 1.7 0 0 0-1.55 1z"></path>
-                            </svg>
-                          </button>
-                        </div>
+                <div ?hidden=${this.searchSubTab !== 'home'}>
+                  <!-- Search Home View -->
+                  <filter-chips
+                    .tenant=${this.tenant}
+                    .tagStatsBySource=${this.tagStatsBySource}
+                    .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+                    .imageStats=${this.imageStats}
+                    .activeFilters=${this.searchChipFilters}
+                    .dropboxFolders=${this.searchDropboxOptions || []}
+                    @filters-changed=${this._handleChipFiltersChanged}
+                    @folder-search=${this._handleSearchDropboxInput}
+                  >
+                    <div slot="sort-controls" class="flex items-center gap-2">
+                      <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                      <div class="curate-audit-toggle">
+                        <button
+                          class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                          @click=${() => this._handleCurateQuickSort('rating')}
+                        >
+                          Rating ${this._getCurateQuickSortArrow('rating')}
+                        </button>
+                        <button
+                          class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                          @click=${() => this._handleCurateQuickSort('photo_creation')}
+                        >
+                          Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                        </button>
+                        <button
+                          class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                          @click=${() => this._handleCurateQuickSort('processed')}
+                        >
+                          Process Date ${this._getCurateQuickSortArrow('processed')}
+                        </button>
                       </div>
                     </div>
-                </div>
-                ${this._renderCurateFilters({ mode: 'main', showHistogram: false, showHeader: false, hideSortControls: true, hidePermatagMissing: true, hideRatingControls: true, renderDropboxFolder: true })}
-                <div class="curate-layout search-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
-                  <div class="curate-pane">
-                      <div class="curate-pane-header">
-                          <div class="curate-pane-header-row">
-                              <span>${leftPaneLabel}</span>
-                              <div class="curate-pane-header-actions">
-                                ${renderPaginationControls({
-                                  countLabel: curateCountLabel,
-                                  hasPrev: curateHasPrev,
-                                  hasNext: curateHasMore,
-                                  onPrev: this._handleCuratePagePrev,
-                                  onNext: this._handleCuratePageNext,
-                                  pageSize: this.curateLimit,
-                                  onPageSizeChange: this._handleCurateLimitChange,
-                                  disabled: this.curateLoading,
-                                })}
-                              </div>
-                          </div>
-                      </div>
-                      ${this.curateLoading ? html`
-                        <div class="curate-loading-overlay" aria-label="Loading">
-                          <span class="curate-spinner large"></span>
+                    <div slot="view-controls" class="flex items-center gap-3">
+                      <span class="text-sm font-semibold text-gray-700">View:</span>
+                      <input
+                        type="range"
+                        min="80"
+                        max="220"
+                        step="10"
+                        .value=${String(this.curateThumbSize)}
+                        @input=${this._handleCurateThumbSizeChange}
+                        class="w-24"
+                      >
+                      <span class="text-xs text-gray-600">${this.curateThumbSize}px</span>
+                    </div>
+                  </filter-chips>
+
+                  <!-- Image Grid for Chip Filters -->
+                  <div class="curate-layout search-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+                    <div
+                      class="curate-pane"
+                      @dragover=${this._handleSearchAvailableDragOver}
+                      @drop=${this._handleSearchAvailableDrop}
+                    >
+                        <div class="curate-pane-header">
+                            <div class="curate-pane-header-row">
+                                <span>${leftPaneLabel}</span>
+                                <div class="curate-pane-header-actions">
+                                  ${renderPaginationControls({
+                                    countLabel: curateCountLabel,
+                                    hasPrev: curateHasPrev,
+                                    hasNext: curateHasMore,
+                                    onPrev: this._handleCuratePagePrev,
+                                    onNext: this._handleCuratePageNext,
+                                    pageSize: this.curateLimit,
+                                    onPageSizeChange: this._handleCurateLimitChange,
+                                    disabled: this.curateLoading,
+                                  })}
+                                </div>
+                            </div>
                         </div>
-                      ` : html``}
-                      <div class="curate-pane-body">
-                          ${this.curateImages.length ? html`
-                            <div class="curate-grid">
-                              ${this.curateImages.map((image, index) => html`
-                                <div class="curate-thumb-wrapper" @click=${(event) => this._handleCurateImageClick(event, image)}>
-                                  <img
-                                    src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                                    alt=${image.filename}
-                                    class="curate-thumb ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}"
-                                    draggable="true"
-                                    @dragstart=${(event) => this._handleCurateDragStart(event, image)}
-                                    @pointerdown=${(event) => this._handleCuratePointerDown(event, index, image.id)}
-                                    @pointermove=${(event) => this._handleCuratePointerMove(event)}
-                                    @pointerenter=${() => this._handleCurateSelectHover(index)}
+                        ${this.curateLoading ? html`
+                          <div class="curate-loading-overlay" aria-label="Loading">
+                            <span class="curate-spinner large"></span>
+                          </div>
+                        ` : html``}
+                        <div class="curate-pane-body">
+                            ${this.curateImages.length ? html`
+                              <div class="curate-grid">
+                                ${this.curateImages.map((image, index) => html`
+                                  <div class="curate-thumb-wrapper" @click=${(event) => this._handleCurateImageClick(event, image)}>
+                                    <img
+                                      src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
+                                      alt=${image.filename}
+                                      class="curate-thumb ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}"
+                                      draggable="true"
+                                      @dragstart=${(event) => this._handleCurateDragStart(event, image)}
+                                      @pointerdown=${(event) => this._handleCuratePointerDown(event, index, image.id)}
+                                      @pointermove=${(event) => this._handleCuratePointerMove(event)}
+                                      @pointerenter=${() => this._handleCurateSelectHover(index)}
+                                    >
+                                    ${this._renderCurateRatingWidget(image)}
+                                    ${this._renderCurateRatingStatic(image)}
+                                    ${this._renderCuratePermatagSummary(image)}
+                                    ${this._formatCurateDate(image) ? html`
+                                      <div class="curate-thumb-date">
+                                        <span class="curate-thumb-id">#${image.id}</span>
+                                        <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
+                                      </div>
+                                    ` : html``}
+                                  </div>
+                                `)}
+                              </div>
+                            ` : html`
+                              <div class="curate-drop">
+                                No images available.
+                              </div>
+                            `}
+                        </div>
+                    </div>
+                    <div
+                      class="curate-pane utility-targets search-saved-pane ${this.searchSavedDragTarget ? 'drag-active' : ''}"
+                      @dragover=${this._handleSearchSavedDragOver}
+                      @dragleave=${this._handleSearchSavedDragLeave}
+                      @drop=${this._handleSearchSavedDrop}
+                    >
+                        <div class="curate-pane-header">
+                            <div class="curate-pane-header-row">
+                                <span>Saved Items</span>
+                            </div>
+                            <div class="search-list-controls mt-2">
+                              ${(() => {
+                                const options = [...(this.searchLists || [])];
+                                const selectedValue = this.searchListId ? String(this.searchListId) : '';
+                                if (selectedValue && !options.some((list) => String(list.id) === selectedValue)) {
+                                  options.unshift({
+                                    id: this.searchListId,
+                                    title: this.searchListTitle || `List ${this.searchListId}`,
+                                  });
+                                }
+                                return html`
+                              <div class="search-list-row">
+                                <span class="search-list-label">Current List:</span>
+                                <select
+                                  class="flex-1 min-w-[160px]"
+                                  ?disabled=${this.searchListLoading}
+                                  @change=${this._handleSearchListSelect}
+                                >
+                                  <option value="" ?selected=${!selectedValue}>New list</option>
+                                  ${options.map((list) => html`
+                                    <option
+                                      value=${String(list.id)}
+                                      ?selected=${String(list.id) === selectedValue}
+                                    >
+                                      ${list.title || `List ${list.id}`}
+                                    </option>
+                                  `)}
+                                </select>
+                              </div>
+                              ${this.searchListId ? html`` : html`
+                                <div class="search-list-row">
+                                  <span class="search-list-label">New List Name:</span>
+                                  <input
+                                    type="text"
+                                    placeholder="List title"
+                                    class="flex-1 min-w-[160px]"
+                                    .value=${this.searchListTitle}
+                                    ?disabled=${this.searchListLoading}
+                                    @input=${this._handleSearchListTitleChange}
+                                    data-search-list-title
                                   >
-                                  ${this._renderCurateRatingWidget(image)}
-                                  ${this._renderCurateRatingStatic(image)}
-                                  ${this._renderCuratePermatagSummary(image)}
-                                  ${this._formatCurateDate(image) ? html`
-                                    <div class="curate-thumb-date">
-                                      <span class="curate-thumb-id">#${image.id}</span>
-                                      <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
-                                    </div>
-                                  ` : html``}
+                                </div>
+                              `}
+                              <div class="search-list-actions">
+                                <button
+                                  class="curate-pane-action secondary"
+                                  ?disabled=${this.searchListSaving || this.searchListLoading || !hasSearchListTitle || (!this.searchListId && duplicateNewListTitle)}
+                                  @click=${this.searchListId ? this._handleSearchSaveExistingList : this._handleSearchSaveNewList}
+                                  title=${this.searchListId ? 'Save to existing list' : 'Save new list'}
+                                >
+                                  Save
+                                </button>
+                                ${this.searchListId ? html`
+                                  <button
+                                    class="curate-pane-action secondary"
+                                    ?disabled=${this.searchListSaving || this.searchListLoading}
+                                    @click=${this._handleSearchSaveNewList}
+                                    title="Save as new list"
+                                  >
+                                    Save new
+                                  </button>
+                                ` : html``}
+                              </div>
+                                `;
+                              })()}
+                            </div>
+                            ${duplicateNewListTitle ? html`
+                              <div class="text-xs text-red-600 mt-1">List title already exists.</div>
+                            ` : this.searchListPromptNewTitle ? html`
+                              <div class="text-xs text-blue-600 mt-1">Enter a new list title, then click “Save new”.</div>
+                            ` : html``}
+                        </div>
+                        <div class="curate-pane-body">
+                          ${this.searchSavedItems.length ? html`
+                            <div class="search-saved-grid">
+                              ${this.searchSavedItems.map((item) => html`
+                                <div
+                                  class="search-saved-item"
+                                  draggable="true"
+                                  @dragstart=${(event) => this._handleSearchSavedDragStart(event, item)}
+                                >
+                                  <img
+                                    src=${item.thumbnail_url || `/api/v1/images/${item.id}/thumbnail`}
+                                    alt=${item.filename || `Saved ${item.id}`}
+                                    class="search-saved-thumb"
+                                  >
+                                  <button
+                                    class="search-saved-remove"
+                                    title="Remove from saved"
+                                    @click=${() => this._handleSearchRemoveSaved(item.id)}
+                                  >
+                                    ×
+                                  </button>
+                                  <div class="search-saved-meta">
+                                    <span>#${item.id}</span>
+                                    ${Number.isFinite(item.rating) ? html`<span>${item.rating}★</span>` : html``}
+                                  </div>
                                 </div>
                               `)}
                             </div>
                           ` : html`
-                            <div class="curate-drop">
-                              No images available.
+                            <div class="curate-drop ${this.searchSavedDragTarget ? 'active' : ''}">
+                              Drag images here
                             </div>
                           `}
-                      </div>
-                  </div>
-                  <div class="curate-pane utility-targets search-saved-pane">
-                      <div class="curate-pane-header">
-                          <div class="curate-pane-header-row">
-                              <span>Saved Items</span>
-                              <button
-                                class="curate-pane-action secondary"
-                                ?disabled=${this.curateDragSelection.length === 0}
-                                @click=${this._handleSearchSaveSelection}
-                                title="Save selected images"
-                              >
-                                Save selection
-                              </button>
-                          </div>
-                      </div>
-                      <div class="curate-pane-body">
-                        ${this.searchSavedItems.length ? html`
-                          <div class="space-y-2">
-                            ${this.searchSavedItems.map((item) => html`
-                              <div class="flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                                <div>
-                                  <div class="font-semibold text-gray-700">${item.label}</div>
-                                  <div class="text-xs text-gray-500">${item.count || 0} images · ${new Date(item.createdAt).toLocaleString()}</div>
-                                </div>
-                                <button
-                                  class="text-xs text-red-600 hover:text-red-700"
-                                  @click=${() => this._handleSearchRemoveSaved(item.id)}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            `)}
-                          </div>
-                        ` : html`
-                          <div class="text-xs text-gray-400">No saved items yet.</div>
-                        `}
-                      </div>
+                        </div>
+                    </div>
                   </div>
                 </div>
             </div>
@@ -3143,19 +3649,20 @@ class PhotoCatApp extends LitElement {
                 </div>
                 <button
                   class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                  ?disabled=${curateRefreshBusy}
                   @click=${() => {
                     if (this.curateSubTab === 'tag-audit') {
                       this._refreshCurateAudit();
                     } else if (this.curateSubTab === 'home') {
-                      this.fetchStats();
+                      this._refreshCurateHome();
                     } else {
                       this._fetchCurateImages();
                     }
                   }}
                   title="Refresh"
                 >
-                  <span aria-hidden="true">↻</span>
-                  Refresh
+                  ${curateRefreshBusy ? html`<span class="curate-spinner"></span>` : html`<span aria-hidden="true">↻</span>`}
+                  ${curateRefreshBusy ? 'Refreshing' : 'Refresh'}
                 </button>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'home'}>

@@ -13,7 +13,8 @@ from photocat.learning import (
     load_keyword_models,
     recompute_trained_tags_for_image,
 )
-from photocat.metadata import ImageMetadata, KeywordModel, MachineTag
+from photocat.metadata import ImageMetadata, KeywordModel, MachineTag, ImageEmbedding
+from photocat.models.config import Keyword
 from photocat.config.db_config import ConfigManager
 from photocat.cli.base import CliCommand
 
@@ -131,6 +132,9 @@ class RecomputeTrainedTagsCommand(CliCommand):
         by_category = {}
         for kw in all_keywords:
             by_category.setdefault(kw['category'], []).append(kw)
+        keyword_id_map = dict(self.db.query(Keyword.keyword, Keyword.id).filter(
+            Keyword.tenant_id == self.tenant.id
+        ).all())
 
         # Get latest trained model
         model_row = self.db.query(
@@ -226,26 +230,49 @@ class RecomputeTrainedTagsCommand(CliCommand):
                             skipped += 1
                             bar.update(1)
                             continue
-                    blob = thumbnail_bucket.blob(image.thumbnail_path)
-                    if not blob.exists():
-                        skipped += 1
-                        bar.update(1)
-                        continue
-                    image_data = blob.download_as_bytes()
-                    recompute_trained_tags_for_image(
-                        db=self.db,
-                        tenant_id=self.tenant.id,
-                        image_id=image.id,
-                        image_data=image_data,
-                        keywords_by_category=by_category,
-                        keyword_models=keyword_models,
-                        keyword_to_category=keyword_to_category,
-                        model_name=model_name,
-                        model_version=model_version,
-                        model_type=settings.tagging_model,
-                        threshold=settings.keyword_model_threshold,
-                        model_weight=settings.keyword_model_weight
-                    )
+                    embedding_row = self.db.query(ImageEmbedding).filter(
+                        ImageEmbedding.tenant_id == self.tenant.id,
+                        ImageEmbedding.image_id == image.id
+                    ).first()
+                    if embedding_row:
+                        recompute_trained_tags_for_image(
+                            db=self.db,
+                            tenant_id=self.tenant.id,
+                            image_id=image.id,
+                            image_data=None,
+                            keywords_by_category=by_category,
+                            keyword_models=keyword_models,
+                            keyword_to_category=keyword_to_category,
+                            model_name=model_name,
+                            model_version=model_version,
+                            model_type=settings.tagging_model,
+                            threshold=settings.keyword_model_threshold,
+                            model_weight=settings.keyword_model_weight,
+                            embedding=embedding_row.embedding,
+                            keyword_id_map=keyword_id_map
+                        )
+                    else:
+                        blob = thumbnail_bucket.blob(image.thumbnail_path)
+                        if not blob.exists():
+                            skipped += 1
+                            bar.update(1)
+                            continue
+                        image_data = blob.download_as_bytes()
+                        recompute_trained_tags_for_image(
+                            db=self.db,
+                            tenant_id=self.tenant.id,
+                            image_id=image.id,
+                            image_data=image_data,
+                            keywords_by_category=by_category,
+                            keyword_models=keyword_models,
+                            keyword_to_category=keyword_to_category,
+                            model_name=model_name,
+                            model_version=model_version,
+                            model_type=settings.tagging_model,
+                            threshold=settings.keyword_model_threshold,
+                            model_weight=settings.keyword_model_weight,
+                            keyword_id_map=keyword_id_map
+                        )
                     processed += 1
                     bar.update(1)
                     if self.limit is not None and processed >= self.limit:

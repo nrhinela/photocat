@@ -132,11 +132,13 @@ async def delete_keyword_category(
 @router.get("/categories/{category_id}/keywords", response_model=list)
 async def list_keywords_in_category(
     category_id: int,
+    tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
     """List all keywords in a category."""
     keywords = db.query(Keyword).filter(
-        Keyword.category_id == category_id
+        Keyword.category_id == category_id,
+        Keyword.tenant_id == tenant.id
     ).order_by(Keyword.sort_order).all()
 
     return [{
@@ -152,6 +154,7 @@ async def list_keywords_in_category(
 async def create_keyword(
     category_id: int,
     keyword_data: dict,
+    tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
     """Create a new keyword in a category."""
@@ -159,16 +162,21 @@ async def create_keyword(
         raise HTTPException(status_code=400, detail="keyword is required")
 
     # Verify category exists
-    category = db.query(KeywordCategory).filter(KeywordCategory.id == category_id).first()
+    category = db.query(KeywordCategory).filter(
+        KeywordCategory.id == category_id,
+        KeywordCategory.tenant_id == tenant.id
+    ).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
     # Get max sort_order for this category
     max_sort = db.query(func.max(Keyword.sort_order)).filter(
-        Keyword.category_id == category_id
+        Keyword.category_id == category_id,
+        Keyword.tenant_id == tenant.id
     ).scalar() or -1
 
     keyword = Keyword(
+        tenant_id=tenant.id,
         category_id=category_id,
         keyword=keyword_data["keyword"],
         prompt=keyword_data.get("prompt", ""),

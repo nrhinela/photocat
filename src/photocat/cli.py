@@ -13,7 +13,7 @@ from PIL import Image
 
 from photocat.settings import settings
 from photocat.tenant import Tenant, TenantContext
-from photocat.config import TenantConfig
+from photocat.config.db_config import ConfigManager
 from photocat.image import ImageProcessor
 from photocat.exif import (
     get_exif_value,
@@ -92,14 +92,12 @@ def ingest(directory: str, tenant_id: str, recursive: bool):
     click.echo(f"  Storage bucket: {tenant.get_storage_bucket(settings)}")
     click.echo(f"  Thumbnail bucket: {tenant.get_thumbnail_bucket(settings)}")
 
-    # Load tenant config
-    try:
-        config = TenantConfig.load(tenant_id)
-        click.echo(f"  Keywords: {len(config.get_all_keywords())} total")
-        click.echo(f"  People: {len(config.people)}")
-    except FileNotFoundError:
-        click.echo(f"Warning: No config found for tenant {tenant_id}", err=True)
-        config = None
+    # Load tenant config from DB
+    config_mgr = ConfigManager(session, tenant_id)
+    keywords = config_mgr.get_all_keywords()
+    people = config_mgr.get_people()
+    click.echo(f"  Keywords: {len(keywords)} total")
+    click.echo(f"  People: {len(people)}")
 
     # Setup storage client
     storage_client = storage.Client(project=settings.gcp_project_id)
@@ -787,154 +785,62 @@ def show_config(tenant_id: str):
     Useful for reviewing what keywords and people are available for tagging,
     and for verifying configuration was loaded correctly."""
     
-    try:
-        config = TenantConfig.load(tenant_id)
-        
-        click.echo(f"\nConfiguration for tenant: {tenant_id}")
-        click.echo("=" * 80)
-        
-        click.echo(f"\nKeywords ({len(config.keywords)} categories):")
-        for category in config.keywords:
-            click.echo(f"  • {category.name}: {', '.join(category.keywords[:5])}")
-            if len(category.keywords) > 5:
-                click.echo(f"    ... and {len(category.keywords) - 5} more")
-        
-        click.echo(f"\nPeople ({len(config.people)}):")
-        for person in config.people:
-            aliases = f" (aka {', '.join(person.aliases)})" if person.aliases else ""
-            click.echo(f"  • {person.name}{aliases}")
-    
-    except FileNotFoundError:
-        click.echo(f"No configuration found for tenant: {tenant_id}", err=True)
-        sys.exit(1)
-
-
-@cli.command()
-@click.option('--tenant-id', required=True, help='Tenant ID for which to retag images')
-def retag(tenant_id: str):
-    """Recompute ML-based keyword tags for all images in a tenant.
-
-    This command reprocesses all images using the tenant's configured keyword models to:
-
-    1. Load all images from database for the tenant
-    2. Retrieve each image thumbnail from GCP Cloud Storage
-    3. Score the image against all configured keywords using ML models
-    4. Update MachineTag records in database with new keyword assignments
-
-    Use this when: Keywords configuration changes, ML models are updated, or you want
-    to recalculate keyword assignments with different model weights.
-
-    Storage: Tag data is stored in PostgreSQL database, not GCP buckets."""
-    from photocat.tenant import Tenant, TenantContext
-    from photocat.metadata import ImageMetadata, MachineTag
-    from photocat.config import TenantConfig
-    from photocat.tagging import get_tagger
-    from photocat.settings import settings
-    from google.cloud import storage
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    
-    # Set tenant context
-    tenant = Tenant(id=tenant_id, name=tenant_id, active=True)
-    TenantContext.set(tenant)
-    
-    # Load config
-    config = TenantConfig.load(tenant_id)
-    all_keywords = config.get_all_keywords()
-    
-    # Setup database
     engine = create_engine(settings.database_url)
     Session = sessionmaker(bind=engine)
-    db = Session()
-    
-    # Get all images
-    images = db.query(ImageMetadata).filter(
-        ImageMetadata.tenant_id == tenant_id
-    ).all()
-    
-    click.echo(f"Reprocessing {len(images)} images for tenant {tenant_id}")
-    
-    # Setup tagger and storage
-    tagger = get_tagger()
-    model_name = getattr(tagger, "model_name", settings.tagging_model)
-    model_version = getattr(tagger, "model_version", model_name)
-    storage_client = storage.Client(project=settings.gcp_project_id)
-    thumbnail_bucket = storage_client.bucket(settings.thumbnail_bucket)
-    
-    with click.progressbar(images, label='Retagging images') as bar:
-        for image in bar:
-            try:
-                # Delete existing SigLIP tags
-                db.query(MachineTag).filter(
-                    MachineTag.image_id == image.id,
-                    MachineTag.tag_type == 'siglip'
-                ).delete()
-                
-                # Download thumbnail from Cloud Storage
-                blob = thumbnail_bucket.blob(image.thumbnail_path)
-                if not blob.exists():
-                    click.echo(f"\n  Skipping {image.filename}: thumbnail not found")
-                    continue
-                
-                image_data = blob.download_as_bytes()
-                
-                # Run CLIP tagging with category separation
-                all_tags = []
-                
-                # Group keywords by category
-                by_category = {}
-                for kw in all_keywords:
-                    cat = kw['category']
-                    if cat not in by_category:
-                        by_category[cat] = []
-                    by_category[cat].append(kw)
-                
-                # Run CLIP separately for each category to avoid softmax suppression
-                for category, keywords in by_category.items():
-                    category_tags = tagger.tag_image(
-                        image_data,
-                        keywords,
-                        threshold=settings.keyword_model_threshold
-                    )
-                    all_tags.extend(category_tags)
-                
-                tags_with_confidence = all_tags
-                
-                # Debug: show top scores per category
-                click.echo(f"\n  Tags for {image.filename}:")
-                for category, keywords in by_category.items():
-                    scores = tagger.tag_image(image_data, keywords, threshold=0.0)
-                    top = sorted(scores, key=lambda x: x[1], reverse=True)[:2]
-                    if top:
-                        click.echo(f"    {category}: {top[0][0]} ({top[0][1]:.3f})")
-                
-                # Create new tags
-                keyword_to_category = {kw['keyword']: kw['category'] for kw in all_keywords}
-                
-                for keyword, confidence in tags_with_confidence:
-                    tag = MachineTag(
-                        image_id=image.id,
-                        tenant_id=tenant_id,
-                        keyword=keyword,
-                        category=keyword_to_category[keyword],
-                        confidence=confidence,
-                        tag_type='siglip',
-                        model_name=model_name,
-                        model_version=model_version
-                    )
-                    db.add(tag)
-                
-                # Update tags_applied flag
-                image.tags_applied = len(tags_with_confidence) > 0
-                
-                db.commit()
-                
-            except Exception as e:
-                click.echo(f"\n  Error processing {image.filename}: {e}")
-                db.rollback()
-    
-    db.close()
-    click.echo(f"\n✓ Retagging complete!")
+    session = Session()
+    try:
+        config_mgr = ConfigManager(session, tenant_id)
+        keywords = config_mgr.get_all_keywords()
+        people = config_mgr.get_people()
+
+        click.echo(f"\nConfiguration for tenant: {tenant_id}")
+        click.echo("=" * 80)
+
+        categories = {}
+        for kw in keywords:
+            categories.setdefault(kw['category'], []).append(kw['keyword'])
+
+        click.echo(f"\nKeywords ({len(categories)} categories):")
+        for category, category_keywords in categories.items():
+            click.echo(f"  • {category}: {', '.join(category_keywords[:5])}")
+            if len(category_keywords) > 5:
+                click.echo(f"    ... and {len(category_keywords) - 5} more")
+
+        click.echo(f"\nPeople ({len(people)}):")
+        for person in people:
+            aliases = f" (aka {', '.join(person.get('aliases', []))})" if person.get('aliases') else ""
+            click.echo(f"  • {person.get('name')}{aliases}")
+    finally:
+        session.close()
+
+
+@cli.command(name='recompute-siglip-tags')
+@click.option('--tenant-id', required=True, help='Tenant ID for which to recompute SigLIP tags')
+@click.option('--batch-size', default=50, type=int, help='Process images in batches')
+@click.option('--limit', default=None, type=int, help='Limit number of images to process')
+@click.option('--offset', default=0, type=int, help='Offset into image list')
+@click.option('--replace', is_flag=True, default=False, help='Replace existing SigLIP tags')
+@click.option('--older-than-days', default=None, type=float, help='Only process images with SigLIP tags older than this many days')
+def recompute_siglip_tags(
+    tenant_id: str,
+    batch_size: int,
+    limit: Optional[int],
+    offset: int,
+    replace: bool,
+    older_than_days: Optional[float]
+):
+    """Recompute SigLIP-based keyword tags for all images in a tenant."""
+    from photocat.cli.commands.tagging import RecomputeSiglipTagsCommand
+
+    cmd = RecomputeSiglipTagsCommand(
+        tenant_id,
+        batch_size,
+        limit,
+        offset,
+        replace,
+        older_than_days
+    )
+    cmd.run()
 
 
 @cli.command(name='sync-dropbox')

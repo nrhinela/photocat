@@ -116,7 +116,7 @@ def recompute_trained_tags_for_image(
     db: Session,
     tenant_id: str,
     image_id: int,
-    image_data: bytes,
+    image_data: Optional[bytes],
     keywords_by_category: Dict[str, List[dict]],
     keyword_models: Dict[str, KeywordModel],
     keyword_to_category: Dict[str, str],
@@ -124,21 +124,27 @@ def recompute_trained_tags_for_image(
     model_version: str,
     model_type: str,
     threshold: float,
-    model_weight: float
+    model_weight: float,
+    embedding: Optional[List[float]] = None,
+    keyword_id_map: Optional[Dict[str, int]] = None
 ) -> List[dict]:
     """Compute and persist trained tags for a single image."""
     if not keyword_models:
         return []
 
-    embedding_record = ensure_image_embedding(
-        db,
-        tenant_id,
-        image_id,
-        image_data,
-        model_name,
-        model_version
-    )
-    model_scores = score_image_with_models(embedding_record.embedding, keyword_models)
+    if embedding is None:
+        if image_data is None:
+            return []
+        embedding_record = ensure_image_embedding(
+            db,
+            tenant_id,
+            image_id,
+            image_data,
+            model_name,
+            model_version
+        )
+        embedding = embedding_record.embedding
+    model_scores = score_image_with_models(embedding, keyword_models)
 
     trained_tags = [
         {
@@ -160,18 +166,23 @@ def recompute_trained_tags_for_image(
 
     for tag in trained_tags:
         # Look up keyword_id for this keyword
-        keyword_obj = db.query(Keyword).filter(
-            Keyword.keyword == tag["keyword"],
-            Keyword.tenant_id == tenant_id
-        ).first()
-        if not keyword_obj:
+        keyword_id = None
+        if keyword_id_map is not None:
+            keyword_id = keyword_id_map.get(tag["keyword"])
+        if keyword_id is None:
+            keyword_obj = db.query(Keyword).filter(
+                Keyword.keyword == tag["keyword"],
+                Keyword.tenant_id == tenant_id
+            ).first()
+            keyword_id = keyword_obj.id if keyword_obj else None
+        if not keyword_id:
             print(f"Warning: Keyword '{tag['keyword']}' not found for tenant {tenant_id}")
             continue
 
         db.add(MachineTag(
             tenant_id=tenant_id,
             image_id=image_id,
-            keyword_id=keyword_obj.id,
+            keyword_id=keyword_id,
             confidence=tag["confidence"],
             tag_type='trained',
             model_name=model_name,
