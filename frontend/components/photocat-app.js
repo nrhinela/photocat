@@ -211,6 +211,9 @@ class PhotoCatApp extends LitElement {
         .curate-layout {
             grid-template-columns: 2fr 1fr;
         }
+        .search-layout {
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        }
     }
     .curate-pane {
         border: 1px solid #e5e7eb;
@@ -783,7 +786,12 @@ class PhotoCatApp extends LitElement {
     }
     .search-layout {
         display: grid;
-        grid-template-columns: minmax(0, 5fr) minmax(0, 1fr);
+        grid-template-columns: 1fr;
+    }
+    @media (min-width: 1024px) {
+        .search-layout {
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        }
     }
     .search-saved-pane {
         min-width: 200px;
@@ -849,10 +857,22 @@ class PhotoCatApp extends LitElement {
     }
     .search-list-controls {
         display: flex;
-        flex-wrap: wrap;
+        flex-direction: column;
         gap: 8px;
-        align-items: center;
+        align-items: stretch;
         width: 100%;
+    }
+    .search-list-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+    }
+    .search-list-label {
+        font-size: 12px;
+        color: #6b7280;
+        white-space: nowrap;
+        min-width: 92px;
     }
     .search-list-controls input,
     .search-list-controls select {
@@ -920,6 +940,7 @@ class PhotoCatApp extends LitElement {
       curateAuditPageOffset: { type: Number },
       curateAuditAiEnabled: { type: Boolean },
       curateAuditAiModel: { type: String },
+      curateHomeRefreshing: { type: Boolean },
       curateAdvancedOpen: { type: Boolean },
       curateNoPositivePermatags: { type: Boolean },
       activeCurateTagSource: { type: String },
@@ -933,6 +954,7 @@ class PhotoCatApp extends LitElement {
       searchListTitle: { type: String },
       searchListLoading: { type: Boolean },
       searchListSaving: { type: Boolean },
+      searchListPromptNewTitle: { type: Boolean },
       searchDropboxQuery: { type: String },
       searchDropboxOptions: { type: Array },
       searchDropboxPathPrefix: { type: String },
@@ -992,6 +1014,7 @@ class PhotoCatApp extends LitElement {
       this.curateAuditPageOffset = 0;
       this.curateAuditAiEnabled = false;
       this.curateAuditAiModel = '';
+      this.curateHomeRefreshing = false;
       this.curateAdvancedOpen = false;
       this.curateNoPositivePermatags = false;
       this.activeCurateTagSource = 'permatags';
@@ -1000,9 +1023,10 @@ class PhotoCatApp extends LitElement {
       this.searchSavedDragTarget = false;
       this.searchLists = [];
       this.searchListId = null;
-      this.searchListTitle = '';
+      this.searchListTitle = this._getDefaultNewListTitle();
       this.searchListLoading = false;
       this.searchListSaving = false;
+      this.searchListPromptNewTitle = false;
       this.searchDropboxQuery = '';
       this.searchDropboxOptions = [];
       this.searchDropboxPathPrefix = '';
@@ -1893,11 +1917,61 @@ class PhotoCatApp extends LitElement {
       this._applyCurateFilters({ resetOffset: true });
   }
 
+  _getDefaultNewListTitle() {
+      const now = new Date();
+      const pad = (value) => String(value).padStart(2, '0');
+      const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+      return `${date}:${time} new list`;
+  }
+
+  _getUniqueNewListTitle() {
+      const base = this._getDefaultNewListTitle();
+      if (!this._isDuplicateListTitle(base)) {
+          return base;
+      }
+      let suffix = 2;
+      let candidate = `${base} (${suffix})`;
+      while (this._isDuplicateListTitle(candidate)) {
+          suffix += 1;
+          candidate = `${base} (${suffix})`;
+      }
+      return candidate;
+  }
+
+  _focusSearchListTitleInput() {
+      this.updateComplete.then(() => {
+          const input = this.renderRoot?.querySelector('[data-search-list-title]');
+          if (input) {
+              input.focus();
+              input.select?.();
+          }
+      });
+  }
+
+  async _refreshCurateHome() {
+      if (this.curateHomeRefreshing) return;
+      this.curateHomeRefreshing = true;
+      try {
+          await this.fetchStats();
+      } finally {
+          this.curateHomeRefreshing = false;
+      }
+  }
+
   async _fetchSearchLists() {
       if (!this.tenant) return;
       this.searchListLoading = true;
       try {
-          this.searchLists = await getLists(this.tenant);
+          const selectedId = this.searchListId;
+          const selectedTitle = this.searchListTitle;
+          const lists = await getLists(this.tenant);
+          const hasSelected = selectedId
+            ? lists.some((list) => list.id === selectedId)
+            : false;
+          this.searchLists = hasSelected || !selectedId
+            ? lists
+            : [...lists, { id: selectedId, title: selectedTitle || `List ${selectedId}` }];
       } catch (error) {
           console.error('Error fetching lists:', error);
           this.searchLists = [];
@@ -1908,12 +1982,14 @@ class PhotoCatApp extends LitElement {
 
   _resetSearchListDraft() {
       this.searchListId = null;
-      this.searchListTitle = '';
+      this.searchListTitle = this._getUniqueNewListTitle();
       this.searchSavedItems = [];
+      this.searchListPromptNewTitle = false;
   }
 
   async _loadSearchList(listId) {
       if (!this.tenant || !listId) return;
+      this.searchListId = listId;
       this.searchListLoading = true;
       try {
           const items = await getListItems(this.tenant, listId);
@@ -1947,11 +2023,26 @@ class PhotoCatApp extends LitElement {
           return;
       }
       this.searchListId = listId;
+      const listMeta = (this.searchLists || []).find((list) => list.id === listId);
+      this.searchListTitle = listMeta?.title || '';
+      this.searchListPromptNewTitle = false;
       this._loadSearchList(listId);
   }
 
   _handleSearchListTitleChange(event) {
       this.searchListTitle = event.target.value;
+      if (this.searchListPromptNewTitle) {
+          this.searchListPromptNewTitle = false;
+      }
+  }
+
+  _isDuplicateListTitle(title, excludeId = null) {
+      const normalized = (title || '').trim().toLowerCase();
+      if (!normalized) return false;
+      return (this.searchLists || []).some((list) => {
+          if (excludeId && list.id === excludeId) return false;
+          return (list.title || '').trim().toLowerCase() === normalized;
+      });
   }
 
   async _persistSearchListItems(listId) {
@@ -1963,7 +2054,8 @@ class PhotoCatApp extends LitElement {
       const toRemove = currentItems.filter((item) => !desiredIds.has(item.photo_id));
 
       const prevActive = await getActiveList(this.tenant);
-      if (!prevActive || prevActive.id !== listId) {
+      const prevActiveId = Number.parseInt(prevActive?.id, 10);
+      if (!Number.isFinite(prevActiveId) || prevActiveId !== listId) {
           await updateList(this.tenant, { id: listId, is_active: true });
       }
 
@@ -1974,23 +2066,40 @@ class PhotoCatApp extends LitElement {
           await deleteListItem(this.tenant, item.id);
       }
 
-      if (prevActive && prevActive.id !== listId) {
-          await updateList(this.tenant, { id: prevActive.id, is_active: true });
+      if (Number.isFinite(prevActiveId) && prevActiveId !== listId) {
+          await updateList(this.tenant, { id: prevActiveId, is_active: true });
       }
   }
 
   async _handleSearchSaveNewList() {
       if (!this.tenant) return;
+      if (this.searchListId) {
+          this.searchListId = null;
+          this.searchListTitle = this._getUniqueNewListTitle();
+          this.searchListPromptNewTitle = true;
+          this._focusSearchListTitleInput();
+          return;
+      }
       this.searchListSaving = true;
       try {
-          const title = (this.searchListTitle || '').trim() || 'Untitled List';
+          const title = (this.searchListTitle || '').trim();
+          if (!title) return;
+          if (this._isDuplicateListTitle(title)) return;
           const created = await createList(this.tenant, { title, is_active: false });
-          const listId = created?.id;
+          const listId = Number.parseInt(created?.id, 10);
           if (!listId) return;
           this.searchListId = listId;
+          this.searchListTitle = title;
+          const existing = (this.searchLists || []).some((list) => list.id === listId);
+          if (!existing) {
+              this.searchLists = [...(this.searchLists || []), { id: listId, title }];
+          }
           await this._fetchSearchLists();
           await this._persistSearchListItems(listId);
           await this._loadSearchList(listId);
+          this.searchListPromptNewTitle = false;
+          this.searchListId = listId;
+          this.searchListTitle = title;
       } catch (error) {
           console.error('Error saving new list:', error);
       } finally {
@@ -2260,6 +2369,13 @@ class PhotoCatApp extends LitElement {
             : Number.isFinite(result.total)
               ? result.total
               : null;
+          if (!Array.isArray(result) && Number.isFinite(result.limit)) {
+              const allowedSizes = new Set([50, 100, 200]);
+              if (allowedSizes.has(result.limit) && result.limit !== this.curateLimit) {
+                  this.curateLimit = result.limit;
+                  this.curateFilters = { ...(this.curateFilters || {}), limit: result.limit };
+              }
+          }
           if (!Array.isArray(result) && Number.isFinite(result.offset)) {
               this.curatePageOffset = result.offset;
           }
@@ -3069,8 +3185,14 @@ class PhotoCatApp extends LitElement {
       : `${curatePageSize} loaded`;
     const curateHasMore = curateTotalCount !== null && curatePageEnd < curateTotalCount;
     const curateHasPrev = curatePageOffset > 0;
-    const leftPaneLabel = 'Available';
+    const leftPaneCount = Number.isFinite(curateTotalCount)
+      ? curateTotalCount
+      : curatePageSize;
+    const leftPaneLabel = `${this._formatStatNumber(leftPaneCount)} Items`;
     const untaggedCountLabel = this._formatStatNumber(this.imageStats?.untagged_positive_count);
+    const trimmedSearchListTitle = (this.searchListTitle || '').trim();
+    const hasSearchListTitle = !!trimmedSearchListTitle;
+    const duplicateNewListTitle = !this.searchListId && this._isDuplicateListTitle(this.searchListTitle);
     const selectedKeywordValueMain = (() => {
       if (this.curateNoPositivePermatags) {
         return '__untagged__';
@@ -3101,6 +3223,9 @@ class PhotoCatApp extends LitElement {
     const auditDropLabel = this.curateAuditKeyword
       ? `Drag here to ${auditActionVerb} tag: ${auditKeywordLabel}`
       : 'Select a keyword to start';
+    const curateRefreshBusy = this.curateSubTab === 'home'
+      ? this.curateHomeRefreshing
+      : (this.curateSubTab === 'tag-audit' ? this.curateAuditLoading : this.curateLoading);
     const auditLeftImages = this.curateAuditImages;
     this._curateAuditLeftOrder = auditLeftImages.map((img) => img.id);
     const auditLoadAll = this.curateAuditLoadAll;
@@ -3128,7 +3253,7 @@ class PhotoCatApp extends LitElement {
 
     const renderPageSizeSelect = (value, onChange) => html`
       <label class="inline-flex items-center gap-2 text-xs text-gray-500">
-        <span>Rows per page:</span>
+        <span>Results per page:</span>
         <select
           class="px-2 py-1 border rounded-md text-xs bg-white"
           .value=${String(value)}
@@ -3378,44 +3503,76 @@ class PhotoCatApp extends LitElement {
                                 <span>Saved Items</span>
                             </div>
                             <div class="search-list-controls mt-2">
-                              <select
-                                class="min-w-[140px]"
-                                .value=${this.searchListId ? String(this.searchListId) : ''}
-                                ?disabled=${this.searchListLoading}
-                                @change=${this._handleSearchListSelect}
-                              >
-                                <option value="">New list…</option>
-                                ${(this.searchLists || []).map((list) => html`
-                                  <option value=${String(list.id)}>${list.title || `List ${list.id}`}</option>
-                                `)}
-                              </select>
-                              <input
-                                type="text"
-                                placeholder="List title"
-                                class="flex-1 min-w-[140px]"
-                                .value=${this.searchListTitle}
-                                ?disabled=${this.searchListLoading}
-                                @input=${this._handleSearchListTitleChange}
-                              >
+                              ${(() => {
+                                const options = [...(this.searchLists || [])];
+                                const selectedValue = this.searchListId ? String(this.searchListId) : '';
+                                if (selectedValue && !options.some((list) => String(list.id) === selectedValue)) {
+                                  options.unshift({
+                                    id: this.searchListId,
+                                    title: this.searchListTitle || `List ${this.searchListId}`,
+                                  });
+                                }
+                                return html`
+                              <div class="search-list-row">
+                                <span class="search-list-label">Current List:</span>
+                                <select
+                                  class="flex-1 min-w-[160px]"
+                                  ?disabled=${this.searchListLoading}
+                                  @change=${this._handleSearchListSelect}
+                                >
+                                  <option value="" ?selected=${!selectedValue}>New list</option>
+                                  ${options.map((list) => html`
+                                    <option
+                                      value=${String(list.id)}
+                                      ?selected=${String(list.id) === selectedValue}
+                                    >
+                                      ${list.title || `List ${list.id}`}
+                                    </option>
+                                  `)}
+                                </select>
+                              </div>
+                              ${this.searchListId ? html`` : html`
+                                <div class="search-list-row">
+                                  <span class="search-list-label">New List Name:</span>
+                                  <input
+                                    type="text"
+                                    placeholder="List title"
+                                    class="flex-1 min-w-[160px]"
+                                    .value=${this.searchListTitle}
+                                    ?disabled=${this.searchListLoading}
+                                    @input=${this._handleSearchListTitleChange}
+                                    data-search-list-title
+                                  >
+                                </div>
+                              `}
                               <div class="search-list-actions">
                                 <button
                                   class="curate-pane-action secondary"
-                                  ?disabled=${this.searchListSaving || this.searchListLoading}
-                                  @click=${this._handleSearchSaveNewList}
-                                  title="Save as new list"
+                                  ?disabled=${this.searchListSaving || this.searchListLoading || !hasSearchListTitle || (!this.searchListId && duplicateNewListTitle)}
+                                  @click=${this.searchListId ? this._handleSearchSaveExistingList : this._handleSearchSaveNewList}
+                                  title=${this.searchListId ? 'Save to existing list' : 'Save new list'}
                                 >
-                                  Save new
+                                  Save
                                 </button>
-                                <button
-                                  class="curate-pane-action secondary"
-                                  ?disabled=${this.searchListSaving || this.searchListLoading || !this.searchListId}
-                                  @click=${this._handleSearchSaveExistingList}
-                                  title="Save to existing list"
-                                >
-                                  Save existing
-                                </button>
+                                ${this.searchListId ? html`
+                                  <button
+                                    class="curate-pane-action secondary"
+                                    ?disabled=${this.searchListSaving || this.searchListLoading}
+                                    @click=${this._handleSearchSaveNewList}
+                                    title="Save as new list"
+                                  >
+                                    Save new
+                                  </button>
+                                ` : html``}
                               </div>
+                                `;
+                              })()}
                             </div>
+                            ${duplicateNewListTitle ? html`
+                              <div class="text-xs text-red-600 mt-1">List title already exists.</div>
+                            ` : this.searchListPromptNewTitle ? html`
+                              <div class="text-xs text-blue-600 mt-1">Enter a new list title, then click “Save new”.</div>
+                            ` : html``}
                         </div>
                         <div class="curate-pane-body">
                           ${this.searchSavedItems.length ? html`
@@ -3492,19 +3649,20 @@ class PhotoCatApp extends LitElement {
                 </div>
                 <button
                   class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                  ?disabled=${curateRefreshBusy}
                   @click=${() => {
                     if (this.curateSubTab === 'tag-audit') {
                       this._refreshCurateAudit();
                     } else if (this.curateSubTab === 'home') {
-                      this.fetchStats();
+                      this._refreshCurateHome();
                     } else {
                       this._fetchCurateImages();
                     }
                   }}
                   title="Refresh"
                 >
-                  <span aria-hidden="true">↻</span>
-                  Refresh
+                  ${curateRefreshBusy ? html`<span class="curate-spinner"></span>` : html`<span aria-hidden="true">↻</span>`}
+                  ${curateRefreshBusy ? 'Refreshing' : 'Refresh'}
                 </button>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'home'}>
