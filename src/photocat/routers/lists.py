@@ -162,6 +162,15 @@ async def edit_list(
         lst.notebox = notebox
     db.commit()
     db.refresh(lst)
+
+    # Get creator display name
+    created_by_name = None
+    if lst.created_by_uid:
+        user = db.query(UserProfile.display_name).filter(
+            UserProfile.supabase_uid == lst.created_by_uid
+        ).first()
+        created_by_name = user[0] if user else None
+
     return {
         "id": lst.id,
         "title": lst.title,
@@ -169,6 +178,7 @@ async def edit_list(
         "created_at": lst.created_at,
         "updated_at": lst.updated_at,
         "created_by_uid": lst.created_by_uid,
+        "created_by_name": created_by_name,
         "item_count": len(lst.items)
     }
 
