@@ -1420,6 +1420,20 @@ class PhotoCatApp extends LitElement {
       ));
   }
 
+  _handleCurateExploreHotspotTypeChange(event, targetId) {
+      const type = event.target.value;
+      this.curateExploreTargets = (this.curateExploreTargets || []).map((target) => (
+          target.id === targetId ? { ...target, type, keyword: '', category: '', rating: '', action: 'add', count: 0 } : target
+      ));
+  }
+
+  _handleCurateExploreHotspotRatingChange(event, targetId) {
+      const rating = Number.parseInt(event.target.value, 10);
+      this.curateExploreTargets = (this.curateExploreTargets || []).map((target) => (
+          target.id === targetId ? { ...target, rating, count: 0 } : target
+      ));
+  }
+
   _handleCurateExploreHotspotAddTarget() {
       const nextId = this._curateExploreHotspotNextId || 1;
       this._curateExploreHotspotNextId = nextId + 1;
@@ -1470,34 +1484,50 @@ class PhotoCatApp extends LitElement {
           return;
       }
       const target = (this.curateExploreTargets || []).find((entry) => entry.id === targetId);
-      if (!target || !target.keyword) {
+      if (!target) {
           this._handleCurateExploreHotspotDragLeave();
           return;
       }
-      const signum = target.action === 'remove' ? -1 : 1;
-      const category = target.category || 'Uncategorized';
-      const operations = ids.map((imageId) => ({
-          image_id: imageId,
-          keyword: target.keyword,
-          category,
-          signum,
-      }));
-      enqueueCommand({
-          type: 'bulk-permatags',
-          tenantId: this.tenant,
-          operations,
-          description: `hotspot · ${operations.length} updates`,
-      });
-      const tags = [{ keyword: target.keyword, category }];
-      if (signum === 1) {
-          this._updateCuratePermatags(ids, tags);
+
+      if (target.type === 'rating') {
+          if (typeof target.rating !== 'number' || target.rating < 0 || target.rating > 3) {
+              this._handleCurateExploreHotspotDragLeave();
+              return;
+          }
+          this._applyExploreRating(ids, target.rating);
+          this.curateExploreTargets = this.curateExploreTargets.map((entry) => (
+              entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+          ));
       } else {
-          this._updateCuratePermatagRemovals(ids, tags);
+          if (!target.keyword) {
+              this._handleCurateExploreHotspotDragLeave();
+              return;
+          }
+          const signum = target.action === 'remove' ? -1 : 1;
+          const category = target.category || 'Uncategorized';
+          const operations = ids.map((imageId) => ({
+              image_id: imageId,
+              keyword: target.keyword,
+              category,
+              signum,
+          }));
+          enqueueCommand({
+              type: 'bulk-permatags',
+              tenantId: this.tenant,
+              operations,
+              description: `hotspot · ${operations.length} updates`,
+          });
+          const tags = [{ keyword: target.keyword, category }];
+          if (signum === 1) {
+              this._updateCuratePermatags(ids, tags);
+          } else {
+              this._updateCuratePermatagRemovals(ids, tags);
+          }
+          this._removeCurateImagesByIds(ids);
+          this.curateExploreTargets = this.curateExploreTargets.map((entry) => (
+              entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+          ));
       }
-      this._removeCurateImagesByIds(ids);
-      this.curateExploreTargets = this.curateExploreTargets.map((entry) => (
-          entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
-      ));
       this._handleCurateExploreHotspotDragLeave();
   }
 
@@ -1545,6 +1575,20 @@ class PhotoCatApp extends LitElement {
       const action = event.target.value === 'remove' ? 'remove' : 'add';
       this.curateAuditTargets = (this.curateAuditTargets || []).map((target) => (
           target.id === targetId ? { ...target, action, count: 0 } : target
+      ));
+  }
+
+  _handleCurateAuditHotspotTypeChange(event, targetId) {
+      const type = event.target.value;
+      this.curateAuditTargets = (this.curateAuditTargets || []).map((target) => (
+          target.id === targetId ? { ...target, type, keyword: '', category: '', rating: '', action: 'add', count: 0 } : target
+      ));
+  }
+
+  _handleCurateAuditHotspotRatingChange(event, targetId) {
+      const rating = Number.parseInt(event.target.value, 10);
+      this.curateAuditTargets = (this.curateAuditTargets || []).map((target) => (
+          target.id === targetId ? { ...target, rating, count: 0 } : target
       ));
   }
 
@@ -1598,38 +1642,54 @@ class PhotoCatApp extends LitElement {
           return;
       }
       const target = (this.curateAuditTargets || []).find((entry) => entry.id === targetId);
-      if (!target || !target.keyword) {
+      if (!target) {
           this._handleCurateAuditHotspotDragLeave();
           return;
       }
-      const idSet = new Set(ids);
-      const additions = this.curateAuditImages.filter((img) => idSet.has(img.id));
-      if (!additions.length) {
-          this._handleCurateAuditHotspotDragLeave();
-          return;
+
+      if (target.type === 'rating') {
+          if (typeof target.rating !== 'number' || target.rating < 0 || target.rating > 3) {
+              this._handleCurateAuditHotspotDragLeave();
+              return;
+          }
+          this._applyAuditRating(ids, target.rating);
+          this.curateAuditTargets = this.curateAuditTargets.map((entry) => (
+              entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+          ));
+      } else {
+          if (!target.keyword) {
+              this._handleCurateAuditHotspotDragLeave();
+              return;
+          }
+          const idSet = new Set(ids);
+          const additions = this.curateAuditImages.filter((img) => idSet.has(img.id));
+          if (!additions.length) {
+              this._handleCurateAuditHotspotDragLeave();
+              return;
+          }
+          const signum = target.action === 'remove' ? -1 : 1;
+          const category = target.category || 'Uncategorized';
+          const operations = additions.map((image) => ({
+              image_id: image.id,
+              keyword: target.keyword,
+              category,
+              signum,
+          }));
+          enqueueCommand({
+              type: 'bulk-permatags',
+              tenantId: this.tenant,
+              operations,
+              description: `tag audit · ${operations.length} updates`,
+          });
+          additions.forEach((image) => {
+              this._applyAuditPermatagChange(image, signum, target.keyword, category);
+          });
+          this.curateAuditImages = this.curateAuditImages.filter((img) => !idSet.has(img.id));
+          this.curateAuditDragSelection = this.curateAuditDragSelection.filter((id) => !idSet.has(id));
+          this.curateAuditTargets = this.curateAuditTargets.map((entry) => (
+              entry.id === targetId ? { ...entry, count: (entry.count || 0) + additions.length } : entry
+          ));
       }
-      const signum = target.action === 'remove' ? -1 : 1;
-      const category = target.category || 'Uncategorized';
-      const operations = additions.map((image) => ({
-          image_id: image.id,
-          keyword: target.keyword,
-          category,
-          signum,
-      }));
-      enqueueCommand({
-          type: 'bulk-permatags',
-          tenantId: this.tenant,
-          operations,
-          description: `tag audit · ${operations.length} updates`,
-      });
-      additions.forEach((image) => {
-          this._applyAuditPermatagChange(image, signum, target.keyword, category);
-      });
-      this.curateAuditImages = this.curateAuditImages.filter((img) => !idSet.has(img.id));
-      this.curateAuditDragSelection = this.curateAuditDragSelection.filter((id) => !idSet.has(id));
-      this.curateAuditTargets = this.curateAuditTargets.map((entry) => (
-          entry.id === targetId ? { ...entry, count: (entry.count || 0) + additions.length } : entry
-      ));
       this._handleCurateAuditHotspotDragLeave();
   }
 
@@ -4353,6 +4413,7 @@ class PhotoCatApp extends LitElement {
                           <div class="curate-utility-panel">
                             ${(this.curateExploreTargets || []).map((target) => {
                               const isFirstTarget = (this.curateExploreTargets?.[0]?.id === target.id);
+                              const isRating = target.type === 'rating';
                               const selectedValue = target.keyword
                                 ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
                                 : '';
@@ -4365,29 +4426,51 @@ class PhotoCatApp extends LitElement {
                                 >
                                   <div class="curate-utility-controls">
                                     <select
-                                      class="curate-utility-select ${selectedValue ? 'selected' : ''}"
-                                      .value=${selectedValue}
-                                      @change=${(event) => this._handleCurateExploreHotspotKeywordChange(event, target.id)}
+                                      class="curate-utility-type-select"
+                                      .value=${target.type || 'keyword'}
+                                      @change=${(event) => this._handleCurateExploreHotspotTypeChange(event, target.id)}
                                     >
-                                      <option value="">Select keyword…</option>
-                                      ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                                        <optgroup label="${category}">
-                                          ${keywords.map((kw) => html`
-                                            <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                              ${kw.keyword}
-                                            </option>
-                                          `)}
-                                        </optgroup>
-                                      `)}
+                                      <option value="keyword">Keyword</option>
+                                      <option value="rating">Rating</option>
                                     </select>
-                                    <select
-                                      class="curate-utility-action"
-                                      .value=${target.action || 'add'}
-                                      @change=${(event) => this._handleCurateExploreHotspotActionChange(event, target.id)}
-                                    >
-                                      <option value="add">Add</option>
-                                      <option value="remove">Remove</option>
-                                    </select>
+                                    ${isRating ? html`
+                                      <select
+                                        class="curate-utility-select"
+                                        .value=${target.rating ?? ''}
+                                        @change=${(event) => this._handleCurateExploreHotspotRatingChange(event, target.id)}
+                                      >
+                                        <option value="">Select rating…</option>
+                                        <option value="0">🗑️ Garbage</option>
+                                        <option value="1">⭐ 1 Star</option>
+                                        <option value="2">⭐⭐ 2 Stars</option>
+                                        <option value="3">⭐⭐⭐ 3 Stars</option>
+                                      </select>
+                                    ` : html`
+                                      <select
+                                        class="curate-utility-select ${selectedValue ? 'selected' : ''}"
+                                        .value=${selectedValue}
+                                        @change=${(event) => this._handleCurateExploreHotspotKeywordChange(event, target.id)}
+                                      >
+                                        <option value="">Select keyword…</option>
+                                        ${this._getKeywordsByCategory().map(([category, keywords]) => html`
+                                          <optgroup label="${category}">
+                                            ${keywords.map((kw) => html`
+                                              <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
+                                                ${kw.keyword}
+                                              </option>
+                                            `)}
+                                          </optgroup>
+                                        `)}
+                                      </select>
+                                      <select
+                                        class="curate-utility-action"
+                                        .value=${target.action || 'add'}
+                                        @change=${(event) => this._handleCurateExploreHotspotActionChange(event, target.id)}
+                                      >
+                                        <option value="add">Add</option>
+                                        <option value="remove">Remove</option>
+                                      </select>
+                                    `}
                                     ${!isFirstTarget ? html`
                                       <button
                                         type="button"
@@ -4411,7 +4494,6 @@ class PhotoCatApp extends LitElement {
                           </div>
                         </div>
                     </div>
-                  </div>
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'tag-audit'}>
                     ${this._renderCurateFilters({ mode: 'tag-audit', showHistogram: false })}
@@ -4587,6 +4669,7 @@ class PhotoCatApp extends LitElement {
                               <div class="curate-utility-panel">
                                 ${(this.curateAuditTargets || []).map((target) => {
                                   const isPrimary = (this.curateAuditTargets?.[0]?.id === target.id);
+                                  const isRating = target.type === 'rating';
                                   const selectedValue = target.keyword
                                     ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
                                     : '';
@@ -4599,31 +4682,55 @@ class PhotoCatApp extends LitElement {
                                     >
                                       <div class="curate-utility-controls">
                                         <select
-                                          class="curate-utility-select ${selectedValue ? 'selected' : ''}"
-                                          .value=${selectedValue}
+                                          class="curate-utility-type-select"
+                                          .value=${target.type || 'keyword'}
                                           ?disabled=${isPrimary}
-                                          @change=${(event) => this._handleCurateAuditHotspotKeywordChange(event, target.id)}
+                                          @change=${(event) => this._handleCurateAuditHotspotTypeChange(event, target.id)}
                                         >
-                                          <option value="">Select keyword…</option>
-                                          ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                                            <optgroup label="${category}">
-                                              ${keywords.map((kw) => html`
-                                                <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                                  ${kw.keyword}
-                                                </option>
-                                              `)}
-                                            </optgroup>
-                                          `)}
+                                          <option value="keyword">Keyword</option>
+                                          <option value="rating">Rating</option>
                                         </select>
-                                        <select
-                                          class="curate-utility-action"
-                                          .value=${target.action || 'add'}
-                                          ?disabled=${isPrimary}
-                                          @change=${(event) => this._handleCurateAuditHotspotActionChange(event, target.id)}
-                                        >
-                                          <option value="add">Add</option>
-                                          <option value="remove">Remove</option>
-                                        </select>
+                                        ${isRating ? html`
+                                          <select
+                                            class="curate-utility-select"
+                                            .value=${target.rating ?? ''}
+                                            ?disabled=${isPrimary}
+                                            @change=${(event) => this._handleCurateAuditHotspotRatingChange(event, target.id)}
+                                          >
+                                            <option value="">Select rating…</option>
+                                            <option value="0">🗑️ Garbage</option>
+                                            <option value="1">⭐ 1 Star</option>
+                                            <option value="2">⭐⭐ 2 Stars</option>
+                                            <option value="3">⭐⭐⭐ 3 Stars</option>
+                                          </select>
+                                        ` : html`
+                                          <select
+                                            class="curate-utility-select ${selectedValue ? 'selected' : ''}"
+                                            .value=${selectedValue}
+                                            ?disabled=${isPrimary}
+                                            @change=${(event) => this._handleCurateAuditHotspotKeywordChange(event, target.id)}
+                                          >
+                                            <option value="">Select keyword…</option>
+                                            ${this._getKeywordsByCategory().map(([category, keywords]) => html`
+                                              <optgroup label="${category}">
+                                                ${keywords.map((kw) => html`
+                                                  <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
+                                                    ${kw.keyword}
+                                                  </option>
+                                                `)}
+                                              </optgroup>
+                                            `)}
+                                          </select>
+                                          <select
+                                            class="curate-utility-action"
+                                            .value=${target.action || 'add'}
+                                            ?disabled=${isPrimary}
+                                            @change=${(event) => this._handleCurateAuditHotspotActionChange(event, target.id)}
+                                          >
+                                            <option value="add">Add</option>
+                                            <option value="remove">Remove</option>
+                                          </select>
+                                        `}
                                         ${!isPrimary ? html`
                                           <button
                                             type="button"
@@ -4644,10 +4751,9 @@ class PhotoCatApp extends LitElement {
                                   +
                                 </button>
                               </div>
-                              </div>
-                            </div>
                         </div>
                     </div>
+                      </div>
                     ` : html`
                       <div class="bg-white rounded-lg shadow p-6 text-sm text-gray-600">
                         This screen lets you scan your collection for all images tagged to a Keyword. You can verify existing images, and look for images that should have it. Select a keyword to proceed.
