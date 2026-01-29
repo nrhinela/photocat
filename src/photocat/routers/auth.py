@@ -1,4 +1,22 @@
-"""Authentication endpoints for Supabase Auth."""
+"""Authentication endpoints for Supabase Auth.
+
+IMPORTANT - OAuth Provider Linking:
+When a user has signed up via email/password and later tries to login via
+Google OAuth, Supabase may create a NEW user account with a different UUID
+but the same email. This /register endpoint handles this scenario by:
+
+1. Checking if a user_profile already exists with the given email
+2. If found, returning that profile's status instead of creating a duplicate
+3. This allows users to migrate between auth methods without creating new accounts
+
+To fix this properly, configure Supabase to link OAuth providers to existing
+email accounts:
+- Go to Supabase Dashboard > Authentication > Providers > Google
+- Enable "Link multiple providers to the same user account"
+- This makes OAuth authenticate existing email accounts instead of creating new ones
+
+See: https://supabase.com/docs/guides/auth/social-login/auth-google
+"""
 
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status, Header
@@ -109,6 +127,25 @@ async def register(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Token does not contain email claim",
         )
+
+    # Check if a profile with this email already exists (from a different provider)
+    # This can happen when:
+    # 1. User signed up with email/password first
+    # 2. Then tries to login via Google OAuth (creates a NEW Supabase user with same email)
+    # In this case, return the existing profile status instead of creating a duplicate
+    existing_by_email = db.query(UserProfile).filter(
+        UserProfile.email == email
+    ).first()
+
+    if existing_by_email:
+        # Email already exists - likely OAuth provider linking scenario
+        # Return existing profile status
+        return {
+            "message": "Email already registered with different provider",
+            "status": "active" if existing_by_email.is_active else "pending_approval",
+            "user_id": str(existing_by_email.supabase_uid),
+            "note": "Please sign in with your original authentication method"
+        }
 
     # Create new profile (is_active=False, requires approval)
     try:
