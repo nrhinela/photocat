@@ -434,6 +434,19 @@ class PhotoCatApp extends LitElement {
         text-align: center;
         pointer-events: none;
     }
+    .curate-thumb-ml-score {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        bottom: 36px;
+        font-size: 10px;
+        color: #f9fafb;
+        background: rgba(17, 24, 39, 0.65);
+        padding: 2px 6px;
+        border-radius: 6px;
+        text-align: center;
+        pointer-events: none;
+    }
     .curate-thumb-line {
         display: block;
         white-space: normal;
@@ -4479,10 +4492,9 @@ class PhotoCatApp extends LitElement {
 
       // Format the model name for display
       const modelName = this.curateAuditAiModel === 'trained' ? 'Keyword-Model' : 'Siglip';
-      const score = (mlTag.confidence * 100).toFixed(0);
 
       return html`
-        <div class="curate-thumb-rating">
+        <div class="curate-thumb-ml-score">
           <span class="curate-thumb-icon" aria-hidden="true">🤖</span>${modelName}: ${this.curateAuditKeyword}=${(mlTag.confidence).toFixed(2)}
         </div>
       `;
