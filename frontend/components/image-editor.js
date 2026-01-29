@@ -248,8 +248,7 @@ class ImageEditor extends LitElement {
       line-height: 1;
     }
     .tag-form {
-      display: grid;
-      grid-template-columns: 1fr 180px auto;
+      display: flex;
       gap: 8px;
       align-items: center;
     }
@@ -310,13 +309,16 @@ class ImageEditor extends LitElement {
       45% { transform: scale(1.1); opacity: 1; }
       100% { transform: scale(1.35); opacity: 0; }
     }
-    .tag-input,
     .tag-select {
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       padding: 8px 10px;
       font-size: inherit;
       color: #111827;
+    }
+    .tag-select {
+      flex: 1;
+      min-width: 220px;
     }
     .tag-add {
       border-radius: 8px;
@@ -662,6 +664,20 @@ class ImageEditor extends LitElement {
     }
   }
 
+  _handleTagSelectChange(event) {
+    const value = event.target.value;
+    if (!value) {
+      this.tagInput = '';
+      this.tagCategory = '';
+      return;
+    }
+    const [categoryPart, keywordPart] = value.split('::');
+    const keyword = decodeURIComponent(keywordPart || '');
+    const category = decodeURIComponent(categoryPart || 'Uncategorized');
+    this.tagInput = keyword;
+    this.tagCategory = category;
+  }
+
   async _handleRemoveTag(tag) {
     if (!this.details) return;
     try {
@@ -695,17 +711,21 @@ class ImageEditor extends LitElement {
   _renderEditTab() {
     const permatags = (this.details?.permatags || []).filter((tag) => tag.signum === 1);
     const categories = Object.keys(this.keywordsByCategory || {}).sort((a, b) => a.localeCompare(b));
-    const keywordList = [];
+    const keywordMap = this._keywordIndex();
+    const selectedCategory = this.tagCategory || (this.tagInput ? keywordMap[this.tagInput] : '') || 'Uncategorized';
+    const selectedValue = this.tagInput
+      ? `${encodeURIComponent(selectedCategory)}::${encodeURIComponent(this.tagInput)}`
+      : '';
     const dropboxPath = this.details?.dropbox_path || '';
     const dropboxHref = dropboxPath
       ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
       : '';
-    Object.values(this.keywordsByCategory || {}).forEach((keywords) => {
-      keywords.forEach((entry) => {
-        if (entry.keyword) {
-          keywordList.push(entry.keyword);
-        }
-      });
+    const sortedKeywordsByCategory = categories.map((category) => {
+      const keywords = (this.keywordsByCategory?.[category] || [])
+        .map((entry) => entry.keyword)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b));
+      return [category, keywords];
     });
     return html`
       <div class="tag-section">
@@ -747,22 +767,24 @@ class ImageEditor extends LitElement {
         <div class="right-pane">
           <div class="text-xs font-semibold text-gray-600 uppercase mb-2">Add Tag</div>
           <div class="tag-form">
-            <input
-              class="tag-input"
-              .value=${this.tagInput}
-              list="editor-keywords"
-              placeholder="Start typing a tag..."
-              @input=${(e) => this.tagInput = e.target.value}
+            <select
+              class="tag-select"
+              .value=${selectedValue}
+              @change=${this._handleTagSelectChange}
             >
-            <select class="tag-select" .value=${this.tagCategory} @change=${(e) => this.tagCategory = e.target.value}>
-              <option value="">Auto category</option>
-              ${categories.map((category) => html`<option value=${category}>${category}</option>`)}
+              <option value="">Select a keyword...</option>
+              ${sortedKeywordsByCategory.map(([category, keywords]) => html`
+                <optgroup label="${category}">
+                  ${keywords.map((keyword) => html`
+                    <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(keyword)}`}>
+                      ${keyword}
+                    </option>
+                  `)}
+                </optgroup>
+              `)}
             </select>
             <button class="tag-add" @click=${this._handleAddTag}>Add Tag</button>
           </div>
-          <datalist id="editor-keywords">
-            ${keywordList.map((keyword) => html`<option value=${keyword}></option>`)}
-          </datalist>
         </div>
       </div>
     `;

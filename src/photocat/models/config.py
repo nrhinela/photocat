@@ -103,14 +103,14 @@ class Keyword(Base):
 # ...existing code...
 
 class PhotoList(Base):
-    """A list of photos for a tenant. Only one active per tenant."""
+    """A list of photos for a tenant."""
     __tablename__ = "photo_lists"
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(50), nullable=False, index=True)
     title = Column(String(255), nullable=False)
     notebox = Column(Text, nullable=True)
-    is_active = Column(sa.Boolean, nullable=False, default=False, server_default=sa.text('false'))
+    created_by_uid = Column(sa.UUID, nullable=True, index=True)  # Foreign key to user_profiles.supabase_uid
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

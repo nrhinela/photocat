@@ -20,27 +20,26 @@ router = APIRouter(
 )
 
 
-def get_active_list(db: Session, tenant_id: str):
-    """Get the active list for a tenant."""
-    return db.query(PhotoList).filter_by(tenant_id=tenant_id, is_active=True).first()
+def get_most_recent_list(db: Session, tenant_id: str):
+    """Get the most recently created list for a tenant."""
+    return db.query(PhotoList).filter_by(tenant_id=tenant_id).order_by(PhotoList.created_at.desc()).first()
 
 
-@router.get("/active", response_model=dict)
-async def get_active_list_api(
+@router.get("/recent", response_model=dict)
+async def get_recent_list(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Get the current active list for the tenant (if any)."""
-    active = get_active_list(db, tenant.id)
-    if not active:
+    """Get the most recently created list for the tenant (if any)."""
+    recent = get_most_recent_list(db, tenant.id)
+    if not recent:
         return {}
     return {
-        "id": active.id,
-        "title": active.title,
-        "notebox": active.notebox,
-        "is_active": active.is_active,
-        "created_at": active.created_at,
-        "updated_at": active.updated_at
+        "id": recent.id,
+        "title": recent.title,
+        "notebox": recent.notebox,
+        "created_at": recent.created_at,
+        "updated_at": recent.updated_at
     }
 
 
@@ -61,7 +60,6 @@ async def get_list(
         "id": lst.id,
         "title": lst.title,
         "notebox": lst.notebox,
-        "is_active": lst.is_active,
         "created_at": lst.created_at,
         "updated_at": lst.updated_at,
         "item_count": item_count
@@ -87,24 +85,19 @@ async def delete_list_item(
 async def create_list(
     title: str = Body(...),
     notebox: Optional[str] = Body(None),
-    is_active: bool = Body(False),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Create a new list (inactive by default unless is_active=True)."""
-    if is_active:
-        # Deactivate any existing active list
-        db.query(PhotoList).filter_by(tenant_id=tenant.id, is_active=True).update({"is_active": False})
+    """Create a new list."""
     new_list = PhotoList(
         tenant_id=tenant.id,
         title=title,
-        notebox=notebox,
-        is_active=is_active
+        notebox=notebox
     )
     db.add(new_list)
     db.commit()
     db.refresh(new_list)
-    return {"id": new_list.id, "title": new_list.title, "is_active": new_list.is_active}
+    return {"id": new_list.id, "title": new_list.title}
 
 
 @router.get("", response_model=list)
@@ -126,7 +119,6 @@ async def list_lists(
             "id": l.id,
             "title": l.title,
             "notebox": l.notebox,
-            "is_active": l.is_active,
             "created_at": l.created_at,
             "updated_at": l.updated_at,
             "item_count": counts.get(l.id, 0)
@@ -139,11 +131,10 @@ async def edit_list(
     list_id: int,
     title: Optional[str] = Body(None),
     notebox: Optional[str] = Body(None),
-    is_active: Optional[bool] = Body(None),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Edit a list (title, notebox, and/or active status)."""
+    """Edit a list (title and/or notebox)."""
     lst = db.query(PhotoList).filter_by(id=list_id, tenant_id=tenant.id).first()
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
@@ -151,17 +142,12 @@ async def edit_list(
         lst.title = title
     if notebox is not None:
         lst.notebox = notebox
-    if is_active is not None:
-        if is_active:
-            db.query(PhotoList).filter_by(tenant_id=tenant.id, is_active=True).update({"is_active": False})
-        lst.is_active = is_active
     db.commit()
     db.refresh(lst)
     return {
         "id": lst.id,
         "title": lst.title,
         "notebox": lst.notebox,
-        "is_active": lst.is_active,
         "created_at": lst.created_at,
         "updated_at": lst.updated_at,
         "item_count": len(lst.items)
@@ -174,14 +160,13 @@ async def delete_list(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Delete a list and its items. If active, leaves tenant with no active list."""
+    """Delete a list and its items."""
     lst = db.query(PhotoList).filter_by(id=list_id, tenant_id=tenant.id).first()
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
-    was_active = lst.is_active
     db.delete(lst)
     db.commit()
-    return {"deleted": True, "was_active": was_active}
+    return {"deleted": True}
 
 
 @router.get("/{list_id:int}/items", response_model=list)
@@ -315,26 +300,25 @@ async def add_photo_to_list(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Add a photo to the current active list. If no active list, create one and add the photo."""
+    """Add a photo to the most recently created list. If no lists exist, create one and add the photo."""
     photo_id = req.photo_id
-    active = get_active_list(db, tenant.id)
-    if not active:
-        # Auto-create new active list
-        active = PhotoList(
+    recent = get_most_recent_list(db, tenant.id)
+    if not recent:
+        # Auto-create new list
+        recent = PhotoList(
             tenant_id=tenant.id,
-            title="Untitled List",
-            is_active=True
+            title="Untitled List"
         )
-        db.add(active)
+        db.add(recent)
         db.commit()
-        db.refresh(active)
+        db.refresh(recent)
     # Prevent duplicate items in the list
-    existing_item = db.query(PhotoListItem).filter_by(list_id=active.id, photo_id=photo_id).first()
+    existing_item = db.query(PhotoListItem).filter_by(list_id=recent.id, photo_id=photo_id).first()
     if existing_item:
         # Silent no-op if already present
-        return {"list_id": active.id, "item_id": existing_item.id, "added_at": existing_item.added_at}
-    item = PhotoListItem(list_id=active.id, photo_id=photo_id)
+        return {"list_id": recent.id, "item_id": existing_item.id, "added_at": existing_item.added_at}
+    item = PhotoListItem(list_id=recent.id, photo_id=photo_id)
     db.add(item)
     db.commit()
     db.refresh(item)
-    return {"list_id": active.id, "item_id": item.id, "added_at": item.added_at}
+    return {"list_id": recent.id, "item_id": item.id, "added_at": item.added_at}

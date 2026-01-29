@@ -28,11 +28,20 @@ class ListEditor extends LitElement {
     this.editingList = null;
     this.selectedList = null;
     this.listItems = [];
+    this._isVisible = false;
+    this._hasRefreshedOnce = false;
   }
 
   connectedCallback() {
     super.connectedCallback();
     this.fetchLists();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._refreshTimer) {
+      clearTimeout(this._refreshTimer);
+    }
   }
 
   willUpdate(changedProperties) {
@@ -41,6 +50,29 @@ class ListEditor extends LitElement {
       this.selectedList = null;
       this.listItems = [];
     }
+  }
+
+  // Refresh data when component becomes visible (tab is clicked)
+  _checkVisibility() {
+    const isNowVisible = this.offsetParent !== null;
+
+    // If component just became visible and we haven't refreshed yet, refresh the data
+    if (isNowVisible && !this._isVisible && !this._hasRefreshedOnce) {
+      this._isVisible = true;
+      this._hasRefreshedOnce = true;
+
+      if (this._refreshTimer) {
+        clearTimeout(this._refreshTimer);
+      }
+      this._refreshTimer = setTimeout(() => {
+        this.fetchLists();
+        if (this.selectedList) {
+          this._fetchListItems(this.selectedList.id);
+        }
+      }, 100);
+    }
+
+    this._isVisible = isNowVisible;
   }
 
   async fetchLists() {
@@ -61,7 +93,7 @@ class ListEditor extends LitElement {
 
   _createList() {
     console.log('Add New List button clicked!');
-    this.editingList = { title: '', notebox: '', is_active: false };
+    this.editingList = { title: '', notebox: '' };
   }
 
   _editList(list) {
@@ -139,40 +171,46 @@ class ListEditor extends LitElement {
   }
 
   render() {
+    // Check visibility on each render to detect when tab becomes active
+    this._checkVisibility();
+
     return html`
       <div class="p-4">
         <div class="flex justify-between items-center mb-4">
-            <h2 class="text-2xl font-bold">Lists Editor</h2>
-            <button @click=${this._createList} class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                <i class="fas fa-plus mr-2"></i>Add New
-            </button>
+            <h2 class="text-2xl font-bold text-gray-900">Lists</h2>
+            <div class="flex gap-2">
+              <button @click=${() => this.fetchLists()} class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 font-medium">
+                  <i class="fas fa-sync-alt mr-2"></i>Refresh
+              </button>
+              <button @click=${this._createList} class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-medium">
+                  <i class="fas fa-plus mr-2"></i>Add New List
+              </button>
+            </div>
         </div>
         ${this.lists.length === 0
-          ? html`<p>No lists found.</p>`
+          ? html`<p class="text-base text-gray-600">No lists found.</p>`
           : html`
             <table class="min-w-full bg-white border border-gray-300">
               <thead>
-                <tr>
-                  <th class="py-2 px-4 border-b left-justified-header">Active</th>
-                  <th class="py-2 px-4 border-b left-justified-header">Title</th>
-                  <th class="py-2 px-4 border-b left-justified-header">Item Count</th>
-                  <th class="py-2 px-4 border-b left-justified-header">Created At</th>
-                  <th class="py-2 px-4 border-b left-justified-header">Notes</th>
-                  <th class="py-2 px-4 border-b left-justified-header">Actions</th>
+                <tr class="bg-gray-50">
+                  <th class="py-3 px-4 border-b left-justified-header text-sm font-semibold text-gray-700">Title</th>
+                  <th class="py-3 px-4 border-b left-justified-header text-sm font-semibold text-gray-700">Item Count</th>
+                  <th class="py-3 px-4 border-b left-justified-header text-sm font-semibold text-gray-700">Created At</th>
+                  <th class="py-3 px-4 border-b left-justified-header text-sm font-semibold text-gray-700">Notes</th>
+                  <th class="py-3 px-4 border-b left-justified-header text-sm font-semibold text-gray-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 ${this.lists.map(list => html`
-                  <tr class="hover:bg-gray-50">
-                    <td class="py-2 px-4 border-b text-center">${list.is_active ? '✅' : '❌'}</td>
-                    <td class="py-2 px-4 border-b">${list.title}</td>
-                    <td class="py-2 px-4 border-b text-center">${list.item_count}</td>
-                    <td class="py-2 px-4 border-b">${new Date(list.created_at).toLocaleDateString()}</td>
-                    <td class="py-2 px-4 border-b">${list.notebox}</td>
-                    <td class="py-2 px-4 border-b text-left"> 
-                      <button @click=${() => this._selectList(list)} class="bg-blue-600 text-white px-3 py-1 rounded mr-2">View</button>
-                      <button @click=${() => this._editList(list)} class="bg-green-500 text-white px-3 py-1 rounded">Edit</button>
-                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded ml-2">Delete</button>
+                  <tr class="hover:bg-gray-50 border-b">
+                    <td class="py-3 px-4 text-base text-gray-900">${list.title}</td>
+                    <td class="py-3 px-4 text-center text-base text-gray-700">${list.item_count}</td>
+                    <td class="py-3 px-4 text-base text-gray-700">${new Date(list.created_at).toLocaleDateString()}</td>
+                    <td class="py-3 px-4 text-base text-gray-600">${list.notebox || '—'}</td>
+                    <td class="py-3 px-4 text-left">
+                      <button @click=${() => this._selectList(list)} class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 mr-2">View</button>
+                      <button @click=${() => this._editList(list)} class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">Edit</button>
+                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 ml-2">Delete</button>
                     </td>
                   </tr>
                 `)}
@@ -182,19 +220,26 @@ class ListEditor extends LitElement {
       </div>
 
       ${this.selectedList ? html`
-        <div class="p-4">
-          <h3 class="text-xl font-bold mb-1">${this.selectedList.title}</h3>
-          <p class="text-sm text-gray-600 mb-4">${this.selectedList.notebox || 'No notes yet.'}</p>
+        <div class="p-4 border-t border-gray-200">
+          <div class="flex justify-between items-start mb-4">
+            <div>
+              <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
+              <p class="text-base text-gray-600">${this.selectedList.notebox || 'No notes.'}</p>
+            </div>
+            <button @click=${() => { this.selectedList = null; this.listItems = []; }} class="text-gray-500 hover:text-gray-700 text-2xl">
+              ×
+            </button>
+          </div>
           ${this.listItems.length === 0 ? html`
-            <p class="text-sm text-gray-500">No items in this list yet.</p>
+            <p class="text-base text-gray-500">No items in this list yet.</p>
           ` : html`
             <div class="divide-y divide-gray-200">
               ${this.listItems.map(item => html`
-                <div class="py-2">
+                <div class="py-3">
                   <image-card .image=${item.image} .tenant=${this.tenant} .showAddToList=${false} .listMode=${true}></image-card>
-                  <div class="flex items-center justify-between mt-1 text-xs text-gray-500">
+                  <div class="flex items-center justify-between mt-2 text-sm text-gray-500">
                     <span>Added: ${new Date(item.added_at).toLocaleString()}</span>
-                    <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 hover:text-red-700">Remove</button>
+                    <button @click=${() => this._removeListItem(item.id)} class="text-sm text-red-600 hover:text-red-700">Remove</button>
                   </div>
                 </div>
               `)}

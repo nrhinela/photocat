@@ -25,7 +25,6 @@ import {
   getListItems,
   createList,
   updateList,
-  getActiveList,
   addToList,
   deleteListItem,
 } from '../services/api.js';
@@ -2070,21 +2069,11 @@ class PhotoCatApp extends LitElement {
       const toAdd = Array.from(desiredIds).filter((id) => !currentIds.has(id));
       const toRemove = currentItems.filter((item) => !desiredIds.has(item.photo_id));
 
-      const prevActive = await getActiveList(this.tenant);
-      const prevActiveId = Number.parseInt(prevActive?.id, 10);
-      if (!Number.isFinite(prevActiveId) || prevActiveId !== listId) {
-          await updateList(this.tenant, { id: listId, is_active: true });
-      }
-
       for (const photoId of toAdd) {
           await addToList(this.tenant, photoId);
       }
       for (const item of toRemove) {
           await deleteListItem(this.tenant, item.id);
-      }
-
-      if (Number.isFinite(prevActiveId) && prevActiveId !== listId) {
-          await updateList(this.tenant, { id: prevActiveId, is_active: true });
       }
   }
 
@@ -2102,7 +2091,7 @@ class PhotoCatApp extends LitElement {
           const title = (this.searchListTitle || '').trim();
           if (!title) return;
           if (this._isDuplicateListTitle(title)) return;
-          const created = await createList(this.tenant, { title, is_active: false });
+          const created = await createList(this.tenant, { title });
           const listId = Number.parseInt(created?.id, 10);
           if (!listId) return;
           this.searchListId = listId;
@@ -2182,6 +2171,13 @@ class PhotoCatApp extends LitElement {
 
     _handleCloseUploadModal() {
         this.showUploadModal = false;
+    }
+
+    _handlePipelineOpenImage(event) {
+        const image = event?.detail?.image;
+        if (!image?.id) return;
+        this.curateEditorImage = image;
+        this.curateEditorOpen = true;
     }
     
     _handleUploadComplete() {
@@ -3395,7 +3391,7 @@ class PhotoCatApp extends LitElement {
                     </div>
                     <button
                       class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
-                      @click=${() => this._fetchCurateImages()}
+                      @click=${() => { this._fetchCurateImages(); this._fetchSearchLists(); }}
                       title="Refresh"
                     >
                       <span aria-hidden="true">↻</span>
@@ -4248,7 +4244,10 @@ class PhotoCatApp extends LitElement {
                 <tagging-admin .tenant=${this.tenant} @open-upload-modal=${this._handleOpenUploadModal}></tagging-admin>
             </div>
             <div slot="ml-training" class="container p-4">
-                <ml-training .tenant=${this.tenant}></ml-training>
+                <ml-training
+                  .tenant=${this.tenant}
+                  @open-image-editor=${this._handlePipelineOpenImage}
+                ></ml-training>
             </div>
             <div slot="cli" class="container p-4">
                 <cli-commands></cli-commands>

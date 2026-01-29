@@ -40,11 +40,10 @@ class ListEditModal extends LitElement {
     e.preventDefault();
     const title = this.shadowRoot.getElementById('title').value.trim();
     const description = this.shadowRoot.getElementById('description').value;
-    const active = this.shadowRoot.getElementById('active').checked;
     if (!title) {
       return;
     }
-    const updatedList = { ...this.list, title, notebox: description, is_active: active };
+    const updatedList = { ...this.list, title, notebox: description };
     this.dispatchEvent(new CustomEvent('save-list', { detail: updatedList }));
   }
 
@@ -69,10 +68,6 @@ class ListEditModal extends LitElement {
             <div class="mb-4">
               <label for="description" class="block text-gray-700 font-bold mb-2">Notes</label>
               <textarea id="description" class="w-full p-2 border border-gray-300 rounded-lg" .value=${this.list.notebox}></textarea>
-            </div>
-            <div class="mb-4">
-              <label for="active" class="block text-gray-700 font-bold mb-2">Active</label>
-              <input type="checkbox" id="active" class="mr-2" .checked=${this.list.is_active}>
             </div>
             <div class="flex justify-end">
               <button @click=${this._handleCancel} type="button" class="border border-gray-400 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-100 mr-2">Cancel</button>

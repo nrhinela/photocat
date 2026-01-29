@@ -15,12 +15,17 @@ class MlTraining extends LitElement {
     .table-wrapper {
       overflow-x: auto;
     }
-    .thumb {
-      width: 210px;
-      height: 210px;
+    .pipeline-thumb-wrapper {
+      width: var(--thumb-size, 190px);
+    }
+    .pipeline-thumb {
+      width: 100%;
+      aspect-ratio: 1 / 1;
       object-fit: cover;
-      border-radius: 0.5rem;
+      border-radius: 8px;
       border: 1px solid #e5e7eb;
+      background: #f3f4f6;
+      cursor: pointer;
     }
     .chip {
       display: inline-flex;
@@ -31,6 +36,10 @@ class MlTraining extends LitElement {
       padding: 2px 6px;
       border-radius: 999px;
       font-size: 11px;
+    }
+    .image-col {
+      width: 260px;
+      min-width: 220px;
     }
   `];
 
@@ -292,6 +301,13 @@ class MlTraining extends LitElement {
 
         <div class="table-wrapper bg-white border border-gray-200 rounded-lg">
           <table class="min-w-full text-sm">
+            <colgroup>
+              <col class="image-col" />
+              <col />
+              <col />
+              <col />
+              <col />
+            </colgroup>
             <thead class="bg-gray-50 text-gray-600">
               <tr>
                 <th class="text-left px-3 py-2 font-semibold">Image</th>
@@ -307,9 +323,21 @@ class MlTraining extends LitElement {
                   <td class="px-3 py-3 align-top">
                       <div class="flex flex-col items-start gap-2">
                         ${image.thumbnail_url ? html`
-                          <img class="thumb" src=${image.thumbnail_url} alt=${image.filename} />
+                          <div class="pipeline-thumb-wrapper">
+                            <img
+                              class="pipeline-thumb"
+                              src=${image.thumbnail_url}
+                              alt=${image.filename}
+                              @click=${() => this._handleOpenImage(image)}
+                            />
+                          </div>
                         ` : html`
-                          <div class="thumb bg-gray-100"></div>
+                          <div
+                            class="pipeline-thumb-wrapper"
+                            @click=${() => this._handleOpenImage(image)}
+                          >
+                            <div class="pipeline-thumb"></div>
+                          </div>
                         `}
                         <div class="text-xs text-gray-600 break-all">
                           ${image.id !== undefined && image.id !== null ? `ID ${image.id}: ` : ''}${image.filename}
@@ -340,6 +368,15 @@ class MlTraining extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  _handleOpenImage(image) {
+    if (!image?.id) return;
+    this.dispatchEvent(new CustomEvent('open-image-editor', {
+      detail: { image },
+      bubbles: true,
+      composed: true,
+    }));
   }
 }
 
