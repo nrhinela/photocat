@@ -39,6 +39,7 @@ tests
 .env.*
 *.local
 .cache
+.cache/huggingface
 .local
 
 # macOS

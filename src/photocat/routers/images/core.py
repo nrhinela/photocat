@@ -497,11 +497,12 @@ async def list_images(
 
     # Get tags for all images
     image_ids = [img.id for img in images]
-    active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
+    # Use ml_tag_type if provided (for AI filtering), otherwise use active_tag_type
+    tag_type_filter = ml_tag_type if ml_tag_type else get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
     tags = db.query(MachineTag).filter(
         MachineTag.image_id.in_(image_ids),
         MachineTag.tenant_id == tenant.id,
-        MachineTag.tag_type == active_tag_type
+        MachineTag.tag_type == tag_type_filter
     ).all() if image_ids else []
 
     # Get permatags for all images
