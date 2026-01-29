@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
-import { getLists, createList, updateList, deleteList, getListItems, deleteListItem } from '../services/api.js';
+import { getLists, createList, updateList, deleteList, getListItems, deleteListItem, fetchWithAuth } from '../services/api.js';
 import './image-card.js';
 
 class ListEditor extends LitElement {
@@ -194,20 +194,15 @@ class ListEditor extends LitElement {
       // Download each image and add to zip
       for (const item of this.listItems) {
         const filename = item.image.filename || `image_${item.image.id}`;
-        const dropboxPath = item.image.dropbox_path;
 
         try {
-          // Fetch image from Dropbox
-          const response = await fetch(`/api/v1/images/${item.image.id}/full`, {
-            headers: {
-              'X-Tenant-ID': this.tenant
-            }
+          // Fetch image from Dropbox using authenticated request
+          const blob = await fetchWithAuth(`/images/${item.image.id}/full`, {
+            tenantId: this.tenant,
+            responseType: 'blob'
           });
 
-          if (response.ok) {
-            const blob = await response.blob();
-            zip.file(filename, blob);
-          }
+          zip.file(filename, blob);
         } catch (error) {
           console.error(`Error downloading ${filename}:`, error);
         }
