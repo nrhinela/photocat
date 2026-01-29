@@ -241,7 +241,96 @@ class ListEditor extends LitElement {
           document.head.appendChild(script);
         });
       }
+
+      // Load jsPDF library for README generation
+      if (!window.jsPDF) {
+        const pdfScript = document.createElement('script');
+        pdfScript.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+        await new Promise((resolve, reject) => {
+          pdfScript.onload = resolve;
+          pdfScript.onerror = reject;
+          document.head.appendChild(pdfScript);
+        });
+      }
+
       const zip = new window.JSZip();
+
+      // Create README.pdf with list information
+      const { jsPDF } = window;
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let yPosition = 20;
+      const lineHeight = 7;
+      const margin = 20;
+      const maxWidth = pageWidth - 2 * margin;
+
+      // Title
+      doc.setFontSize(18);
+      doc.setFont(undefined, 'bold');
+      doc.text(this.selectedList.title, margin, yPosition);
+      yPosition += lineHeight * 2;
+
+      // Metadata
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'normal');
+      doc.text(`Author: ${this.selectedList.created_by_name || 'Unknown'}`, margin, yPosition);
+      yPosition += lineHeight;
+      doc.text(`Created: ${new Date(this.selectedList.created_at).toLocaleDateString()}`, margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Notes
+      if (this.selectedList.notebox) {
+        doc.setFont(undefined, 'bold');
+        doc.text('Notes:', margin, yPosition);
+        yPosition += lineHeight;
+        doc.setFont(undefined, 'normal');
+        const notesLines = doc.splitTextToSize(this.selectedList.notebox, maxWidth);
+        doc.text(notesLines, margin, yPosition);
+        yPosition += notesLines.length * lineHeight + lineHeight;
+      }
+
+      // Items list
+      doc.setFont(undefined, 'bold');
+      doc.text(`List Items (${this.listItems.length})`, margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'normal');
+
+      // Add table headers
+      doc.setFont(undefined, 'bold');
+      doc.text('Path', margin, yPosition);
+      doc.text('Permatags', margin + maxWidth / 2, yPosition);
+      yPosition += lineHeight;
+
+      // Add items
+      doc.setFont(undefined, 'normal');
+      for (const item of this.listItems) {
+        const permatagNames = item.image.permatags
+          .filter(tag => tag.signum > 0)
+          .map(tag => tag.keyword)
+          .join(', ');
+
+        // Handle long paths with text wrapping
+        const pathLines = doc.splitTextToSize(item.image.dropbox_path, maxWidth / 2 - 5);
+        const itemHeight = Math.max(pathLines.length, 1) * lineHeight;
+
+        // Check if we need a new page
+        if (yPosition + itemHeight > pageHeight - margin) {
+          doc.addPage();
+          yPosition = margin;
+        }
+
+        doc.text(pathLines, margin, yPosition);
+        const permatagLines = doc.splitTextToSize(permatagNames || '—', maxWidth / 2 - 5);
+        doc.text(permatagLines, margin + maxWidth / 2, yPosition);
+        yPosition += itemHeight + lineHeight * 0.5;
+      }
+
+      // Add PDF to zip
+      const pdfBlob = doc.output('blob');
+      zip.file('README.pdf', pdfBlob);
 
       // Download each image and add to zip
       for (const item of this.listItems) {
