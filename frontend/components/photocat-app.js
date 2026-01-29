@@ -3475,6 +3475,7 @@ class PhotoCatApp extends LitElement {
                                     >
                                     ${this._renderCurateRatingWidget(image)}
                                     ${this._renderCurateRatingStatic(image)}
+                                    ${this._renderCurateAiMLScore(image)}
                                     ${this._renderCuratePermatagSummary(image)}
                                     ${this._formatCurateDate(image) ? html`
                                       <div class="curate-thumb-date">
@@ -3879,6 +3880,7 @@ class PhotoCatApp extends LitElement {
                                     >
                                       ${this._renderCurateRatingWidget(image)}
                                       ${this._renderCurateRatingStatic(image)}
+                                      ${this._renderCurateAiMLScore(image)}
                                       ${this._renderCuratePermatagSummary(image)}
                                       ${this._formatCurateDate(image) ? html`
                                         <div class="curate-thumb-date">
@@ -4082,6 +4084,7 @@ class PhotoCatApp extends LitElement {
                                         >
                                         ${this._renderCurateRatingWidget(image)}
                                         ${this._renderCurateRatingStatic(image)}
+                                        ${this._renderCurateAiMLScore(image)}
                                         ${this._renderCuratePermatagSummary(image)}
                                         ${this._formatCurateDate(image) ? html`
                                           <div class="curate-thumb-date">
@@ -4458,6 +4461,31 @@ class PhotoCatApp extends LitElement {
       }
 
       return cards;
+  }
+
+  _renderCurateAiMLScore(image) {
+      // Only show ML score in AI mode (zero-shot tagging)
+      const isAiMode = this.curateAuditMode === 'missing'
+          && this.curateAuditAiEnabled
+          && !!this.curateAuditAiModel
+          && this.curateAuditKeyword;
+
+      if (!isAiMode) return html``;
+
+      // Find the ML tag matching the selected keyword
+      const tags = Array.isArray(image?.tags) ? image.tags : [];
+      const mlTag = tags.find((tag) => tag.keyword === this.curateAuditKeyword);
+      if (!mlTag) return html``;
+
+      // Format the model name for display
+      const modelName = this.curateAuditAiModel === 'trained' ? 'Keyword-Model' : 'Siglip';
+      const score = (mlTag.confidence * 100).toFixed(0);
+
+      return html`
+        <div class="curate-thumb-rating">
+          <span class="curate-thumb-icon" aria-hidden="true">🤖</span>${modelName}: ${this.curateAuditKeyword}=${(mlTag.confidence).toFixed(2)}
+        </div>
+      `;
   }
 
   _renderCuratePermatagSummary(image) {
