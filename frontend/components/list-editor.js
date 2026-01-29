@@ -1,7 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
 import { getLists, createList, updateList, deleteList, getListItems, deleteListItem } from '../services/api.js';
-import './list-edit-modal.js';
 import './image-card.js';
 
 class ListEditor extends LitElement {
@@ -20,6 +19,7 @@ class ListEditor extends LitElement {
     editingList: { type: Object },
     selectedList: { type: Object },
     listItems: { type: Array },
+    editingSelectedList: { type: Boolean },
   };
 
   constructor() {
@@ -28,6 +28,7 @@ class ListEditor extends LitElement {
     this.editingList = null;
     this.selectedList = null;
     this.listItems = [];
+    this.editingSelectedList = false;
     this._isVisible = false;
     this._hasRefreshedOnce = false;
   }
@@ -97,32 +98,9 @@ class ListEditor extends LitElement {
   }
 
   _editList(list) {
-    this.editingList = list;
-  }
-
-  _closeModal() {
-    this.editingList = null;
-  }
-
-  async _handleSaveList(e) {
-    try {
-      let savedList;
-      if (e.detail.id) {
-        savedList = await updateList(this.tenant, e.detail);
-      } else {
-        savedList = await createList(this.tenant, e.detail);
-      }
-      await this.fetchLists();
-      if (this.selectedList) {
-        const refreshed = this.lists.find(list => list.id === this.selectedList.id);
-        this.selectedList = refreshed || null;
-      }
-      this.requestUpdate();
-      this.editingList = null;
-      this.dispatchEvent(new CustomEvent('lists-updated', { bubbles: true, composed: true }));
-    } catch (error) {
-      console.error('Error updating list:', error);
-    }
+    this.selectedList = list;
+    this._fetchListItems(list.id);
+    this.editingSelectedList = true;
   }
 
   async _selectList(list) {
@@ -167,6 +145,89 @@ class ListEditor extends LitElement {
       this.dispatchEvent(new CustomEvent('lists-updated', { bubbles: true, composed: true }));
     } catch (error) {
       console.error('Error deleting list:', error);
+    }
+  }
+
+  _startEditingSelectedList() {
+    this.editingSelectedList = true;
+  }
+
+  _cancelEditingSelectedList() {
+    this.editingSelectedList = false;
+  }
+
+  async _saveSelectedListChanges() {
+    const title = this.shadowRoot.getElementById('edit-list-title')?.value.trim();
+    const notebox = this.shadowRoot.getElementById('edit-list-notes')?.value;
+
+    if (!title) {
+      console.warn('List title cannot be empty');
+      return;
+    }
+
+    try {
+      const updated = await updateList(this.tenant, {
+        id: this.selectedList.id,
+        title,
+        notebox,
+      });
+      this.selectedList = updated;
+      this.editingSelectedList = false;
+      await this.fetchLists();
+      this.dispatchEvent(new CustomEvent('lists-updated', { bubbles: true, composed: true }));
+    } catch (error) {
+      console.error('Error saving list changes:', error);
+    }
+  }
+
+  async _downloadListImages() {
+    if (!this.listItems || this.listItems.length === 0) {
+      alert('No items to download');
+      return;
+    }
+
+    try {
+      // Dynamically import JSZip
+      const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js');
+      const zip = new JSZip();
+
+      // Download each image and add to zip
+      for (const item of this.listItems) {
+        const filename = item.image.filename || `image_${item.image.id}`;
+        const dropboxPath = item.image.dropbox_path;
+
+        try {
+          // Fetch image from Dropbox
+          const response = await fetch(`/api/v1/images/${item.image.id}/full`, {
+            headers: {
+              'X-Tenant-ID': this.tenant
+            }
+          });
+
+          if (response.ok) {
+            const blob = await response.blob();
+            zip.file(filename, blob);
+          }
+        } catch (error) {
+          console.error(`Error downloading ${filename}:`, error);
+        }
+      }
+
+      // Generate zip file
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+
+      // Create download link
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${this.selectedList.title || 'list'}_images.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error creating zip file:', error);
+      alert('Failed to download images. Please try again.');
     }
   }
 
@@ -219,9 +280,8 @@ class ListEditor extends LitElement {
                     <td class="py-2 px-4 text-xs text-gray-600">${list.created_by_name || '—'}</td>
                     <td class="py-2 px-4 text-xs text-gray-600">${list.notebox || '—'}</td>
                     <td class="py-2 px-4 text-left">
-                      <button @click=${() => this._selectList(list)} class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 mr-2">View</button>
-                      <button @click=${() => this._editList(list)} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Edit</button>
-                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700 ml-2">Delete</button>
+                      <button @click=${() => this._selectList(list)} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 mr-2">Edit</button>
+                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700">Delete</button>
                     </td>
                   </tr>
                 `)}
@@ -231,35 +291,116 @@ class ListEditor extends LitElement {
       </div>
 
       ${this.selectedList ? html`
-        <div class="p-4 border-t border-gray-200">
-          <div class="flex justify-between items-start mb-4">
-            <div>
-              <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
-              <p class="text-base text-gray-600">${this.selectedList.notebox || 'No notes.'}</p>
-            </div>
-            <button @click=${() => { this.selectedList = null; this.listItems = []; }} class="text-gray-500 hover:text-gray-700 text-2xl">
-              ×
-            </button>
-          </div>
-          ${this.listItems.length === 0 ? html`
-            <p class="text-base text-gray-500">No items in this list yet.</p>
-          ` : html`
-            <div class="divide-y divide-gray-200">
-              ${this.listItems.map(item => html`
-                <div class="py-3">
-                  <image-card .image=${item.image} .tenant=${this.tenant} .showAddToList=${false} .listMode=${true}></image-card>
-                  <div class="flex items-center justify-between mt-2 text-sm text-gray-500">
-                    <span>Added: ${new Date(item.added_at).toLocaleString()}</span>
-                    <button @click=${() => this._removeListItem(item.id)} class="text-sm text-red-600 hover:text-red-700">Remove</button>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl mx-4 max-h-90vh overflow-auto p-6">
+            <div class="flex justify-between items-start mb-6">
+              <div class="flex-1">
+                <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
+                <p class="text-base text-gray-600 mb-2">${this.selectedList.notebox || 'No notes.'}</p>
+                <div class="flex gap-4 text-xs text-gray-600 mb-4">
+                  <div>
+                    <span class="font-semibold">Author:</span> ${this.selectedList.created_by_name || 'Unknown'}
+                  </div>
+                  <div>
+                    <span class="font-semibold">Created:</span> ${new Date(this.selectedList.created_at).toLocaleDateString()}
                   </div>
                 </div>
-              `)}
+              </div>
+              <div class="flex gap-2">
+                <button @click=${this._startEditingSelectedList} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Edit</button>
+                <button @click=${() => { this.selectedList = null; this.listItems = []; this.editingSelectedList = false; }} class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+              </div>
             </div>
-          `}
+
+            <h4 class="text-sm font-semibold text-gray-900 mb-4">List Items (${this.listItems.length})</h4>
+
+            ${this.listItems.length === 0 ? html`
+              <p class="text-base text-gray-500">No items in this list yet.</p>
+            ` : html`
+              <div class="border border-gray-300 rounded overflow-hidden">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="bg-gray-50 border-b border-gray-300">
+                      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">Path</th>
+                      <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">Permatags</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${this.listItems.map(item => {
+                      const permatagNames = item.image.permatags
+                        .filter(tag => tag.signum > 0)
+                        .map(tag => tag.keyword)
+                        .join(', ');
+                      const dropboxUrl = `https://www.dropbox.com/home${item.image.dropbox_path}`;
+                      return html`
+                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                          <td class="px-4 py-3 text-xs text-gray-900 break-all">
+                            <a href="${dropboxUrl}" target="dropbox" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 underline">${item.image.dropbox_path}</a>
+                          </td>
+                          <td class="px-4 py-3 text-xs text-gray-700">${permatagNames || '—'}</td>
+                        </tr>
+                      `;
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            `}
+
+            <div class="mt-6 flex justify-end gap-2 border-t border-gray-200 pt-4">
+              <button @click=${this._downloadListImages} class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Download</button>
+            </div>
+          </div>
         </div>
       ` : ''}
 
-      ${this.editingList ? html`<list-edit-modal .list=${this.editingList} .active=${true} @save-list=${this._handleSaveList} @close-modal=${this._closeModal}></list-edit-modal>` : ''}
+      ${this.editingSelectedList && this.selectedList ? html`
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg shadow-lg w-full max-w-2xl mx-4 max-h-90vh overflow-auto p-6">
+            <div class="flex justify-between items-center mb-6">
+              <h3 class="text-xl font-bold text-gray-900">Edit List</h3>
+              <button @click=${this._cancelEditingSelectedList} class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
+            </div>
+
+            <div class="mb-6">
+              <div class="grid grid-cols-2 gap-4 mb-6 pb-6 border-b border-gray-200">
+                <div>
+                  <p class="text-xs font-semibold text-gray-700 mb-1">Author</p>
+                  <p class="text-sm text-gray-900">${this.selectedList.created_by_name || 'Unknown'}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-gray-700 mb-1">Created</p>
+                  <p class="text-sm text-gray-900">${new Date(this.selectedList.created_at).toLocaleDateString()}</p>
+                </div>
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-xs font-semibold text-gray-700 mb-2">Title</label>
+                <input
+                  id="edit-list-title"
+                  type="text"
+                  .value=${this.selectedList.title || ''}
+                  class="w-full p-2 border border-gray-300 rounded text-sm"
+                >
+              </div>
+
+              <div class="mb-4">
+                <label class="block text-xs font-semibold text-gray-700 mb-2">Notes</label>
+                <textarea
+                  id="edit-list-notes"
+                  .value=${this.selectedList.notebox || ''}
+                  class="w-full p-2 border border-gray-300 rounded text-sm"
+                  rows="4"
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button @click=${this._cancelEditingSelectedList} class="border border-gray-400 text-gray-700 px-4 py-2 rounded text-sm hover:bg-gray-100">Cancel</button>
+              <button @click=${this._saveSelectedListChanges} class="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">Save</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
     `;
   }
 }
