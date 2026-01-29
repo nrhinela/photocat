@@ -180,19 +180,19 @@ class ListEditor extends LitElement {
             <h2 class="text-lg font-semibold text-gray-900">Lists</h2>
             <div class="ml-auto flex items-center gap-2">
               <button
+                @click=${this._createList}
+                class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
+              >
+                <span aria-hidden="true">+</span>
+                Add New List
+              </button>
+              <button
                 @click=${() => this.fetchLists()}
                 class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
                 title="Refresh"
               >
                 <span aria-hidden="true">↻</span>
                 Refresh
-              </button>
-              <button
-                @click=${this._createList}
-                class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
-              >
-                <span aria-hidden="true">+</span>
-                Add New List
               </button>
             </div>
         </div>
@@ -205,6 +205,7 @@ class ListEditor extends LitElement {
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Title</th>
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Item Count</th>
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Created At</th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Author</th>
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Notes</th>
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Actions</th>
                 </tr>
@@ -215,6 +216,7 @@ class ListEditor extends LitElement {
                     <td class="py-2 px-4 text-xs text-gray-900">${list.title}</td>
                     <td class="py-2 px-4 text-center text-xs text-gray-700">${list.item_count}</td>
                     <td class="py-2 px-4 text-xs text-gray-700">${new Date(list.created_at).toLocaleDateString()}</td>
+                    <td class="py-2 px-4 text-xs text-gray-600">${list.created_by_name || '—'}</td>
                     <td class="py-2 px-4 text-xs text-gray-600">${list.notebox || '—'}</td>
                     <td class="py-2 px-4 text-left">
                       <button @click=${() => this._selectList(list)} class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 mr-2">View</button>

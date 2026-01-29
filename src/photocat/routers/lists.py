@@ -13,6 +13,8 @@ from photocat.metadata import ImageMetadata, MachineTag, Permatag
 from photocat.tagging import calculate_tags
 from photocat.models.requests import AddPhotoRequest
 from photocat.settings import settings
+from photocat.auth.dependencies import get_current_user
+from photocat.auth.models import UserProfile
 
 router = APIRouter(
     prefix="/api/v1/lists",
@@ -39,7 +41,8 @@ async def get_recent_list(
         "title": recent.title,
         "notebox": recent.notebox,
         "created_at": recent.created_at,
-        "updated_at": recent.updated_at
+        "updated_at": recent.updated_at,
+        "created_by_uid": recent.created_by_uid
     }
 
 
@@ -62,6 +65,7 @@ async def get_list(
         "notebox": lst.notebox,
         "created_at": lst.created_at,
         "updated_at": lst.updated_at,
+        "created_by_uid": lst.created_by_uid,
         "item_count": item_count
     }
 
@@ -86,13 +90,15 @@ async def create_list(
     title: str = Body(...),
     notebox: Optional[str] = Body(None),
     tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user)
 ):
     """Create a new list."""
     new_list = PhotoList(
         tenant_id=tenant.id,
         title=title,
-        notebox=notebox
+        notebox=notebox,
+        created_by_uid=current_user.supabase_uid if current_user else None
     )
     db.add(new_list)
     db.commit()
@@ -114,6 +120,16 @@ async def list_lists(
         .group_by(PhotoListItem.list_id)
         .all()
     )
+    # Build a map of user UUIDs to display names
+    user_names = {}
+    if lists:
+        uids = [l.created_by_uid for l in lists if l.created_by_uid]
+        if uids:
+            users = db.query(UserProfile.supabase_uid, UserProfile.display_name).filter(
+                UserProfile.supabase_uid.in_(uids)
+            ).all()
+            user_names = {u[0]: u[1] for u in users}
+
     return [
         {
             "id": l.id,
@@ -121,6 +137,8 @@ async def list_lists(
             "notebox": l.notebox,
             "created_at": l.created_at,
             "updated_at": l.updated_at,
+            "created_by_uid": l.created_by_uid,
+            "created_by_name": user_names.get(l.created_by_uid) if l.created_by_uid else None,
             "item_count": counts.get(l.id, 0)
         } for l in lists
     ]
@@ -150,6 +168,7 @@ async def edit_list(
         "notebox": lst.notebox,
         "created_at": lst.created_at,
         "updated_at": lst.updated_at,
+        "created_by_uid": lst.created_by_uid,
         "item_count": len(lst.items)
     }
 
