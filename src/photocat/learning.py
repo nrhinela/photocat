@@ -22,7 +22,12 @@ def ensure_image_embedding(
     model_name: str,
     model_version: str
 ) -> ImageEmbedding:
-    """Persist an image embedding if missing and return it."""
+    """Persist an image embedding if missing and return it.
+
+    Handles concurrent inserts gracefully by catching unique constraint violations
+    and re-querying for the existing record.
+    """
+    # Try to fetch existing embedding first
     existing = db.query(ImageEmbedding).filter(
         ImageEmbedding.tenant_id == tenant_id,
         ImageEmbedding.image_id == image_id
@@ -39,6 +44,22 @@ def ensure_image_embedding(
         model_version=model_version
     )
     db.add(record)
+
+    try:
+        db.flush()
+    except Exception as e:
+        # If we get a unique constraint violation, another process inserted it
+        # Roll back and re-fetch the existing record
+        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+            db.rollback()
+            existing = db.query(ImageEmbedding).filter(
+                ImageEmbedding.tenant_id == tenant_id,
+                ImageEmbedding.image_id == image_id
+            ).first()
+            if existing:
+                return existing
+        # Re-raise if it's a different error
+        raise
 
     image = db.query(ImageMetadata).filter(
         ImageMetadata.id == image_id,
