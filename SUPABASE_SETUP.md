@@ -79,6 +79,75 @@ VITE_SUPABASE_ANON_KEY=sb_publishable_aV2IHPkdJYcXER87Qamntw_QO-rr2Lm
 3. Toggle **Enable Email provider** ON
 4. Save
 
+## 4. Scheduled Database Backups (GCP Cloud Run + Scheduler)
+
+This project includes a backup container (`backup.Dockerfile`) and script (`scripts/backup_supabase.sh`)
+to run `pg_dump` against the Supabase database and upload to GCS. The Docker image installs
+`pg_dump` v17 to match Supabase Postgres 17 and avoid version mismatch errors.
+
+**Prereqs**
+- GCS bucket: `photocat-backups`
+- Use the **pooler** `DATABASE_URL` from `.env`
+
+### A. Create Secret for DB URL
+
+```bash
+# Copy the DATABASE_URL from .env (pooler URL) into Secret Manager
+printf '%s' "$DATABASE_URL" | gcloud secrets create supabase-db-url --data-file=-
+```
+
+### B. Build Backup Image
+
+```bash
+gcloud builds submit \
+  --tag "gcr.io/$PROJECT_ID/photocat-db-backup" \
+  -f backup.Dockerfile \
+  .
+```
+
+### C. Create Cloud Run Job
+
+```bash
+gcloud run jobs create photocat-db-backup \
+  --image "gcr.io/$PROJECT_ID/photocat-db-backup" \
+  --region us-central1 \
+  --set-secrets "DATABASE_URL=supabase-db-url:latest" \
+  --set-env-vars "GCS_BUCKET=photocat-backups,PG_DUMP_FORMAT=custom"
+```
+
+### D. Schedule Daily Run
+
+```bash
+gcloud scheduler jobs create http photocat-db-backup \
+  --schedule "0 3 * * *" \
+  --time-zone "America/New_York" \
+  --uri "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT_ID/jobs/photocat-db-backup:run" \
+  --http-method POST \
+  --oidc-service-account-email "photocat-backup-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
+```
+
+**IAM Notes**
+- The Cloud Run job’s service account needs:
+  - `roles/secretmanager.secretAccessor` (for `supabase-db-url`)
+  - `roles/storage.objectAdmin` on `photocat-backups` (or `objectCreator` + `objectViewer`)
+- The Scheduler service account needs:
+  - `roles/run.invoker` on the Cloud Run job
+
+### Restore
+
+Backups are stored as `.dump` files (custom format). Restore with:
+
+```bash
+pg_restore --dbname "$DATABASE_URL" --no-owner --no-privileges path/to/backup.dump
+```
+
+### Retention (keep last 7 days)
+
+```bash
+gsutil lifecycle set lifecycle.json gs://photocat-backups
+gsutil lifecycle get gs://photocat-backups
+```
+
 ### Google OAuth (Optional)
 
 1. Create OAuth credentials in Google Cloud Console
