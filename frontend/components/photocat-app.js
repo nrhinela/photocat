@@ -1084,7 +1084,7 @@ class PhotoCatApp extends LitElement {
       curateOrderBy: { type: String },
       curateOrderDirection: { type: String },
       curateHideDeleted: { type: Boolean },
-      curateMinRating: { type: Number },
+      curateMinRating: { type: [Number, String] },
       curateKeywordFilters: { type: Object },
       curateKeywordOperators: { type: Object },
       curateImages: { type: Array },
@@ -1956,8 +1956,12 @@ class PhotoCatApp extends LitElement {
           filters.permatagPositiveMissing = true;
       }
       if (this.curateMinRating !== null && this.curateMinRating !== undefined) {
-          filters.rating = this.curateMinRating;
-          filters.ratingOperator = this.curateMinRating === 0 ? 'eq' : 'gte';
+          if (this.curateMinRating === 'unrated') {
+              filters.ratingOperator = 'is_null';
+          } else {
+              filters.rating = this.curateMinRating;
+              filters.ratingOperator = this.curateMinRating === 0 ? 'eq' : 'gte';
+          }
       }
       if (this.curateOrderBy) {
           filters.orderBy = this.curateOrderBy;
@@ -3431,29 +3435,6 @@ class PhotoCatApp extends LitElement {
         <div class="px-3 py-3 bg-gray-50 space-y-4 ${renderDropboxFolder ? 'search-accordion' : ''}">
         <!-- Existing filter controls moved into accordion -->
         <div class="flex flex-wrap md:flex-nowrap items-end gap-4">
-                ${hideSortControls ? html`` : html`
-                <div class="flex-[2] min-w-[180px]">
-                  <label class="block text-xs font-semibold text-gray-600 mb-1">Sort items by</label>
-                  <div class="grid grid-cols-2 gap-2">
-                    <select
-                      class="w-full px-2 py-1 border rounded-lg text-xs"
-                      .value=${this.curateOrderBy}
-                      @change=${this._handleCurateOrderByChange}
-                    >
-                      <option value="photo_creation">Photo Date</option>
-                      <option value="processed">Process Date</option>
-                    </select>
-                    <select
-                      class="w-full px-2 py-1 border rounded-lg text-xs"
-                      .value=${this.curateOrderDirection}
-                      @change=${this._handleCurateOrderDirectionChange}
-                    >
-                      <option value="desc">Desc</option>
-                      <option value="asc">Asc</option>
-                    </select>
-                  </div>
-                </div>
-                `}
                 ${hideRatingControls ? html`` : html`
                 <div class="flex-[2] min-w-[200px]">
                   <label class="block text-xs font-semibold text-gray-600 mb-1">Rating</label>
@@ -3485,6 +3466,14 @@ class PhotoCatApp extends LitElement {
                           </button>
                         `;
                       })}
+                      <button
+                        class="inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-xs ${this.curateMinRating === 'unrated' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' : 'bg-gray-100 text-gray-500 border-gray-200'}"
+                        title="Unrated images"
+                        @click=${() => this._handleCurateMinRating('unrated')}
+                      >
+                        <i class="fas fa-circle-notch"></i>
+                        <span>unrated</span>
+                      </button>
                     </div>
                   </div>
                 </div>

@@ -512,8 +512,8 @@ def apply_rating_filter_subquery(
     Args:
         db: Database session
         tenant: Current tenant
-        rating: Rating value (0-3)
-        operator: Comparison operator ("eq", "gte", "gt")
+        rating: Rating value (0-3) or None for is_null
+        operator: Comparison operator ("eq", "gte", "gt", "is_null")
 
     Returns:
         SQLAlchemy subquery object (not executed)
@@ -522,7 +522,9 @@ def apply_rating_filter_subquery(
         ImageMetadata.tenant_id == tenant.id
     )
 
-    if operator == "gte":
+    if operator == "is_null":
+        query = query.filter(ImageMetadata.rating.is_(None))
+    elif operator == "gte":
         query = query.filter(ImageMetadata.rating >= rating)
     elif operator == "gt":
         query = query.filter(ImageMetadata.rating > rating)
@@ -794,8 +796,8 @@ def build_image_query_with_subqueries(
             # List not found - return empty result
             return base_query, subqueries_list, True
     
-    # Apply rating filter if provided
-    if rating is not None:
+    # Apply rating filter if provided (including is_null for unrated)
+    if rating is not None or rating_operator == "is_null":
         rating_subquery = apply_rating_filter_subquery(db, tenant, rating, rating_operator)
         subqueries_list.append(rating_subquery)
     

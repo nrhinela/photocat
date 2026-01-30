@@ -105,6 +105,8 @@ export async function getImages(tenantId, filters = {}) {
     if (filters.ratingOperator) {
       params.append('rating_operator', filters.ratingOperator);
     }
+  } else if (filters.ratingOperator === 'is_null') {
+    params.append('rating_operator', 'is_null');
   }
 
   if (filters.hideZeroRating) {

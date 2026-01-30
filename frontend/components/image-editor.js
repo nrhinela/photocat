@@ -145,13 +145,15 @@ class ImageEditor extends LitElement {
       padding: 6px 12px;
       border-radius: 999px;
       border: 1px solid #e5e7eb;
-      background: rgba(255, 255, 255, 0.9);
-      color: #374151;
+      background: rgba(17, 24, 39, 0.75);
+      color: #f9fafb;
       font-size: 11px;
-      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.25);
+      cursor: pointer;
+      transition: all 0.15s ease;
     }
     .high-res-button:hover {
-      background: #ffffff;
+      background: rgba(17, 24, 39, 0.85);
     }
     .high-res-button:disabled {
       opacity: 0.6;
@@ -1328,18 +1330,10 @@ class ImageEditor extends LitElement {
                 <span class="high-res-spinner" aria-hidden="true"></span>
                 Loading high res…
               </div>
+            ` : this.fullImageUrl ? html`
+              <button class="high-res-button" @click=${() => this._openFullscreen()}>Fullscreen</button>
             ` : html``}
           </div>
-          ${this.fullImageUrl ? html`
-            <div class="zoom-controls">
-              <button class="zoom-button ${!this.isActualSize ? 'active' : ''}" @click=${() => this._setFitToWidth()}>
-                Fit to width
-              </button>
-              <button class="zoom-button" @click=${() => this._openFullscreen()}>
-                Fullscreen
-              </button>
-            </div>
-          ` : html``}
         </div>
         <div class="panel-right">
           <div class="tab-row">
