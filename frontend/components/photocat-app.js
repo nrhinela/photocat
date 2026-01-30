@@ -3490,6 +3490,62 @@ class PhotoCatApp extends LitElement {
       this.curateDragSelection = ids;
   }
 
+  _handleExploreByTagPointerDown(event, index, imageId, keywordName, cachedImages) {
+      if (this.curateDragSelecting || this.curateAuditDragSelecting) {
+          return;
+      }
+      if (event.button !== 0) {
+          return;
+      }
+      if (this.curateDragSelection.length && this.curateDragSelection.includes(imageId)) {
+          this._curateSuppressClick = true;
+          return;
+      }
+      this._curateSuppressClick = false;
+      this._curatePressActive = true;
+      this._curatePressStart = { x: event.clientX, y: event.clientY };
+      this._curatePressIndex = index;
+      this._curatePressImageId = imageId;
+      this._exploreByTagCachedImages = cachedImages;
+      this._curatePressTimer = setTimeout(() => {
+          if (this._curatePressActive) {
+              this._startExploreByTagSelection(index, imageId, cachedImages);
+          }
+      }, 250);
+  }
+
+  _handleExploreByTagSelectHover(index, cachedImages) {
+      if (!this.curateDragSelecting) return;
+      if (this.curateDragEndIndex !== index) {
+          this.curateDragEndIndex = index;
+          this._updateExploreByTagDragSelection(cachedImages);
+      }
+  }
+
+  _startExploreByTagSelection(index, imageId, cachedImages) {
+      if (this.curateDragSelection.includes(imageId)) {
+          return;
+      }
+      this._cancelCuratePressState();
+      this._curateLongPressTriggered = true;
+      this.curateDragSelecting = true;
+      this.curateDragStartIndex = index;
+      this.curateDragEndIndex = index;
+      this._curateSuppressClick = true;
+      this._flashCurateSelection(imageId);
+      this._updateExploreByTagDragSelection(cachedImages);
+  }
+
+  _updateExploreByTagDragSelection(cachedImages) {
+      if (!cachedImages || this.curateDragStartIndex === null || this.curateDragEndIndex === null) {
+          return;
+      }
+      const start = Math.min(this.curateDragStartIndex, this.curateDragEndIndex);
+      const end = Math.max(this.curateDragStartIndex, this.curateDragEndIndex);
+      const ids = cachedImages.slice(start, end + 1).map(img => img.id);
+      this.curateDragSelection = ids;
+  }
+
   _flashCurateSelection(imageId) {
       if (!this._curateFlashSelectionIds) {
           this._curateFlashSelectionIds = new Set();
@@ -4276,9 +4332,9 @@ class PhotoCatApp extends LitElement {
                                                 class="curate-thumb ${this.curateDragSelection.includes(image.id) ? 'selected' : ''}"
                                                 draggable="true"
                                                 @dragstart=${(event) => this._handleCurateDragStart(event, image)}
-                                                @pointerdown=${(event) => this._handleCuratePointerDown(event, index, image.id)}
+                                                @pointerdown=${(event) => this._handleExploreByTagPointerDown(event, index, image.id, keywordName, cachedImages)}
                                                 @pointermove=${(event) => this._handleCuratePointerMove(event)}
-                                                @pointerenter=${() => this._handleCurateSelectHover(index)}
+                                                @pointerenter=${() => this._handleExploreByTagSelectHover(index, cachedImages)}
                                               >
                                               ${this._renderCurateRatingWidget(image)}
                                               ${this._renderCurateRatingStatic(image)}
