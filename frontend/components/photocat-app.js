@@ -2760,6 +2760,7 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordFilters = {};
       this.curateMinRating = null;
       this.searchDropboxPathPrefix = '';
+      this.curateNoPositivePermatags = false;
 
       // Apply each filter
       filters.forEach(filter => {
