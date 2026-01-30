@@ -2761,6 +2761,9 @@ class PhotoCatApp extends LitElement {
       this.curateMinRating = null;
       this.searchDropboxPathPrefix = '';
       this.curateNoPositivePermatags = false;
+      this.curateAuditMode = 'existing';
+      this.curateAuditKeyword = '';
+      this.curateAuditCategory = '';
 
       // Apply each filter
       filters.forEach(filter => {
