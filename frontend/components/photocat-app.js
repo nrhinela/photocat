@@ -2968,16 +2968,9 @@ class PhotoCatApp extends LitElement {
                       orderBy: 'rating',
                       sortOrder: 'desc'
                   });
-                  console.log(`Raw API result for keyword "${keywordName}":`, result);
                   const images = Array.isArray(result) ? result : (result?.images || []);
-                  console.log(`Processed images for keyword "${keywordName}": ${images.length} items`);
-                  if (images.length > 0) {
-                      console.log(`First image keys:`, Object.keys(images[0]));
-                      console.log(`First image:`, images[0]);
-                  }
                   // Filter out any invalid images before caching
                   const validImages = images.filter(img => img && img.id);
-                  console.log(`Valid images after filtering: ${validImages.length}/${images.length}`);
                   this[cacheKey] = validImages;
               } catch (error) {
                   console.error(`Error loading images for keyword "${keywordName}":`, error);
@@ -4258,7 +4251,6 @@ class PhotoCatApp extends LitElement {
 
                                         return cachedImages.map((image, index) => {
                                           if (!image || !image.id) {
-                                            console.warn(`Invalid image object at index ${index}:`, image, 'Keys:', image ? Object.keys(image) : 'N/A');
                                             return html``;
                                           }
                                           return html`
