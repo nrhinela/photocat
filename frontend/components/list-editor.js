@@ -300,21 +300,18 @@ class ListEditor extends LitElement {
 
       // Add table headers
       doc.setFont(undefined, 'bold');
-      doc.text('Path', margin, yPosition);
-      doc.text('Permatags', margin + maxWidth / 2, yPosition);
+      doc.text('URL', margin, yPosition);
       yPosition += lineHeight;
 
       // Add items
       doc.setFont(undefined, 'normal');
       for (const item of this.listItems) {
-        const permatagNames = item.image.permatags
-          .filter(tag => tag.signum > 0)
-          .map(tag => tag.keyword)
-          .join(', ');
+        const encodedPath = item.image.dropbox_path.split('/').map(part => encodeURIComponent(part)).join('/');
+        const dropboxUrl = `https://www.dropbox.com/home${encodedPath}`;
 
-        // Handle long paths with text wrapping
-        const pathLines = doc.splitTextToSize(item.image.dropbox_path, maxWidth / 2 - 5);
-        const itemHeight = Math.max(pathLines.length, 1) * lineHeight;
+        // Wrap long URLs to fit the page width
+        const urlLines = doc.splitTextToSize(dropboxUrl, maxWidth);
+        const itemHeight = urlLines.length * lineHeight;
 
         // Check if we need a new page
         if (yPosition + itemHeight > pageHeight - margin) {
@@ -322,10 +319,8 @@ class ListEditor extends LitElement {
           yPosition = margin;
         }
 
-        doc.text(pathLines, margin, yPosition);
-        const permatagLines = doc.splitTextToSize(permatagNames || '—', maxWidth / 2 - 5);
-        doc.text(permatagLines, margin + maxWidth / 2, yPosition);
-        yPosition += itemHeight + lineHeight * 0.5;
+        doc.text(urlLines, margin, yPosition);
+        yPosition += itemHeight + lineHeight * 0.25;
       }
 
       // Add PDF to zip
@@ -494,31 +489,17 @@ class ListEditor extends LitElement {
                 <p class="text-base text-gray-500">No items in this list yet.</p>
               ` : html`
                 <div class="border border-gray-300 rounded overflow-hidden">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr class="bg-gray-50 border-b border-gray-300">
-                        <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">Path</th>
-                        <th class="px-4 py-2 text-left text-xs font-semibold text-gray-700">Permatags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${this.listItems.map(item => {
-                        const permatagNames = item.image.permatags
-                          .filter(tag => tag.signum > 0)
-                          .map(tag => tag.keyword)
-                          .join(', ');
-                        const dropboxUrl = `https://www.dropbox.com/home${item.image.dropbox_path}`;
-                        return html`
-                          <tr class="border-b border-gray-200 hover:bg-gray-50">
-                            <td class="px-4 py-3 text-xs text-gray-900 break-all">
-                              <a href="${dropboxUrl}" target="dropbox" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 underline">${item.image.dropbox_path}</a>
-                            </td>
-                            <td class="px-4 py-3 text-xs text-gray-700">${permatagNames || '—'}</td>
-                          </tr>
-                        `;
-                      })}
-                    </tbody>
-                  </table>
+                  <div class="divide-y divide-gray-300 overflow-x-auto">
+                    ${this.listItems.map(item => {
+                      const encodedPath = item.image.dropbox_path.split('/').map(part => encodeURIComponent(part)).join('/');
+                      const dropboxUrl = `https://www.dropbox.com/home${encodedPath}`;
+                      return html`
+                        <div class="px-4 py-3 hover:bg-gray-50 whitespace-nowrap">
+                          <a href="${dropboxUrl}" target="dropbox" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 underline text-xs">${dropboxUrl}</a>
+                        </div>
+                      `;
+                    })}
+                  </div>
                 </div>
               `}
             `}

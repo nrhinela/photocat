@@ -88,11 +88,36 @@ class ImageEditor extends LitElement {
       display: flex;
       flex-direction: column;
       align-items: stretch;
-      justify-content: center;
+      justify-content: flex-start;
       overflow: hidden;
       max-height: 100%;
       min-height: 0;
       position: relative;
+    }
+    .image-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      min-height: 0;
+      position: relative;
+    }
+    .image-container.zoomed {
+      align-items: flex-start;
+      justify-content: flex-start;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .image-container.zoomed img {
+      width: auto;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      object-fit: contain;
+      border-radius: 0;
+      border: none;
+      background: transparent;
     }
     .image-wrap img {
       width: 100%;
@@ -103,6 +128,7 @@ class ImageEditor extends LitElement {
       border-radius: 12px;
       border: 1px solid #e5e7eb;
       background: #f3f4f6;
+      flex-shrink: 0;
     }
     .image-wrap.image-full img {
       width: 100%;
@@ -220,6 +246,32 @@ class ImageEditor extends LitElement {
       border-color: #2563eb;
       background: #2563eb;
       color: #ffffff;
+    }
+    .image-navigation {
+      display: flex;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      justify-content: center;
+    }
+    .nav-button {
+      padding: 8px 12px;
+      font-size: 12px;
+      border-radius: 6px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #374151;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .nav-button:hover:not(:disabled) {
+      border-color: #9ca3af;
+      background: #f3f4f6;
+    }
+    .nav-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     .tag-section {
       display: flex;
@@ -377,12 +429,117 @@ class ImageEditor extends LitElement {
       font-size: 12px;
       color: #9ca3af;
     }
+    .zoom-controls {
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.98);
+      padding: 12px;
+      border-top: 1px solid #e5e7eb;
+      box-shadow: 0 -2px 8px rgba(15, 23, 42, 0.1);
+    }
+    .zoom-button {
+      padding: 6px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #374151;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .zoom-button:hover {
+      background: #f3f4f6;
+      border-color: #d1d5db;
+    }
+    .zoom-button.active {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .fullscreen-viewer {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 70;
+      background: #000000;
+      align-items: center;
+      justify-content: center;
+    }
+    .fullscreen-viewer.open {
+      display: flex;
+    }
+    .fullscreen-viewer-content {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-start;
+      overflow: auto;
+      padding: 20px;
+    }
+    .fullscreen-viewer-image {
+      width: auto;
+      height: auto;
+      max-width: none;
+      max-height: none;
+      cursor: grab;
+    }
+    .fullscreen-viewer-image:active {
+      cursor: grabbing;
+    }
+    .fullscreen-close {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      z-index: 71;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+      font-size: 28px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .fullscreen-close:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+    .fullscreen-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 71;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 12px 16px;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 12px;
+      text-align: center;
+    }
     @media (max-width: 900px) {
       .panel-body {
         grid-template-columns: 1fr;
       }
       .tag-form {
         grid-template-columns: 1fr;
+      }
+      .zoom-controls {
+        flex-wrap: wrap;
+        gap: 8px;
       }
     }
   `];
@@ -406,6 +563,10 @@ class ImageEditor extends LitElement {
     ratingSaving: { type: Boolean },
     ratingError: { type: String },
     metadataRefreshing: { type: Boolean },
+    isActualSize: { type: Boolean },
+    fullscreenOpen: { type: Boolean },
+    imageSet: { type: Array },
+    currentImageIndex: { type: Number },
   };
 
   constructor() {
@@ -428,6 +589,10 @@ class ImageEditor extends LitElement {
     this.ratingSaving = false;
     this.ratingError = '';
     this.metadataRefreshing = false;
+    this.isActualSize = false;
+    this.fullscreenOpen = false;
+    this.imageSet = [];
+    this.currentImageIndex = -1;
     this._ratingBurstActive = false;
     this._ratingBurstTimer = null;
     this._suppressPermatagRefresh = false;
@@ -613,6 +778,40 @@ class ImageEditor extends LitElement {
       console.error('ImageEditor: full image load failed', error);
     } finally {
       this.fullImageLoading = false;
+    }
+  }
+
+  _setFitToWidth() {
+    this.isActualSize = false;
+  }
+
+  _setActualSize() {
+    this.isActualSize = true;
+  }
+
+  _openFullscreen() {
+    this.fullscreenOpen = true;
+  }
+
+  _closeFullscreen() {
+    this.fullscreenOpen = false;
+  }
+
+  _goToPreviousImage() {
+    if (this.currentImageIndex > 0) {
+      const previousIndex = this.currentImageIndex - 1;
+      this.dispatchEvent(new CustomEvent('image-navigate', {
+        detail: { imageId: this.imageSet[previousIndex].id, index: previousIndex }
+      }));
+    }
+  }
+
+  _goToNextImage() {
+    if (this.currentImageIndex < this.imageSet.length - 1) {
+      const nextIndex = this.currentImageIndex + 1;
+      this.dispatchEvent(new CustomEvent('image-navigate', {
+        detail: { imageId: this.imageSet[nextIndex].id, index: nextIndex }
+      }));
     }
   }
 
@@ -1085,16 +1284,29 @@ class ImageEditor extends LitElement {
       ? this.fullImageUrl
       : (this.details.thumbnail_url || `/api/v1/images/${this.details.id}/thumbnail`);
     const showHighResButton = !this.fullImageUrl && !this.fullImageLoading;
+    const imageContainerClasses = `image-container ${this.isActualSize ? 'zoomed' : ''}`;
     return html`
       <div class="panel-body">
         <div class="image-wrap image-full">
-          <img src="${imageSrc}" alt="${this.details.filename}">
-          ${showHighResButton ? html`
-            <button class="high-res-button" @click=${this._loadFullImage}>High Res</button>
-          ` : this.fullImageLoading ? html`
-            <div class="high-res-loading" aria-live="polite">
-              <span class="high-res-spinner" aria-hidden="true"></span>
-              Loading high res…
+          <div class="${imageContainerClasses}">
+            <img src="${imageSrc}" alt="${this.details.filename}">
+            ${showHighResButton ? html`
+              <button class="high-res-button" @click=${this._loadFullImage}>High Res</button>
+            ` : this.fullImageLoading ? html`
+              <div class="high-res-loading" aria-live="polite">
+                <span class="high-res-spinner" aria-hidden="true"></span>
+                Loading high res…
+              </div>
+            ` : html``}
+          </div>
+          ${this.fullImageUrl ? html`
+            <div class="zoom-controls">
+              <button class="zoom-button ${!this.isActualSize ? 'active' : ''}" @click=${() => this._setFitToWidth()}>
+                Fit to width
+              </button>
+              <button class="zoom-button" @click=${() => this._openFullscreen()}>
+                Fullscreen
+              </button>
             </div>
           ` : html``}
         </div>
@@ -1113,7 +1325,7 @@ class ImageEditor extends LitElement {
               People
             </button>
           </div>
-          <div class="mt-3">
+          <div class="mt-3" style="flex: 1; min-height: 0; overflow: auto;">
             ${this.activeTab === 'metadata'
               ? this._renderMetadataTab()
               : this.activeTab === 'tags'
@@ -1121,6 +1333,27 @@ class ImageEditor extends LitElement {
                 : this.activeTab === 'people'
                   ? this._renderPeopleTab()
                   : this._renderEditTab()}
+          </div>
+          <div class="image-navigation">
+            <button
+              class="nav-button"
+              @click=${() => this._goToPreviousImage()}
+              ?disabled=${this.currentImageIndex <= 0}
+              title="Previous image"
+            >
+              ← Previous
+            </button>
+            <span style="display: flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280;">
+              ${this.currentImageIndex >= 0 && this.imageSet?.length ? `${this.currentImageIndex + 1} / ${this.imageSet.length}` : ''}
+            </span>
+            <button
+              class="nav-button"
+              @click=${() => this._goToNextImage()}
+              ?disabled=${this.currentImageIndex >= (this.imageSet?.length || 1) - 1}
+              title="Next image"
+            >
+              Next →
+            </button>
           </div>
         </div>
       </div>
@@ -1142,6 +1375,10 @@ class ImageEditor extends LitElement {
       `;
     }
 
+    const fullscreenImageSrc = this.fullImageUrl
+      ? this.fullImageUrl
+      : (this.details?.thumbnail_url || `/api/v1/images/${this.details?.id}/thumbnail`);
+
     return html`
       <div class="modal ${this.open ? 'open' : ''}" @click=${this._close}>
         <div class="panel" @click=${(e) => e.stopPropagation()}>
@@ -1150,6 +1387,20 @@ class ImageEditor extends LitElement {
             <button class="panel-close" @click=${this._close}>&times;</button>
           </div>
           ${this._renderContent()}
+        </div>
+      </div>
+      <div class="fullscreen-viewer ${this.fullscreenOpen ? 'open' : ''}" @click=${() => this._closeFullscreen()}>
+        <div class="fullscreen-viewer-content" @click=${(e) => e.stopPropagation()}>
+          <img
+            class="fullscreen-viewer-image"
+            src="${fullscreenImageSrc}"
+            alt="${this.image.filename}"
+            @click=${(e) => e.stopPropagation()}
+          >
+        </div>
+        <button class="fullscreen-close" @click=${() => this._closeFullscreen()}>×</button>
+        <div class="fullscreen-controls">
+          Scroll to pan • Click to close
         </div>
       </div>
     `;

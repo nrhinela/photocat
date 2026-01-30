@@ -564,6 +564,7 @@ class PhotoCatApp extends LitElement {
         flex-direction: column;
         gap: 10px;
         min-height: 140px;
+        position: relative;
     }
     .curate-utility-box.active {
         border-color: #2563eb;
@@ -617,7 +618,9 @@ class PhotoCatApp extends LitElement {
         background: #eef5ff;
     }
     .curate-utility-remove {
-        margin-left: auto;
+        position: absolute;
+        top: 12px;
+        right: 12px;
         width: 22px;
         height: 22px;
         border-radius: 9999px;
@@ -1095,6 +1098,8 @@ class PhotoCatApp extends LitElement {
       curateThumbSize: { type: Number },
       curateEditorImage: { type: Object },
       curateEditorOpen: { type: Boolean },
+      curateEditorImageSet: { type: Array },
+      curateEditorImageIndex: { type: Number },
       curateSubTab: { type: String, attribute: false },
       searchSubTab: { type: String, attribute: false },
       searchChipFilters: { type: Array },
@@ -1171,6 +1176,8 @@ class PhotoCatApp extends LitElement {
       this.curateThumbSize = 190;
       this.curateEditorImage = null;
       this.curateEditorOpen = false;
+      this.curateEditorImageSet = [];
+      this.curateEditorImageIndex = -1;
       this.curateSubTab = 'home';
       this.searchSubTab = 'home';
       this.searchChipFilters = [];
@@ -2581,6 +2588,8 @@ class PhotoCatApp extends LitElement {
         const image = event?.detail?.image;
         if (!image?.id) return;
         this.curateEditorImage = image;
+        this.curateEditorImageSet = Array.isArray(this.curateImages) ? [...this.curateImages] : [];
+        this.curateEditorImageIndex = this.curateEditorImageSet.findIndex(img => img.id === image.id);
         this.curateEditorOpen = true;
     }
     
@@ -3191,6 +3200,8 @@ class PhotoCatApp extends LitElement {
           return;
       }
       this.curateEditorImage = image;
+      this.curateEditorImageSet = Array.isArray(this.curateImages) ? [...this.curateImages] : [];
+      this.curateEditorImageIndex = this.curateEditorImageSet.findIndex(img => img.id === image.id);
       this.curateEditorOpen = true;
   }
 
@@ -3324,6 +3335,15 @@ class PhotoCatApp extends LitElement {
   _handleCurateEditorClose() {
       this.curateEditorOpen = false;
       this.curateEditorImage = null;
+  }
+
+  _handleImageNavigate(event) {
+      const { index } = event.detail;
+      if (index >= 0 && index < this.curateEditorImageSet.length) {
+          const nextImage = this.curateEditorImageSet[index];
+          this.curateEditorImage = nextImage;
+          this.curateEditorImageIndex = index;
+      }
   }
 
   _handleCurateSelectStart(event, index, imageId) {
@@ -4471,17 +4491,17 @@ class PhotoCatApp extends LitElement {
                                         <option value="remove">Remove</option>
                                       </select>
                                     `}
-                                    ${!isFirstTarget ? html`
-                                      <button
-                                        type="button"
-                                        class="curate-utility-remove"
-                                        title="Remove box"
-                                        @click=${() => this._handleCurateExploreHotspotRemoveTarget(target.id)}
-                                      >
-                                        ×
-                                      </button>
-                                    ` : html``}
                                   </div>
+                                  ${!isFirstTarget ? html`
+                                    <button
+                                      type="button"
+                                      class="curate-utility-remove"
+                                      title="Remove box"
+                                      @click=${() => this._handleCurateExploreHotspotRemoveTarget(target.id)}
+                                    >
+                                      ×
+                                    </button>
+                                  ` : html``}
                                   <div class="curate-utility-count">${target.count || 0}</div>
                                   <div class="curate-utility-drop-hint">Drop images here</div>
                                 </div>
@@ -4731,17 +4751,17 @@ class PhotoCatApp extends LitElement {
                                             <option value="remove">Remove</option>
                                           </select>
                                         `}
-                                        ${!isPrimary ? html`
-                                          <button
-                                            type="button"
-                                            class="curate-utility-remove"
-                                            title="Remove box"
-                                            @click=${() => this._handleCurateAuditHotspotRemoveTarget(target.id)}
-                                          >
-                                            ×
-                                          </button>
-                                        ` : html``}
                                       </div>
+                                      ${!isPrimary ? html`
+                                        <button
+                                          type="button"
+                                          class="curate-utility-remove"
+                                          title="Remove box"
+                                          @click=${() => this._handleCurateAuditHotspotRemoveTarget(target.id)}
+                                        >
+                                          ×
+                                        </button>
+                                      ` : html``}
                                       <div class="curate-utility-count">${target.count || 0}</div>
                                       <div class="curate-utility-drop-hint">Drop images here</div>
                                     </div>
@@ -4827,9 +4847,12 @@ class PhotoCatApp extends LitElement {
             .tenant=${this.tenant}
             .image=${this.curateEditorImage}
             .open=${this.curateEditorOpen}
+            .imageSet=${this.curateEditorImageSet}
+            .currentImageIndex=${this.curateEditorImageIndex}
             @close=${this._handleCurateEditorClose}
             @image-rating-updated=${this._handleImageRatingUpdated}
             @zoom-to-photo=${this._handleZoomToPhoto}
+            @image-navigate=${this._handleImageNavigate}
           ></image-editor>
         ` : ''}
     `;

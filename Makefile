@@ -3,6 +3,7 @@
 .PHONY: help install test lint format clean deploy migrate dev worker dev-backend dev-frontend dev-css
 .PHONY: db-dev db-prod db-migrate-prod db-migrate-dev db-create-migration
 .PHONY: deploy-api deploy-worker deploy-all status logs-api logs-worker env-check
+.PHONY: train-and-recompute
 
 # Default environment
 ENV ?= prod
@@ -41,9 +42,11 @@ help:
 	@echo ""
 	@echo "Utilities:"
 	@echo "  env-check          Show current environment configuration"
+	@echo "  train-and-recompute Train keyword models and recompute tags"
 	@echo ""
 	@echo "Environment variables:"
 	@echo "  ENV=dev|prod       Target environment (default: dev)"
+	@echo "  TENANT_ID          Tenant ID for train-and-recompute target"
 
 # ============================================================================
 # Development
@@ -250,3 +253,17 @@ env-check:
 	@echo ""
 	@echo "Checking .env file:"
 	@grep -E "^(ENVIRONMENT|DATABASE_URL)" .env 2>/dev/null || echo "  (not configured)"
+
+train-and-recompute:
+	@if [ -z "$(TENANT_ID)" ]; then \
+		echo "ERROR: TENANT_ID is required"; \
+		echo "Usage: make train-and-recompute TENANT_ID=<tenant_id>"; \
+		exit 1; \
+	fi
+	@echo "Training keyword models for tenant: $(TENANT_ID)..."
+	photocat train-keyword-models --tenant-id $(TENANT_ID)
+	@echo "Recomputing trained tags..."
+	photocat recompute-trained-tags --tenant-id $(TENANT_ID) --replace
+	@echo "Recomputing SigLIP tags..."
+	photocat recompute-siglip-tags --replace --tenant-id $(TENANT_ID)
+	@echo "Done!"
