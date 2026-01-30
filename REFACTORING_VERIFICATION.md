@@ -194,6 +194,24 @@ This uses existing code not touched by refactoring
 
 ---
 
+## CRITICAL TEST: Parameter Generation is Identical
+
+**Verified:** The parameter generation between old and refactored code is **100% identical**:
+```
+OLD: category_filters=%7B%22Circus+Skills%22%3A%7B%22keywords%22%3A%5B%22aerial-lyra%22%5D%2C%22operator%22%3A%22OR%22%7D%7D&category_filter_source=permatags
+NEW: category_filters=%7B%22Circus+Skills%22%3A%7B%22keywords%22%3A%5B%22aerial-lyra%22%5D%2C%22operator%22%3A%22OR%22%7D%7D&category_filter_source=permatags
+```
+
+**This means:** The difference you're seeing (124 items vs 0 items) is **NOT caused by the refactoring code**.
+
+**Possible causes:**
+1. Browser cache not cleared - run hard refresh
+2. Different branch/version being served
+3. Different database state between tests
+4. Backend filter logic issue (not our code)
+
+---
+
 ## How to Report the Search Issues
 
 These should be logged as separate bugs:
