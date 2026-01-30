@@ -281,28 +281,16 @@ class AppHeader extends LitElement {
                         <i class="fas fa-list mr-2"></i>Lists
                     </button>
                     <button
-                        @click=${() => this._handleTabChange('people')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'people' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
+                        @click=${() => this._handleTabChange('admin')}
+                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'admin' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
                     >
-                        <i class="fas fa-users mr-2"></i>People
+                        <i class="fas fa-cog mr-2"></i>Admin
                     </button>
                     <button
-                        @click=${() => this._handleTabChange('tagging')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'tagging' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
+                        @click=${() => this._handleTabChange('system')}
+                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'system' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
                     >
-                        <i class="fas fa-tags mr-2"></i>Tagging
-                    </button>
-                    <button
-                        @click=${() => this._handleTabChange('ml-training')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'ml-training' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-brain mr-2"></i>Pipeline
-                    </button>
-                    <button
-                        @click=${() => this._handleTabChange('cli')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'cli' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-terminal mr-2"></i>CLI
+                        <i class="fas fa-sliders mr-2"></i>System
                     </button>
                     <button
                         @click=${() => this._handleTabChange('queue')}

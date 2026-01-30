@@ -128,6 +128,54 @@ class PhotoCatApp extends LitElement {
         color: #ffffff;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
     }
+    .admin-subtabs {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        border-radius: 999px;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 16px;
+    }
+    .admin-subtab {
+        border: none;
+        background: transparent;
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+    }
+    .admin-subtab.active {
+        background: #2563eb;
+        color: #ffffff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    }
+    .system-subtabs {
+        display: inline-flex;
+        gap: 6px;
+        padding: 4px;
+        border-radius: 999px;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 16px;
+    }
+    .system-subtab {
+        border: none;
+        background: transparent;
+        color: #6b7280;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 6px 12px;
+        border-radius: 999px;
+        cursor: pointer;
+    }
+    .system-subtab.active {
+        background: #2563eb;
+        color: #ffffff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    }
     .curate-audit-toggle {
         display: inline-flex;
         gap: 6px;
@@ -1073,6 +1121,8 @@ class PhotoCatApp extends LitElement {
       tenant: { type: String },
       showUploadModal: { type: Boolean },
       activeTab: { type: String }, // New property for active tab
+      activeAdminSubTab: { type: String }, // Subtab for admin section (people or tagging)
+      activeSystemSubTab: { type: String }, // Subtab for system section (pipeline or cli)
       keywords: { type: Array },
       queueState: { type: Object },
       showQueuePanel: { type: Boolean },
@@ -1150,6 +1200,8 @@ class PhotoCatApp extends LitElement {
       this.tenant = 'bcg'; // Default tenant
       this.showUploadModal = false;
       this.activeTab = 'home'; // Default to home tab
+      this.activeAdminSubTab = 'tagging'; // Default admin subtab
+      this.activeSystemSubTab = 'ml-training'; // Default system subtab
       this.keywords = [];
       this.queueState = { queuedCount: 0, inProgressCount: 0, failedCount: 0 };
       this._unsubscribeQueue = null;
@@ -3593,9 +3645,8 @@ class PhotoCatApp extends LitElement {
       { key: 'search', label: 'Search', subtitle: 'Explore and save results', icon: 'fa-magnifying-glass' },
       { key: 'curate', label: 'Curate', subtitle: 'Build stories and sets', icon: 'fa-star' },
       { key: 'lists', label: 'Lists', subtitle: 'Organize saved sets', icon: 'fa-list' },
-      { key: 'people', label: 'People', subtitle: 'Manage and tag people', icon: 'fa-users' },
-      { key: 'tagging', label: 'Tagging', subtitle: 'Manage keywords and labels', icon: 'fa-tags' },
-      { key: 'ml-training', label: 'Pipeline', subtitle: 'Inspect training data', icon: 'fa-brain' },
+      { key: 'admin', label: 'Admin', subtitle: 'Manage configuration', icon: 'fa-cog' },
+      { key: 'system', label: 'System', subtitle: 'Manage pipelines and tasks', icon: 'fa-sliders' },
     ];
     const leftImages = this.curateImages;
     this._curateLeftOrder = leftImages.map((img) => img.id);
@@ -4107,6 +4158,12 @@ class PhotoCatApp extends LitElement {
                     >
                       Tag audit
                     </button>
+                    <button
+                      class="curate-subtab ${this.curateSubTab === 'help' ? 'active' : ''}"
+                      @click=${() => this._handleCurateSubTabChange('help')}
+                    >
+                      <i class="fas fa-question-circle mr-1"></i>Help
+                    </button>
                 </div>
                 <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
                   <label class="font-semibold text-gray-600">Thumb</label>
@@ -4141,61 +4198,137 @@ class PhotoCatApp extends LitElement {
                 </div>
                 <div ?hidden=${this.curateSubTab !== 'home'}>
                   <div class="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6">
-                    <!-- Left Column: Instructions -->
-                    <div class="space-y-6">
-                      <div class="bg-white rounded-lg shadow p-6">
-                        <h2 class="text-2xl font-bold text-gray-900 mb-6">Curate Your Collection</h2>
+                    <!-- Left Column: Ratings Information -->
+                    <div class="bg-white rounded-lg shadow p-4 self-start sticky top-0 max-h-[calc(100vh-200px)] overflow-y-auto">
+                      <div class="text-xs text-gray-500 uppercase font-semibold mb-4">
+                        Ratings
+                      </div>
 
-                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-                          <h3 class="text-lg font-semibold text-blue-900 mb-3">Getting Started</h3>
-                          <p class="text-blue-800 text-sm mb-4">
-                            Welcome to the Curation interface! Here's how to organize your collection:
-                          </p>
-                          <ol class="space-y-3 text-sm text-blue-800">
-                            <li class="flex gap-3">
-                              <span class="font-bold flex-shrink-0">1.</span>
-                              <span><button @click=${() => this._handleCurateSubTabChange('main')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Explore Tab</button>: Browse, select, and organize images by dragging them between panes. Use filters and keywords to find exactly what you need.</span>
-                            </li>
-                            <li class="flex gap-3">
-                              <span class="font-bold flex-shrink-0">2.</span>
-                              <span><button @click=${() => this._handleCurateSubTabChange('tag-audit')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Tag Audit Tab</button>: Review and validate machine-generated tags. Ensure your automated tags are accurate and complete.</span>
-                            </li>
-                            <li class="flex gap-3">
-                              <span class="font-bold flex-shrink-0">3.</span>
-                              <span><strong>Curate Home (This Tab):</strong> Monitor tag statistics and understand your collection's tagging patterns at a glance.</span>
-                            </li>
-                          </ol>
+                      <!-- Ratings by Keyword (Category Grid with Keywords) -->
+                      <div class="mb-2">
+                        <!-- Summary Row -->
+                        <div class="border border-gray-200 rounded-lg p-2 bg-blue-50 mb-2">
+                          <!-- Headers -->
+                          <div class="grid grid-cols-5 gap-1 text-xs mb-1 pb-1 border-b border-blue-200">
+                            <div class="text-left py-1 px-1 font-semibold text-blue-900">Total Ratings</div>
+                            <div class="text-center py-1 px-1 font-semibold text-blue-900">Total</div>
+                            <div class="text-center py-1 px-1 font-semibold text-blue-900">Rated</div>
+                            <div class="text-center py-1 px-1 font-semibold text-blue-900">Trash</div>
+                            <div class="text-center py-1 px-1 font-semibold text-blue-900">%Rated</div>
+                          </div>
+                          <!-- Data Row -->
+                          <div class="grid grid-cols-5 gap-1 text-xs">
+                            <div class="text-left py-1 px-1"></div>
+                            ${(() => {
+                              const totalRated = (this.imageStats?.rated_image_count || 0) + (this.imageStats?.rating_counts?.trash || 0);
+                              const totalImages = this.imageStats?.image_count || 0;
+                              const percent = totalImages > 0 ? Math.round((totalRated / totalImages) * 100) : 0;
+                              return html`
+                                <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                  <div class="text-gray-700">${this._formatStatNumber(totalImages)}</div>
+                                </div>
+                                <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                  <div class="text-blue-600">${this._formatStatNumber(this.imageStats?.rated_image_count || 0)}</div>
+                                </div>
+                                <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                  <div class="text-red-600">${this._formatStatNumber(this.imageStats?.rating_counts?.trash || 0)}</div>
+                                </div>
+                                <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                  <div class="text-purple-600 font-semibold">${percent}%</div>
+                                </div>
+                              `;
+                            })()}
+                          </div>
                         </div>
 
-                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
-                          <h3 class="text-lg font-semibold text-green-900 mb-3">Quick Tips</h3>
-                          <ul class="space-y-2 text-sm text-green-800">
-                            <li class="flex gap-2">
-                              <span>📌</span>
-                              <span>Click and drag images to move them between left and right panes</span>
-                            </li>
-                            <li class="flex gap-2">
-                              <span>🏷️</span>
-                              <span>Drag images into hotspots to add or remove tags</span>
-                            </li>
-                            <li class="flex gap-2">
-                              <span>🔍</span>
-                              <span>Filter by keywords, ratings, and lists to focus on specific images</span>
-                            </li>
-                            <li class="flex gap-2">
-                              <span>⚙️</span>
-                              <span>Switch between Permatags, Keyword-Model, and Zero-Shot in the histogram</span>
-                            </li>
-                          </ul>
+                        <div class="space-y-2">
+                          ${Object.keys(this.imageStats?.rating_by_category || {}).length ? html`
+                            ${Object.entries(this.imageStats?.rating_by_category || {}).map(([category, categoryData]) => html`
+                              <div class="border border-gray-200 rounded-lg p-2 bg-gray-50">
+                                <!-- Category Header -->
+                                <div class="text-xs font-semibold text-gray-700 mb-2">${category.replace(/_/g, ' ')}</div>
+
+                                <!-- Column Headers -->
+                                <div class="grid grid-cols-5 gap-1 text-xs mb-1 pb-1 border-b border-gray-200">
+                                  <div class="text-left py-1 px-1"></div>
+                                  <div class="text-center py-1 px-1 font-semibold text-gray-600">Total</div>
+                                  <div class="text-center py-1 px-1 font-semibold text-gray-600">Rated</div>
+                                  <div class="text-center py-1 px-1 font-semibold text-gray-600">Trash</div>
+                                  <div class="text-center py-1 px-1 font-semibold text-gray-600">%Rated</div>
+                                </div>
+
+                                <!-- Individual Keywords -->
+                                <div class="space-y-0.5">
+                                  ${Object.entries(categoryData.keywords || {}).sort(([a], [b]) => a.localeCompare(b)).map(([keywordName, keywordData]) => {
+                                    const ratedPlusTrash = (keywordData.rated_images || 0) + (keywordData.trash || 0);
+                                    const total = keywordData.total_images || 0;
+                                    const percentRated = total > 0 ? Math.round((ratedPlusTrash / total) * 100) : 0;
+                                    return html`
+                                    <div class="grid grid-cols-5 gap-1 text-xs">
+                                      <div class="text-left py-1 px-1 text-gray-600 truncate" title="${keywordName}">${keywordName}</div>
+                                      <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                        <div class="text-gray-700">${this._formatStatNumber(total)}</div>
+                                      </div>
+                                      <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                        <div class="text-blue-600">${this._formatStatNumber(keywordData.rated_images || 0)}</div>
+                                      </div>
+                                      <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                        <div class="text-red-600">${this._formatStatNumber(keywordData.trash || 0)}</div>
+                                      </div>
+                                      <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                        <div class="text-purple-600 font-semibold">${percentRated}%</div>
+                                      </div>
+                                    </div>
+                                  `})}
+                                </div>
+                              </div>
+                            `)}
+                          ` : html`
+                            <div class="text-xs text-gray-400">No keyword categories yet.</div>
+                          `}
                         </div>
                       </div>
                     </div>
 
                     <!-- Right Column: Tag Counts -->
                     <div class="bg-white rounded-lg shadow p-4 self-start sticky top-0 max-h-[calc(100vh-200px)] overflow-y-auto">
-                      <div class="text-xs text-gray-500 uppercase font-semibold mb-2">
-                        Tag Counts: Total: ${this._formatStatNumber(this.imageStats?.image_count)} / Reviewed: ${this._formatStatNumber(this.imageStats?.reviewed_image_count)}
+                      <div class="text-xs text-gray-500 uppercase font-semibold mb-4">TAGS</div>
+                      <!-- Tag Counts Summary Box -->
+                      <div class="border border-gray-200 rounded-lg p-2 bg-green-50 mb-2">
+                        <!-- Headers -->
+                        <div class="grid grid-cols-5 gap-1 text-xs mb-1 pb-1 border-b border-green-200">
+                          <div class="text-left py-1 px-1 font-semibold text-green-900">Tags</div>
+                          <div class="text-center py-1 px-1 font-semibold text-green-900">Total</div>
+                          <div class="text-center py-1 px-1 font-semibold text-green-900">Tagged</div>
+                          <div class="text-center py-1 px-1 font-semibold text-green-900">Untagged</div>
+                          <div class="text-center py-1 px-1 font-semibold text-green-900">%Tagged</div>
+                        </div>
+                        <!-- Data Row -->
+                        <div class="grid grid-cols-5 gap-1 text-xs">
+                          <div class="text-left py-1 px-1"></div>
+                          ${(() => {
+                            const total = this.imageStats?.image_count || 0;
+                            const tagged = this.imageStats?.positive_permatag_image_count || 0;
+                            const untagged = total - tagged;
+                            const percent = total > 0 ? Math.round((tagged / total) * 100) : 0;
+                            return html`
+                              <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                <div class="text-gray-700">${this._formatStatNumber(total)}</div>
+                              </div>
+                              <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                <div class="text-green-600">${this._formatStatNumber(tagged)}</div>
+                              </div>
+                              <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                <div class="text-orange-600">${this._formatStatNumber(untagged)}</div>
+                              </div>
+                              <div class="text-center py-1 px-1 bg-white rounded border border-gray-100">
+                                <div class="text-green-600 font-semibold">${percent}%</div>
+                              </div>
+                            `;
+                          })()}
+                        </div>
                       </div>
+
                       <div class="flex items-center gap-2 mb-3 text-xs font-semibold text-gray-600">
                         ${[
                           { key: 'permatags', label: 'Permatags' },
@@ -4766,15 +4899,112 @@ class PhotoCatApp extends LitElement {
                       </div>
                     `}
                 </div>
+                <div ?hidden=${this.curateSubTab !== 'help'}>
+                  <div class="space-y-6">
+                    <div class="bg-white rounded-lg shadow p-6">
+                      <h2 class="text-2xl font-bold text-gray-900 mb-6">Curate Your Collection</h2>
+
+                      <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                        <h3 class="text-lg font-semibold text-blue-900 mb-3">Getting Started</h3>
+                        <p class="text-blue-800 text-sm mb-4">
+                          Welcome to the Curation interface! Here's how to organize your collection:
+                        </p>
+                        <ol class="space-y-3 text-sm text-blue-800">
+                          <li class="flex gap-3">
+                            <span class="font-bold flex-shrink-0">1.</span>
+                            <span><button @click=${() => this._handleCurateSubTabChange('main')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Explore Tab</button>: Browse, select, and organize images by dragging them between panes. Use filters and keywords to find exactly what you need.</span>
+                          </li>
+                          <li class="flex gap-3">
+                            <span class="font-bold flex-shrink-0">2.</span>
+                            <span><button @click=${() => this._handleCurateSubTabChange('tag-audit')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Tag Audit Tab</button>: Review and validate machine-generated tags. Ensure your automated tags are accurate and complete.</span>
+                          </li>
+                          <li class="flex gap-3">
+                            <span class="font-bold flex-shrink-0">3.</span>
+                            <span><button @click=${() => this._handleCurateSubTabChange('home')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Curate Home</button>: Monitor tag statistics and understand your collection's tagging patterns at a glance.</span>
+                          </li>
+                        </ol>
+                      </div>
+
+                      <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <h3 class="text-lg font-semibold text-green-900 mb-3">Quick Tips</h3>
+                        <ul class="space-y-2 text-sm text-green-800">
+                          <li class="flex gap-2">
+                            <span>📌</span>
+                            <span>Click and drag images to move them between left and right panes</span>
+                          </li>
+                          <li class="flex gap-2">
+                            <span>🏷️</span>
+                            <span>Drag images into hotspots to add or remove tags</span>
+                          </li>
+                          <li class="flex gap-2">
+                            <span>🔍</span>
+                            <span>Filter by keywords, ratings, and lists to focus on specific images</span>
+                          </li>
+                          <li class="flex gap-2">
+                            <span>⚙️</span>
+                            <span>Switch between Permatags, Keyword-Model, and Zero-Shot in the histogram</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
             </div>
             <div slot="lists" class="container p-4">
                 <list-editor .tenant=${this.tenant}></list-editor>
+            </div>
+            <div slot="admin" class="container p-4">
+                <div class="admin-subtabs">
+                    <button
+                        class="admin-subtab ${this.activeAdminSubTab === 'tagging' ? 'active' : ''}"
+                        @click=${() => this.activeAdminSubTab = 'tagging'}
+                    >
+                        <i class="fas fa-tags mr-2"></i>Tagging
+                    </button>
+                    <button
+                        class="admin-subtab ${this.activeAdminSubTab === 'people' ? 'active' : ''}"
+                        @click=${() => this.activeAdminSubTab = 'people'}
+                    >
+                        <i class="fas fa-users mr-2"></i>People
+                    </button>
+                </div>
+                ${this.activeAdminSubTab === 'tagging' ? html`
+                    <tagging-admin .tenant=${this.tenant} @open-upload-modal=${this._handleOpenUploadModal}></tagging-admin>
+                ` : ''}
+                ${this.activeAdminSubTab === 'people' ? html`
+                    <person-manager .tenant=${this.tenant}></person-manager>
+                ` : ''}
             </div>
             <div slot="people" class="container p-4">
                 <person-manager .tenant=${this.tenant}></person-manager>
             </div>
             <div slot="tagging" class="container p-4">
                 <tagging-admin .tenant=${this.tenant} @open-upload-modal=${this._handleOpenUploadModal}></tagging-admin>
+            </div>
+            <div slot="system" class="container p-4">
+                <div class="system-subtabs">
+                    <button
+                        class="system-subtab ${this.activeSystemSubTab === 'ml-training' ? 'active' : ''}"
+                        @click=${() => this.activeSystemSubTab = 'ml-training'}
+                    >
+                        <i class="fas fa-brain mr-2"></i>Pipeline
+                    </button>
+                    <button
+                        class="system-subtab ${this.activeSystemSubTab === 'cli' ? 'active' : ''}"
+                        @click=${() => this.activeSystemSubTab = 'cli'}
+                    >
+                        <i class="fas fa-terminal mr-2"></i>CLI
+                    </button>
+                </div>
+                ${this.activeSystemSubTab === 'ml-training' ? html`
+                    <ml-training
+                      .tenant=${this.tenant}
+                      @open-image-editor=${this._handlePipelineOpenImage}
+                    ></ml-training>
+                ` : ''}
+                ${this.activeSystemSubTab === 'cli' ? html`
+                    <cli-commands></cli-commands>
+                ` : ''}
             </div>
             <div slot="ml-training" class="container p-4">
                 <ml-training
