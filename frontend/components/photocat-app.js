@@ -2004,7 +2004,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateHideDeleted) {
           filters.hideZeroRating = true;
       }
-      if (this.curateNoPositivePermatags) {
+      if (this.activeTab === 'curate' && this.curateNoPositivePermatags) {
           filters.permatagPositiveMissing = true;
       }
       if (this.curateMinRating !== null && this.curateMinRating !== undefined) {
