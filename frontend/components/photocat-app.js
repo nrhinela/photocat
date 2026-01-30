@@ -2784,12 +2784,9 @@ class PhotoCatApp extends LitElement {
           }
       });
 
-      // Reset page offset and rebuild filters
+      // Reset page offset and rebuild filters (_applyCurateFilters also calls _fetchCurateImages)
       this.curatePageOffset = 0;
       this._applyCurateFilters({ resetOffset: true });
-
-      // Fetch images with new filters
-      this._fetchCurateImages();
   }
 
   async _fetchDropboxFolders(query) {

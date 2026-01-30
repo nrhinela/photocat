@@ -106,7 +106,8 @@ export async function getImages(tenantId, filters = {}) {
   addPermatagParams(params, filters);
   addMlTagParams(params, filters);
 
-  return fetchWithAuth(`/images?${params.toString()}`, {
+  const url = `/images?${params.toString()}`;
+  return fetchWithAuth(url, {
     tenantId,
   });
 }

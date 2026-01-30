@@ -193,3 +193,29 @@ class FilterBuilder:
             return materialized
         else:
             return existing_filter.intersection(materialized)
+
+    def apply_custom(
+        self,
+        logic_func,
+        existing_filter: Optional[Set[int]] = None,
+        as_subquery: bool = False
+    ):
+        """Apply custom filter logic.
+
+        Args:
+            logic_func: Function(query) -> modified_query for custom filter logic
+            existing_filter: Existing filter set to intersect with (materialized only)
+            as_subquery: Return subquery form instead of materialized
+
+        Returns:
+            Set[int] or Selectable depending on as_subquery
+        """
+        materialized, subquery = self._apply_filter_logic(self._base_query(), logic_func)
+
+        if as_subquery:
+            return subquery
+
+        if existing_filter is None:
+            return materialized
+        else:
+            return existing_filter.intersection(materialized)

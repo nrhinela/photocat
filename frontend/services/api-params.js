@@ -10,9 +10,9 @@
  * @param {URLSearchParams} params - URLSearchParams object
  * @param {string} key - Parameter key
  * @param {any} value - Parameter value
- * @param {boolean} condition - Whether to include this parameter
+ * @param {boolean} condition - Whether to include this parameter (required, no default)
  */
-function appendIf(params, key, value, condition = true) {
+function appendIf(params, key, value, condition) {
   if (condition && value !== undefined && value !== null && value !== '') {
     params.append(key, String(value));
   }
@@ -36,10 +36,10 @@ export function addPaginationParams(params, filters = {}) {
  */
 export function addRatingParams(params, filters = {}) {
   if (filters.rating !== undefined && filters.rating !== '') {
-    appendIf(params, 'rating', filters.rating);
-    appendIf(params, 'rating_operator', filters.ratingOperator);
+    appendIf(params, 'rating', filters.rating, true);
+    appendIf(params, 'rating_operator', filters.ratingOperator, filters.ratingOperator !== undefined && filters.ratingOperator !== null && filters.ratingOperator !== '');
   } else if (filters.ratingOperator === 'is_null') {
-    appendIf(params, 'rating_operator', 'is_null');
+    appendIf(params, 'rating_operator', 'is_null', true);
   }
 
   appendIf(params, 'hide_zero_rating', 'true', filters.hideZeroRating);
@@ -51,11 +51,11 @@ export function addRatingParams(params, filters = {}) {
  * @param {URLSearchParams} params - URLSearchParams to append to
  */
 export function addPermatagParams(params, filters = {}) {
-  appendIf(params, 'permatag_keyword', filters.permatagKeyword);
-  appendIf(params, 'permatag_category', filters.permatagCategory);
+  appendIf(params, 'permatag_keyword', filters.permatagKeyword, filters.permatagKeyword !== undefined && filters.permatagKeyword !== null && filters.permatagKeyword !== '');
+  appendIf(params, 'permatag_category', filters.permatagCategory, filters.permatagCategory !== undefined && filters.permatagCategory !== null && filters.permatagCategory !== '');
   appendIf(params, 'permatag_signum', filters.permatagSignum, filters.permatagSignum !== undefined && filters.permatagSignum !== null);
-  appendIf(params, 'permatag_missing', 'true', filters.permatagMissing);
-  appendIf(params, 'permatag_positive_missing', 'true', filters.permatagPositiveMissing);
+  appendIf(params, 'permatag_missing', 'true', filters.permatagMissing === true);
+  appendIf(params, 'permatag_positive_missing', 'true', filters.permatagPositiveMissing === true);
 }
 
 /**
@@ -64,8 +64,8 @@ export function addPermatagParams(params, filters = {}) {
  * @param {URLSearchParams} params - URLSearchParams to append to
  */
 export function addMlTagParams(params, filters = {}) {
-  appendIf(params, 'ml_keyword', filters.mlKeyword);
-  appendIf(params, 'ml_tag_type', filters.mlTagType);
+  appendIf(params, 'ml_keyword', filters.mlKeyword, filters.mlKeyword !== undefined && filters.mlKeyword !== null && filters.mlKeyword !== '');
+  appendIf(params, 'ml_tag_type', filters.mlTagType, filters.mlTagType !== undefined && filters.mlTagType !== null && filters.mlTagType !== '');
 }
 
 /**
@@ -87,7 +87,7 @@ export function addCategoryFilterParams(params, filters = {}) {
     if (Object.keys(categoryFilters).length > 0) {
       params.append('category_filters', JSON.stringify(categoryFilters));
     }
-    appendIf(params, 'category_filter_source', filters.categoryFilterSource);
+    appendIf(params, 'category_filter_source', filters.categoryFilterSource, filters.categoryFilterSource !== undefined && filters.categoryFilterSource !== null && filters.categoryFilterSource !== '');
   }
 }
 
@@ -97,8 +97,8 @@ export function addCategoryFilterParams(params, filters = {}) {
  * @param {URLSearchParams} params - URLSearchParams to append to
  */
 export function addOrderingParams(params, filters = {}) {
-  appendIf(params, 'date_order', filters.sortOrder);
-  appendIf(params, 'order_by', filters.orderBy);
+  appendIf(params, 'date_order', filters.sortOrder, filters.sortOrder !== undefined && filters.sortOrder !== null && filters.sortOrder !== '');
+  appendIf(params, 'order_by', filters.orderBy, filters.orderBy !== undefined && filters.orderBy !== null && filters.orderBy !== '');
 }
 
 /**
@@ -107,7 +107,7 @@ export function addOrderingParams(params, filters = {}) {
  * @param {URLSearchParams} params - URLSearchParams to append to
  */
 export function addMiscParams(params, filters = {}) {
-  appendIf(params, 'list_id', filters.listId);
+  appendIf(params, 'list_id', filters.listId, filters.listId !== undefined && filters.listId !== null && filters.listId !== '');
   appendIf(params, 'reviewed', filters.reviewed, filters.reviewed !== undefined && filters.reviewed !== '');
-  appendIf(params, 'dropbox_path_prefix', filters.dropboxPathPrefix);
+  appendIf(params, 'dropbox_path_prefix', filters.dropboxPathPrefix, filters.dropboxPathPrefix !== undefined && filters.dropboxPathPrefix !== null && filters.dropboxPathPrefix !== '');
 }
