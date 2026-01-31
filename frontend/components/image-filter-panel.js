@@ -1,320 +1,269 @@
-import { LitElement, html, css } from 'lit';
-import { tailwind } from './tailwind-lit.js';
-import { getImages } from '../services/api.js';
-import './filter-chips.js';
-
 /**
- * ImageFilterPanel - Reusable component for managing image search/filtering
+ * ImageFilterPanel - Reusable filter state container
  *
- * Provides independent state management for different filter panels (search, curate, audit, etc.)
- * Each instance maintains its own filters, images, and pagination state
+ * This is a PURE STATE CONTAINER - it manages filter state and logic ONLY.
+ * It does NOT render any UI. The parent component handles all rendering.
  *
- * Properties:
- *  - tabId: Unique identifier for this panel instance (e.g., 'search', 'curate-home', 'curate-audit')
- *  - tenant: Tenant ID for API calls
- *  - filters: Current filter state for this panel
- *  - images: Current images to display
- *  - imageStats: Image statistics for filter UI
- *  - tagStatsBySource: Tag statistics organized by source
- *  - activeCurateTagSource: Currently selected tag source
+ * Each instance can be used independently to manage filter state for:
+ * - Search tab
+ * - Curate Home tab
+ * - Curate Audit tab
+ * - Any other tab that needs filter state
  *
- * Events:
- *  - filters-changed: Emitted when filters change, detail: { tabId, filters }
- *  - images-loaded: Emitted when images are loaded, detail: { tabId, images, total }
+ * Usage:
+ *
+ * const filterPanel = new ImageFilterPanel('search');
+ * filterPanel.updateFilter('rating', 3);
+ * filterPanel.updateFilter('keywords', { 'Circus Skills': new Set(['aerial-lyra']) });
+ * const params = filterPanel.buildRequestParams();
+ *
+ * Features:
+ * - Independent state per instance
+ * - Methods to update filters
+ * - Method to build API parameters
+ * - Event emission for state changes
+ * - No rendering/UI - pure logic
  */
-export class ImageFilterPanel extends LitElement {
-  static styles = [tailwind, css`
-    :host {
-      display: block;
-    }
-    .loading {
-      opacity: 0.6;
-      pointer-events: none;
-    }
-  `];
 
-  static properties = {
-    tabId: { type: String },
-    tenant: { type: String },
-    filters: { type: Object },
-    images: { type: Array },
-    imageStats: { type: Object },
-    tagStatsBySource: { type: Object },
-    activeCurateTagSource: { type: String },
-    loading: { type: Boolean, state: true },
-  };
+import { getImages } from '../services/api.js';
+import {
+  addPaginationParams,
+  addRatingParams,
+  addPermatagParams,
+  addMlTagParams,
+  addCategoryFilterParams,
+  addOrderingParams,
+  addMiscParams,
+} from '../services/api-params.js';
 
-  constructor() {
-    super();
-    this.tabId = 'default';
+export class ImageFilterPanel {
+  constructor(tabId) {
+    this.tabId = tabId;
     this.tenant = null;
+
+    // Filter state - can be modified independently per instance
     this.filters = {
       limit: 100,
       offset: 0,
       sortOrder: 'desc',
       orderBy: 'photo_creation',
       hideZeroRating: true,
-    };
-    this.images = [];
-    this.imageStats = null;
-    this.tagStatsBySource = {};
-    this.activeCurateTagSource = 'permatags';
-    this.loading = false;
-  }
-
-  /**
-   * Build request-ready filters from current state
-   * Consolidates all filter parameters into a single object for API calls
-   */
-  _buildRequestFilters() {
-    const requestFilters = {
-      limit: this.filters.limit,
-      offset: this.filters.offset || 0,
-      sortOrder: this.filters.sortOrder,
-    };
-
-    // Rating filter
-    if (this.filters.rating !== undefined && this.filters.rating !== null) {
-      if (this.filters.rating === 'unrated') {
-        requestFilters.ratingOperator = 'is_null';
-      } else {
-        requestFilters.rating = this.filters.rating;
-        requestFilters.ratingOperator = this.filters.rating === 0 ? 'eq' : 'gte';
-      }
-    }
-
-    // Keyword/category filters
-    if (this.filters.keywords && Object.keys(this.filters.keywords).length > 0) {
-      const hasSelections = Object.values(this.filters.keywords)
-        .some((keywordsSet) => keywordsSet && keywordsSet.size > 0);
-      if (hasSelections) {
-        requestFilters.keywords = this.filters.keywords;
-        requestFilters.operators = this.filters.operators || {};
-        requestFilters.categoryFilterSource = this.filters.categoryFilterSource || 'permatags';
-      }
-    }
-
-    // Folder filter
-    if (this.filters.dropboxPathPrefix) {
-      requestFilters.dropboxPathPrefix = this.filters.dropboxPathPrefix;
-    }
-
-    // Ordering
-    if (this.filters.orderBy) {
-      requestFilters.orderBy = this.filters.orderBy;
-    }
-
-    // Hide deleted flag
-    if (this.filters.hideZeroRating) {
-      requestFilters.hideZeroRating = true;
-    }
-
-    // Permatag filters (curate-specific)
-    if (this.filters.permatagPositiveMissing) {
-      requestFilters.permatagPositiveMissing = true;
-    }
-
-    return requestFilters;
-  }
-
-  /**
-   * Handle filter changes from filter-chips component
-   */
-  _handleFilterChanged(event) {
-    const chipFilters = event.detail.filters;
-
-    // Reset and apply chip filters
-    this.filters = {
-      ...this.filters,
       keywords: {},
       operators: {},
       rating: undefined,
+      ratingOperator: undefined,
       dropboxPathPrefix: '',
       permatagPositiveMissing: false,
     };
 
-    // Apply each filter from chips
-    chipFilters.forEach(filter => {
-      switch (filter.type) {
-        case 'keyword':
-          if (filter.value === '__untagged__') {
-            this.filters.permatagPositiveMissing = true;
-          } else {
-            this.filters.keywords = { [filter.category]: new Set([filter.value]) };
-            this.filters.operators = { [filter.category]: 'OR' };
-          }
-          break;
-        case 'rating':
-          this.filters.rating = filter.value;
-          break;
-        case 'folder':
-          this.filters.dropboxPathPrefix = filter.value;
-          break;
-      }
-    });
-
-    // Reset pagination on filter change
-    this.filters.offset = 0;
-
-    // Emit to parent
-    this._emitFilterChanged();
-
-    // Fetch with new filters
-    this._fetchImages();
+    // Event listeners for state changes
+    this._listeners = {
+      'filters-changed': [],
+      'images-loaded': [],
+      'error': [],
+    };
   }
 
   /**
-   * Emit filter-changed event to parent
+   * Update a single filter value
    */
-  _emitFilterChanged() {
-    this.dispatchEvent(new CustomEvent('filters-changed', {
-      detail: { tabId: this.tabId, filters: this.filters },
-      bubbles: true,
-      composed: true,
-    }));
+  updateFilter(key, value) {
+    this.filters[key] = value;
+    this._emit('filters-changed', { tabId: this.tabId, filters: this.filters });
+  }
+
+  /**
+   * Update multiple filters at once
+   */
+  updateFilters(updates) {
+    // Replace the entire filters object instead of merging
+    // This ensures properties not in updates are removed
+    this.filters = { ...updates };
+    this._emit('filters-changed', { tabId: this.tabId, filters: this.filters });
+  }
+
+  /**
+   * Reset pagination to first page (useful when filters change)
+   */
+  resetPagination() {
+    this.filters.offset = 0;
+  }
+
+  /**
+   * Set pagination offset
+   */
+  setOffset(offset) {
+    this.filters.offset = offset;
+  }
+
+  /**
+   * Set results per page limit
+   */
+  setLimit(limit) {
+    this.filters.limit = limit;
+    this.resetPagination();
+  }
+
+  /**
+   * Build URL parameters for API request based on current filters
+   */
+  buildRequestParams() {
+    const params = new URLSearchParams();
+
+    // Add all parameters using the helper functions
+    addPaginationParams(params, this.filters);
+    addRatingParams(params, this.filters);
+    addPermatagParams(params, this.filters);
+    addMlTagParams(params, this.filters);
+    addCategoryFilterParams(params, this.filters);
+    addOrderingParams(params, this.filters);
+    addMiscParams(params, this.filters);
+
+    return params;
   }
 
   /**
    * Fetch images from API with current filters
    */
-  async _fetchImages() {
-    if (!this.tenant) return;
+  async fetchImages() {
+    if (!this.tenant) {
+      this._emit('error', { tabId: this.tabId, message: 'Tenant not set' });
+      return;
+    }
 
-    this.loading = true;
     try {
-      const requestFilters = this._buildRequestFilters();
-      const result = await getImages(this.tenant, requestFilters);
+      // Pass the filter object directly to getImages, which will build the params
+      const result = await getImages(this.tenant, this.filters);
 
       const images = Array.isArray(result) ? result : (result.images || []);
       const total = Array.isArray(result) ? null : (result.total || 0);
 
-      this.images = images;
+      this._emit('images-loaded', {
+        tabId: this.tabId,
+        images,
+        total,
+      });
 
-      // Emit to parent
-      this.dispatchEvent(new CustomEvent('images-loaded', {
-        detail: { tabId: this.tabId, images, total },
-        bubbles: true,
-        composed: true,
-      }));
+      return { images, total };
     } catch (error) {
-      console.error(`[ImageFilterPanel ${this.tabId}] Error fetching images:`, error);
-      this.images = [];
-    } finally {
-      this.loading = false;
+      this._emit('error', {
+        tabId: this.tabId,
+        message: `Failed to fetch images: ${error.message}`,
+      });
+      throw error;
     }
   }
 
   /**
-   * Handle pagination change
+   * Register event listener
    */
-  _handlePaginationChange(newOffset) {
-    this.filters.offset = newOffset;
-    this._emitFilterChanged();
-    this._fetchImages();
+  on(eventName, callback) {
+    if (this._listeners[eventName]) {
+      this._listeners[eventName].push(callback);
+    }
   }
 
   /**
-   * Handle limit/results per page change
+   * Remove event listener
    */
-  _handleLimitChange(newLimit) {
-    this.filters.limit = newLimit;
-    this.filters.offset = 0;
-    this._emitFilterChanged();
-    this._fetchImages();
-  }
-
-  render() {
-    return html`
-      <div class=${this.loading ? 'loading' : ''}>
-        <!-- Filter Controls -->
-        <filter-chips
-          .tenant=${this.tenant}
-          .tagStatsBySource=${this.tagStatsBySource}
-          .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
-          .imageStats=${this.imageStats}
-          .activeFilters=${this.filters.activeFilters || []}
-          @filters-changed=${this._handleFilterChanged}
-        >
-          <slot name="sort-controls"></slot>
-          <slot name="view-controls"></slot>
-        </filter-chips>
-
-        <!-- Results Info -->
-        <div class="flex items-center justify-between mb-4 text-sm text-gray-600">
-          <div>${this.images.length} items</div>
-          <div class="flex items-center gap-2">
-            <span>Results per page:</span>
-            <select
-              .value=${String(this.filters.limit)}
-              @change=${(e) => this._handleLimitChange(Number(e.target.value))}
-              class="border border-gray-300 rounded px-2 py-1"
-            >
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="200">200</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Image Grid -->
-        <div class="grid grid-cols-auto gap-2">
-          ${this.images.map((image, index) => html`
-            <div class="relative group">
-              <img
-                src=${image.thumbnail_url}
-                alt="Image ${image.id}"
-                class="w-full h-auto rounded cursor-pointer hover:opacity-80"
-                @click=${() => this._handleImageClick(image, index)}
-              >
-              <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition">
-                <slot name="image-actions" .image=${image}></slot>
-              </div>
-            </div>
-          `)}
-        </div>
-
-        <!-- Empty State -->
-        ${this.images.length === 0 ? html`
-          <div class="text-center py-8 text-gray-500">
-            No images available
-          </div>
-        ` : ''}
-
-        <!-- Pagination -->
-        ${this.images.length > 0 ? html`
-          <div class="flex items-center justify-center gap-2 mt-4">
-            <button
-              @click=${() => this._handlePaginationChange(Math.max(0, this.filters.offset - this.filters.limit))}
-              class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50"
-              ?disabled=${this.filters.offset === 0}
-            >
-              ← Previous
-            </button>
-            <span class="text-sm text-gray-600">
-              ${this.filters.offset + 1} - ${Math.min(this.filters.offset + this.filters.limit, this.images.length)}
-            </span>
-            <button
-              @click=${() => this._handlePaginationChange(this.filters.offset + this.filters.limit)}
-              class="px-3 py-1 border border-gray-300 rounded disabled:opacity-50"
-            >
-              Next →
-            </button>
-          </div>
-        ` : ''}
-      </div>
-    `;
+  off(eventName, callback) {
+    if (this._listeners[eventName]) {
+      this._listeners[eventName] = this._listeners[eventName].filter(
+        (cb) => cb !== callback
+      );
+    }
   }
 
   /**
-   * Hook for subclasses to handle image clicks
+   * Internal: emit event to all listeners
    */
-  _handleImageClick(image, index) {
-    this.dispatchEvent(new CustomEvent('image-clicked', {
-      detail: { tabId: this.tabId, image, index },
-      bubbles: true,
-      composed: true,
-    }));
+  _emit(eventName, detail) {
+    if (this._listeners[eventName]) {
+      this._listeners[eventName].forEach((callback) => {
+        try {
+          callback(detail);
+        } catch (error) {
+          console.error(
+            `Error in ${eventName} listener for ${this.tabId}:`,
+            error
+          );
+        }
+      });
+    }
+  }
+
+  /**
+   * Get current filter state (for debugging/inspection)
+   */
+  getState() {
+    return { ...this.filters };
+  }
+
+  /**
+   * Reset all filters to defaults
+   */
+  reset() {
+    this.filters = {
+      limit: 100,
+      offset: 0,
+      sortOrder: 'desc',
+      orderBy: 'photo_creation',
+      hideZeroRating: true,
+      keywords: {},
+      operators: {},
+      rating: undefined,
+      ratingOperator: undefined,
+      dropboxPathPrefix: '',
+      permatagPositiveMissing: false,
+    };
+    this._emit('filters-changed', { tabId: this.tabId, filters: this.filters });
+  }
+
+  /**
+   * Set tenant for API calls
+   */
+  setTenant(tenant) {
+    this.tenant = tenant;
+  }
+
+  /**
+   * Serialize state for storage (useful for persistence)
+   */
+  serialize() {
+    // Handle Sets by converting to arrays
+    const filters = { ...this.filters };
+    if (filters.keywords && typeof filters.keywords === 'object') {
+      filters.keywords = Object.fromEntries(
+        Object.entries(filters.keywords).map(([key, set]) => [
+          key,
+          set instanceof Set ? [...set] : set,
+        ])
+      );
+    }
+    return JSON.stringify(filters);
+  }
+
+  /**
+   * Deserialize state from storage
+   */
+  deserialize(json) {
+    try {
+      const filters = JSON.parse(json);
+      // Convert arrays back to Sets
+      if (filters.keywords && typeof filters.keywords === 'object') {
+        filters.keywords = Object.fromEntries(
+          Object.entries(filters.keywords).map(([key, arr]) => [
+            key,
+            arr instanceof Set ? arr : new Set(arr || []),
+          ])
+        );
+      }
+      this.updateFilters(filters);
+    } catch (error) {
+      console.error(`Error deserializing state for ${this.tabId}:`, error);
+    }
   }
 }
 
-customElements.define('image-filter-panel', ImageFilterPanel);
+// Export as both class and singleton for flexibility
+export default ImageFilterPanel;
