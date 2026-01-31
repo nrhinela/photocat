@@ -3584,7 +3584,7 @@ class PhotoCatApp extends LitElement {
       return { ...image, permatags: next };
   }
 
-  _handleCurateImageClick(event, image) {
+  _handleCurateImageClick(event, image, imageSet) {
       if (this.curateDragSelecting || this.curateAuditDragSelecting) {
           return;
       }
@@ -3595,8 +3595,11 @@ class PhotoCatApp extends LitElement {
           this._curateSuppressClick = false;
           return;
       }
+      const nextSet = Array.isArray(imageSet) && imageSet.length
+          ? [...imageSet]
+          : (Array.isArray(this.curateImages) ? [...this.curateImages] : []);
       this.curateEditorImage = image;
-      this.curateEditorImageSet = Array.isArray(this.curateImages) ? [...this.curateImages] : [];
+      this.curateEditorImageSet = nextSet;
       this.curateEditorImageIndex = this.curateEditorImageSet.findIndex(img => img.id === image.id);
       this.curateEditorOpen = true;
   }
@@ -4278,7 +4281,7 @@ class PhotoCatApp extends LitElement {
               .activeCurateTagSource=${this.activeCurateTagSource}
               .imageStats=${this.imageStats}
               .curateOrderBy=${this.curateOrderBy}
-              .curateDateOrder=${this.curateDateOrder}
+              .curateDateOrder=${this.curateOrderDirection}
               .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
               .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
               .formatCurateDate=${this._formatCurateDate.bind(this)}
@@ -4287,10 +4290,13 @@ class PhotoCatApp extends LitElement {
               @thumb-size-changed=${(e) => this.curateThumbSize = e.detail.size}
               @sort-changed=${(e) => {
                 this.curateOrderBy = e.detail.orderBy;
+                if (e.detail.dateOrder) {
+                  this.curateOrderDirection = e.detail.dateOrder;
+                }
                 this.requestUpdate();
               }}
-              @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image)}
-              @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image)}
+              @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
+              @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
             ></search-tab>
             ` : ''}
 

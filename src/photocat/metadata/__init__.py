@@ -146,6 +146,7 @@ class ImageMetadata(Base):
         Index("idx_tenant_capture", "tenant_id", "capture_timestamp"),
         Index("idx_tenant_location", "tenant_id", "gps_latitude", "gps_longitude"),
         Index("idx_image_metadata_tenant_rating", "tenant_id", "rating"),
+        Index("idx_image_metadata_tenant_dropbox_path", "tenant_id", "dropbox_path"),
     )
 
 

@@ -687,6 +687,8 @@ export function parseUtilityKeywordValue(value) {
  * @param {Function} config.flashSelection - Function to flash selection feedback (e.g., (imageId) => this._flashCurateSelection(imageId))
  * @param {number} [config.longPressDelay=250] - Delay in ms before long press triggers
  * @param {number} [config.moveThreshold=6] - Movement threshold in pixels to cancel press
+ * @param {string} [config.suppressClickProperty] - Property for suppressing click (defaults to _curateSuppressClick)
+ * @param {boolean} [config.dragSelectOnMove=false] - Start selection when dragging beyond threshold
  * @returns {Object} Handler methods for selection functionality
  */
 export function createSelectionHandlers(context, config) {
@@ -705,7 +707,10 @@ export function createSelectionHandlers(context, config) {
     flashSelection,
     longPressDelay = 250,
     moveThreshold = 6,
+    suppressClickProperty,
+    dragSelectOnMove = false,
   } = config;
+  const suppressClickProp = suppressClickProperty || '_curateSuppressClick';
 
   return {
     /**
@@ -735,7 +740,7 @@ export function createSelectionHandlers(context, config) {
       context[selectingProperty] = true;
       context[startIndexProperty] = index;
       context[endIndexProperty] = index;
-      context._curateSuppressClick = true;
+      context[suppressClickProp] = true;
       flashSelection(imageId);
       this.updateSelection();
     },
@@ -751,10 +756,10 @@ export function createSelectionHandlers(context, config) {
         return;
       }
       if (context[selectionProperty].length && context[selectionProperty].includes(imageId)) {
-        context._curateSuppressClick = true;
+        context[suppressClickProp] = true;
         return;
       }
-      context._curateSuppressClick = false;
+      context[suppressClickProp] = false;
       context[pressActiveProperty] = true;
       context[pressStartProperty] = { x: event.clientX, y: event.clientY };
       context[pressIndexProperty] = index;
@@ -779,7 +784,12 @@ export function createSelectionHandlers(context, config) {
       const dx = Math.abs(event.clientX - context[pressStartProperty].x);
       const dy = Math.abs(event.clientY - context[pressStartProperty].y);
       if (dx + dy > moveThreshold) {
-        this.cancelPressState();
+        if (dragSelectOnMove && context[pressIndexProperty] !== null && context[pressImageIdProperty] !== null) {
+          event.preventDefault();
+          this.startSelection(context[pressIndexProperty], context[pressImageIdProperty]);
+        } else {
+          this.cancelPressState();
+        }
       }
     },
 

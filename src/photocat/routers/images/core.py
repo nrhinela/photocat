@@ -1,6 +1,8 @@
 """Core image endpoints: list, get, stats, rating, thumbnail."""
 
 import json
+import logging
+import time
 import mimetypes
 from datetime import datetime
 from pathlib import Path
@@ -30,6 +32,7 @@ from photocat.exif import (
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
 
 def get_keyword_name(db: Session, keyword_id: int) -> Optional[str]:
@@ -55,25 +58,33 @@ async def list_dropbox_folders(
     db: Session = Depends(get_db)
 ):
     """List Dropbox folder paths for a tenant, filtered by query."""
-    query = db.query(ImageMetadata.dropbox_path).filter(
+    start_time = time.perf_counter()
+    parent_expr = func.regexp_replace(ImageMetadata.dropbox_path, "/[^/]+$", "")
+    folder_expr = func.coalesce(func.nullif(parent_expr, ""), "/")
+    query = db.query(folder_expr.label("folder")).filter(
         ImageMetadata.tenant_id == tenant.id,
-        ImageMetadata.dropbox_path.isnot(None)
+        ImageMetadata.dropbox_path.isnot(None),
     )
     if q:
-        query = query.filter(ImageMetadata.dropbox_path.ilike(f"%{q}%"))
-    paths = query.distinct().all()
-    folders = set()
-    for (path,) in paths:
-        if not path:
-            continue
-        parent = path.rsplit("/", 1)[0]
-        if parent == "":
-            parent = "/"
-        folders.add(parent)
-    sorted_folders = sorted(folders)
+        query = query.filter(folder_expr.ilike(f"%{q}%"))
+    query = query.distinct().order_by(folder_expr)
     if limit:
-        sorted_folders = sorted_folders[:limit]
-    return {"tenant_id": tenant.id, "folders": sorted_folders}
+        query = query.limit(limit)
+    query_start = time.perf_counter()
+    rows = query.all()
+    query_ms = (time.perf_counter() - query_start) * 1000
+    folders = [row[0] for row in rows]
+    total_ms = (time.perf_counter() - start_time) * 1000
+    logger.info(
+        "dropbox-folders tenant=%s q=%s limit=%s rows=%d query_ms=%.2f total_ms=%.2f",
+        tenant.id,
+        q,
+        limit,
+        len(folders),
+        query_ms,
+        total_ms,
+    )
+    return {"tenant_id": tenant.id, "folders": folders}
 
 
 @router.get("/images", response_model=dict, operation_id="list_images")

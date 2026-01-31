@@ -12,6 +12,7 @@ import { createSelectionHandlers } from './curate-shared.js';
 import './filter-chips.js';
 import './image-card.js';
 import ImageFilterPanel from './image-filter-panel.js';
+import FolderBrowserPanel from './folder-browser-panel.js';
 
 /**
  * Search Tab Component
@@ -75,6 +76,13 @@ export class SearchTab extends LitElement {
     exploreByTagData: { type: Object },
     exploreByTagKeywords: { type: Array },
     exploreByTagLoading: { type: Boolean },
+    browseByFolderOptions: { type: Array, state: true },
+    browseByFolderSelection: { type: Array, state: true },
+    browseByFolderAppliedSelection: { type: Array, state: true },
+    browseByFolderData: { type: Object, state: true },
+    browseByFolderLoading: { type: Boolean, state: true },
+    browseByFolderAccordionOpen: { type: Boolean, state: true },
+    browseByFolderQuery: { type: String, state: true },
     searchRefreshing: { type: Boolean },
     curateThumbSize: { type: Number },
     tagStatsBySource: { type: Object },
@@ -110,6 +118,13 @@ export class SearchTab extends LitElement {
     this.exploreByTagData = {};
     this.exploreByTagKeywords = [];
     this.exploreByTagLoading = false;
+    this.browseByFolderOptions = [];
+    this.browseByFolderSelection = [];
+    this.browseByFolderAppliedSelection = [];
+    this.browseByFolderData = {};
+    this.browseByFolderLoading = false;
+    this.browseByFolderAccordionOpen = true;
+    this.browseByFolderQuery = '';
     this.searchRefreshing = false;
     this.curateThumbSize = 120;
     this.tagStatsBySource = {};
@@ -138,7 +153,12 @@ export class SearchTab extends LitElement {
     this._exploreInitialLoadComplete = false;
     this._exploreInitialLoadPending = false;
     this._searchExploreOrder = null;
+    this._searchBrowseOrder = null;
     this._searchFilterPanelHandlers = null;
+    this._folderBrowserPanelHandlers = null;
+    this._searchDropboxFetchTimer = null;
+    this._searchDropboxQuery = '';
+    this.folderBrowserPanel = new FolderBrowserPanel('search');
 
     // Debounce tracking for list fetches
     this._lastListFetchTime = 0;
@@ -162,9 +182,14 @@ export class SearchTab extends LitElement {
       pressImageIdProperty: '_searchPressImageId',
       pressTimerProperty: '_searchPressTimer',
       longPressTriggeredProperty: '_searchLongPressTriggered',
+      suppressClickProperty: '_searchSuppressClick',
+      dragSelectOnMove: true,
       getOrder: () => {
         if (this.searchSubTab === 'explore-by-tag') {
           return this._searchExploreOrder || [];
+        }
+        if (this.searchSubTab === 'browse-by-folder') {
+          return this._searchBrowseOrder || [];
         }
         return (this.searchImages || []).map(img => img.id);
       },
@@ -198,6 +223,7 @@ export class SearchTab extends LitElement {
     super.connectedCallback();
     this._fetchSearchLists();
     this._setupSearchFilterPanel(this.searchFilterPanel);
+    this._setupFolderBrowserPanel();
     this._maybeStartInitialRefresh();
 
     // Add global pointer handlers for selection
@@ -232,6 +258,7 @@ export class SearchTab extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._teardownSearchFilterPanel(this.searchFilterPanel);
+    this._teardownFolderBrowserPanel();
     if (this._handleSearchGlobalPointerDown) {
       document.removeEventListener('pointerdown', this._handleSearchGlobalPointerDown);
     }
@@ -244,9 +271,16 @@ export class SearchTab extends LitElement {
       clearTimeout(this._searchPressTimer);
       this._searchPressTimer = null;
     }
+    if (this._searchDropboxFetchTimer) {
+      clearTimeout(this._searchDropboxFetchTimer);
+      this._searchDropboxFetchTimer = null;
+    }
   }
 
   updated(changedProps) {
+    if (changedProps.has('tenant') && this.folderBrowserPanel) {
+      this.folderBrowserPanel.setTenant(this.tenant);
+    }
     if (changedProps.has('searchFilterPanel')) {
       this._teardownSearchFilterPanel(changedProps.get('searchFilterPanel'));
       this._setupSearchFilterPanel(this.searchFilterPanel);
@@ -263,6 +297,21 @@ export class SearchTab extends LitElement {
           this._finishExploreRefresh();
         }
         this._maybeStartInitialRefresh();
+      }
+      if (this.searchSubTab === 'browse-by-folder') {
+        this.folderBrowserPanel?.loadFolders();
+        if (this.browseByFolderAppliedSelection?.length) {
+          this._refreshBrowseByFolderData();
+        }
+      }
+    }
+
+    if (
+      this.searchSubTab === 'browse-by-folder'
+      && (changedProps.has('curateOrderBy') || changedProps.has('curateDateOrder'))
+    ) {
+      if (this.browseByFolderAppliedSelection?.length) {
+        this._refreshBrowseByFolderData();
       }
     }
 
@@ -410,9 +459,18 @@ export class SearchTab extends LitElement {
       return searchFound;
     }
     if (!this.exploreByTagData || typeof this.exploreByTagData !== 'object') {
-      return null;
+      if (!this.browseByFolderData || typeof this.browseByFolderData !== 'object') {
+        return null;
+      }
     }
-    for (const images of Object.values(this.exploreByTagData)) {
+    const sources = [];
+    if (this.exploreByTagData && typeof this.exploreByTagData === 'object') {
+      sources.push(...Object.values(this.exploreByTagData));
+    }
+    if (this.browseByFolderData && typeof this.browseByFolderData === 'object') {
+      sources.push(...Object.values(this.browseByFolderData));
+    }
+    for (const images of sources) {
       const match = (images || []).find((img) => img.id === id);
       if (match) {
         return match;
@@ -470,18 +528,24 @@ export class SearchTab extends LitElement {
 
   _handleSearchDropboxInput(event) {
     const query = event.detail?.query || '';
+    this._searchDropboxQuery = query;
+    if (this._searchDropboxFetchTimer) {
+      clearTimeout(this._searchDropboxFetchTimer);
+    }
     if (query.length < 2) {
       this.searchDropboxOptions = [];
       return;
     }
-    this._fetchDropboxFolders(query);
+    this._searchDropboxFetchTimer = setTimeout(() => {
+      this._fetchDropboxFolders(query);
+    }, 500);
   }
 
   async _fetchDropboxFolders(query) {
     if (!this.tenant) return;
     try {
-      const folders = await getDropboxFolders(this.tenant, query);
-      this.searchDropboxOptions = folders || [];
+      const response = await getDropboxFolders(this.tenant, { query });
+      this.searchDropboxOptions = response?.folders || [];
     } catch (error) {
       console.error('Error fetching Dropbox folders:', error);
       this.searchDropboxOptions = [];
@@ -518,6 +582,24 @@ export class SearchTab extends LitElement {
       bubbles: true,
       composed: true
     }));
+  }
+
+  _handleBrowseByFolderToggle(folder, event) {
+    const checked = event?.target?.checked;
+    this.folderBrowserPanel?.toggleFolder(folder, checked);
+  }
+
+  _handleBrowseByFolderApply() {
+    const appliedSelection = [...(this.browseByFolderSelection || [])];
+    this.browseByFolderAppliedSelection = appliedSelection;
+    this.folderBrowserPanel?.setSelection(appliedSelection);
+    this.browseByFolderAccordionOpen = false;
+    this._refreshBrowseByFolderData({ force: true });
+  }
+
+  _handleBrowseByFolderMultiSelectChange(event) {
+    const selected = Array.from(event.target.selectedOptions || []).map(option => option.value);
+    this.browseByFolderSelection = selected;
   }
 
   async _handleSaveToList() {
@@ -616,6 +698,60 @@ export class SearchTab extends LitElement {
     panel.on('error', handleError);
   }
 
+  _setupFolderBrowserPanel() {
+    const panel = this.folderBrowserPanel;
+    if (!panel || this._folderBrowserPanelHandlers) return;
+    const handleFoldersLoaded = (detail) => {
+      this.browseByFolderOptions = [...(detail?.folders || [])].sort((a, b) => a.localeCompare(b));
+    };
+    const handleDataLoaded = (detail) => {
+      this.browseByFolderData = detail?.data || {};
+    };
+    const handleSelectionChanged = (detail) => {
+      const selection = detail?.selection || [];
+      this.browseByFolderAppliedSelection = selection;
+      this.browseByFolderSelection = selection;
+    };
+    const handleFoldersLoading = () => {
+      this._syncBrowseByFolderLoading();
+    };
+    const handleDataLoading = () => {
+      this._syncBrowseByFolderLoading();
+    };
+    this._folderBrowserPanelHandlers = {
+      handleFoldersLoaded,
+      handleDataLoaded,
+      handleSelectionChanged,
+      handleFoldersLoading,
+      handleDataLoading,
+    };
+    panel.on('folders-loaded', handleFoldersLoaded);
+    panel.on('data-loaded', handleDataLoaded);
+    panel.on('selection-changed', handleSelectionChanged);
+    panel.on('folders-loading', handleFoldersLoading);
+    panel.on('data-loading', handleDataLoading);
+    if (this.tenant) {
+      panel.setTenant(this.tenant);
+    }
+  }
+
+  _teardownFolderBrowserPanel() {
+    const panel = this.folderBrowserPanel;
+    if (!panel || !this._folderBrowserPanelHandlers) return;
+    panel.off('folders-loaded', this._folderBrowserPanelHandlers.handleFoldersLoaded);
+    panel.off('data-loaded', this._folderBrowserPanelHandlers.handleDataLoaded);
+    panel.off('selection-changed', this._folderBrowserPanelHandlers.handleSelectionChanged);
+    panel.off('folders-loading', this._folderBrowserPanelHandlers.handleFoldersLoading);
+    panel.off('data-loading', this._folderBrowserPanelHandlers.handleDataLoading);
+    this._folderBrowserPanelHandlers = null;
+  }
+
+  _syncBrowseByFolderLoading() {
+    const panel = this.folderBrowserPanel;
+    if (!panel) return;
+    this.browseByFolderLoading = !!(panel.loadingFolders || panel.loadingData);
+  }
+
   _teardownSearchFilterPanel(panel) {
     if (!panel || !this._searchFilterPanelHandlers) return;
     panel.off('images-loaded', this._searchFilterPanelHandlers.handleLoaded);
@@ -657,6 +793,17 @@ export class SearchTab extends LitElement {
     }
   }
 
+  _refreshBrowseByFolderData({ force = false } = {}) {
+    if (!this.folderBrowserPanel) return;
+    const orderBy = this.curateOrderBy || 'photo_creation';
+    const sortOrder = this.curateDateOrder || 'desc';
+    const appliedSelection = this.browseByFolderAppliedSelection || [];
+    if (appliedSelection.length) {
+      this.folderBrowserPanel.setSelection(appliedSelection);
+    }
+    this.folderBrowserPanel.loadData({ orderBy, sortOrder, limit: 0, force });
+  }
+
   async _loadExploreByTagData(force = false) {
     // TODO: Implement explore by tag data loading
     // This will need to be connected to the parent's data loading logic
@@ -677,8 +824,12 @@ export class SearchTab extends LitElement {
   }
 
   _handleCurateQuickSort(field) {
+    const nextOrderBy = field;
+    const nextDateOrder = this.curateOrderBy === field
+      ? (this.curateDateOrder === 'desc' ? 'asc' : 'desc')
+      : 'desc';
     this.dispatchEvent(new CustomEvent('sort-changed', {
-      detail: { orderBy: field },
+      detail: { orderBy: nextOrderBy, dateOrder: nextDateOrder },
       bubbles: true,
       composed: true
     }));
@@ -687,6 +838,29 @@ export class SearchTab extends LitElement {
   _getCurateQuickSortArrow(field) {
     if (this.curateOrderBy !== field) return '';
     return this.curateDateOrder === 'desc' ? '↓' : '↑';
+  }
+
+  _renderSearchPermatagSummary(image) {
+    const permatags = Array.isArray(image?.permatags) ? image.permatags : [];
+    const positives = permatags.filter((tag) => tag.signum === 1 && tag.keyword);
+    if (!positives.length) return html``;
+    const unique = Array.from(new Set(positives.map((tag) => tag.keyword).filter(Boolean)));
+    if (!unique.length) return html``;
+    return html`<div class="curate-thumb-rating">Tags: ${unique.join(', ')}</div>`;
+  }
+
+  _buildDropboxHref(path) {
+    if (!path) return '';
+    const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
+    return `https://www.dropbox.com/home${encodedPath}`;
+  }
+
+  _hasPendingBrowseByFolderSelection() {
+    const pending = this.browseByFolderSelection || [];
+    const applied = this.browseByFolderAppliedSelection || [];
+    if (pending.length !== applied.length) return true;
+    const appliedSet = new Set(applied);
+    return pending.some((folder) => !appliedSet.has(folder));
   }
 
   _handleChipFiltersChanged(event) {
@@ -754,14 +928,26 @@ export class SearchTab extends LitElement {
     return this._handleSearchSelectHover(index);
   }
 
-  _handleSearchImageClick(event, image) {
+  _handleBrowseByFolderPointerDown(event, index, imageId, order) {
+    this._searchBrowseOrder = order;
+    return this._handleSearchPointerDown(event, index, imageId);
+  }
+
+  _handleBrowseByFolderSelectHover(index, order) {
+    if (this._searchBrowseOrder !== order) {
+      return;
+    }
+    return this._handleSearchSelectHover(index);
+  }
+
+  _handleSearchImageClick(event, image, imageSet) {
     if (event.defaultPrevented) return;
     if (this._searchSuppressClick || this.searchDragSelection.length) {
       this._searchSuppressClick = false;
       return;
     }
     this.dispatchEvent(new CustomEvent('image-clicked', {
-      detail: { event, image },
+      detail: { event, image, imageSet },
       bubbles: true,
       composed: true
     }));
@@ -792,6 +978,18 @@ export class SearchTab extends LitElement {
   render() {
     const trimmedSearchListTitle = (this.searchListTitle || '').trim();
     const hasSearchListTitle = !!trimmedSearchListTitle;
+    const folderQuery = (this.browseByFolderQuery || '').trim().toLowerCase();
+    const filteredFolders = folderQuery
+      ? (this.browseByFolderOptions || []).filter((folder) => folder.toLowerCase().includes(folderQuery))
+      : (this.browseByFolderOptions || []);
+    const selectedFolders = this.browseByFolderSelection || [];
+    const appliedFolders = this.browseByFolderAppliedSelection || [];
+    const folderOptions = Array.from(new Set([...filteredFolders, ...selectedFolders]))
+      .sort((a, b) => a.localeCompare(b));
+    const showBrowseByFolderOverlay = this.browseByFolderAccordionOpen || this._hasPendingBrowseByFolderSelection();
+    const browseByFolderBlurStyle = this.browseByFolderLoading
+      ? 'filter: blur(2px); opacity: 0.6; pointer-events: none;'
+      : '';
     const savedPane = html`
       <div class="curate-pane utility-targets search-saved-pane ${this.searchSavedDragTarget ? 'drag-active' : ''}">
         <div class="curate-pane-header">
@@ -917,6 +1115,12 @@ export class SearchTab extends LitElement {
             >
               Explore by Tag
             </button>
+            <button
+              class="curate-subtab ${this.searchSubTab === 'browse-by-folder' ? 'active' : ''}"
+              @click=${() => this._handleSearchSubTabChange('browse-by-folder')}
+            >
+              Browse by Folder
+            </button>
           </div>
 
           <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
@@ -998,7 +1202,7 @@ export class SearchTab extends LitElement {
             </filter-chips>
 
             <!-- Image Grid Layout -->
-            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">
               <!-- Left Pane: Available Images -->
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
                 <div class="curate-pane-header">
@@ -1024,7 +1228,7 @@ export class SearchTab extends LitElement {
                           data-image-id="${image.id}"
                           draggable="true"
                           @dragstart=${(event) => this._handleSearchDragStart(event, image)}
-                          @click=${(event) => this._handleSearchImageClick(event, image)}
+                          @click=${(event) => this._handleSearchImageClick(event, image, this.searchImages)}
                         >
                           <img
                             src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
@@ -1037,6 +1241,7 @@ export class SearchTab extends LitElement {
                           >
                           ${this.renderCurateRatingWidget ? this.renderCurateRatingWidget(image) : ''}
                           ${this.renderCurateRatingStatic ? this.renderCurateRatingStatic(image) : ''}
+                          ${this._renderSearchPermatagSummary(image)}
                           ${this.formatCurateDate && this.formatCurateDate(image) ? html`
                             <div class="curate-thumb-date">
                               <span class="curate-thumb-id">#${image.id}</span>
@@ -1093,7 +1298,7 @@ export class SearchTab extends LitElement {
                                   data-image-id="${image.id}"
                                   draggable="true"
                                   @dragstart=${(event) => this._handleSearchDragStart(event, image)}
-                                  @click=${(event) => this._handleSearchImageClick(event, image)}
+                                  @click=${(event) => this._handleSearchImageClick(event, image, images)}
                                 >
                                   <img
                                     src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
@@ -1106,6 +1311,7 @@ export class SearchTab extends LitElement {
                                   >
                                   ${this.renderCurateRatingWidget ? this.renderCurateRatingWidget(image) : ''}
                                   ${this.renderCurateRatingStatic ? this.renderCurateRatingStatic(image) : ''}
+                                  ${this._renderSearchPermatagSummary(image)}
                                   ${this.formatCurateDate && this.formatCurateDate(image) ? html`
                                     <div class="curate-thumb-date">
                                       <span class="curate-thumb-id">#${image.id}</span>
@@ -1128,6 +1334,190 @@ export class SearchTab extends LitElement {
                       <p class="text-sm">No tagged images found.</p>
                       <p class="text-xs mt-2">Tag some images first to explore by tag.</p>
                     </div>
+                  `}
+                </div>
+              </div>
+
+              ${savedPane}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Browse by Folder Subtab -->
+        ${this.searchSubTab === 'browse-by-folder' ? html`
+          <div>
+            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+              <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
+                <div class="curate-pane-header">
+                  <div class="curate-pane-header-row">
+                    <span class="text-sm font-semibold">Browse by Folder</span>
+                  </div>
+                </div>
+                <div class="curate-pane-body">
+                  <div class="p-3 border-b bg-white">
+                    <button
+                      class="w-full flex items-center justify-between text-sm font-semibold text-gray-900 px-3 py-2 rounded-lg border transition-colors ${this.browseByFolderAccordionOpen ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}"
+                      type="button"
+                      @click=${() => { this.browseByFolderAccordionOpen = !this.browseByFolderAccordionOpen; }}
+                    >
+                      <span>Folders</span>
+                      <span class="text-xs text-gray-500">
+                        ${Array.isArray(this.browseByFolderSelection) ? this.browseByFolderSelection.length : 0} selected
+                        <span class="ml-2">${this.browseByFolderAccordionOpen ? '▾' : '▸'}</span>
+                      </span>
+                    </button>
+
+                    ${this.browseByFolderAccordionOpen ? html`
+                      <div class="mt-3 space-y-3">
+                        <input
+                          type="text"
+                          class="w-full px-3 py-2 border rounded-lg text-sm"
+                          placeholder="Filter folders..."
+                          .value=${this.browseByFolderQuery}
+                          @input=${(event) => { this.browseByFolderQuery = event.target.value; }}
+                        >
+                        ${this.browseByFolderLoading ? html`
+                          <div class="p-3 text-sm font-semibold text-gray-700 border rounded-lg flex items-center justify-center gap-2 bg-blue-50">
+                            <span class="curate-spinner" aria-hidden="true"></span>
+                            <span>Loading folders. Please wait...</span>
+                          </div>
+                        ` : ''}
+                        <div class="max-h-96 overflow-y-auto">
+                          ${folderOptions.length ? html`
+                            <select
+                              class="w-full p-2 border rounded-lg text-sm"
+                              multiple
+                              size=${Math.min(10, Math.max(6, folderOptions.length))}
+                              @change=${this._handleBrowseByFolderMultiSelectChange}
+                            >
+                              ${folderOptions.map((folder) => html`
+                                <option value=${folder} ?selected=${(this.browseByFolderSelection || []).includes(folder)}>
+                                  ${folder}
+                                </option>
+                              `)}
+                            </select>
+                          ` : html`
+                            <div class="p-4 text-sm font-semibold text-gray-700 border rounded-lg flex items-center justify-center gap-2">
+                              ${this.browseByFolderLoading ? '' : html`No folders match your search.`}
+                            </div>
+                          `}
+                        </div>
+                        <div class="flex items-center justify-between gap-3">
+                          <button
+                            class="px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 rounded hover:bg-blue-50 disabled:opacity-60"
+                            type="button"
+                            @click=${this._handleBrowseByFolderApply}
+                            ?disabled=${!(this.browseByFolderSelection || []).length}
+                          >
+                            Apply selection
+                          </button>
+                          <button
+                            class="text-xs text-gray-500"
+                            type="button"
+                            @click=${() => { this.browseByFolderAccordionOpen = false; }}
+                          >
+                            Collapse
+                          </button>
+                        </div>
+                      </div>
+                    ` : ''}
+
+                    ${this.browseByFolderAccordionOpen ? '' : html`
+                      <div class="mt-3 flex items-center gap-2">
+                        <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                        <div class="curate-audit-toggle">
+                          <button
+                            class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                            @click=${() => this._handleCurateQuickSort('rating')}
+                          >
+                            Rating ${this._getCurateQuickSortArrow('rating')}
+                          </button>
+                          <button
+                            class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                            @click=${() => this._handleCurateQuickSort('photo_creation')}
+                          >
+                            Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                          </button>
+                          <button
+                            class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                            @click=${() => this._handleCurateQuickSort('processed')}
+                          >
+                            Process Date ${this._getCurateQuickSortArrow('processed')}
+                          </button>
+                        </div>
+                      </div>
+                    `}
+                  </div>
+
+                  ${this.browseByFolderAccordionOpen ? '' : html`
+                  <div class="relative">
+                    ${showBrowseByFolderOverlay ? html`
+                      <div class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm"></div>
+                    ` : ''}
+                    ${appliedFolders && appliedFolders.length > 0 ? html`
+                      <div class="p-4 space-y-6 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">
+                        ${appliedFolders.map((folder) => {
+                          const images = this.browseByFolderData?.[folder] || [];
+                          const order = images.map((image) => image.id);
+                          return html`
+                            <div>
+                              <div class="text-sm font-semibold text-gray-900 mb-3">
+                                ${this._buildDropboxHref(folder) ? html`
+                                  <a
+                                    class="text-blue-600 hover:text-blue-700 break-all"
+                                    href=${this._buildDropboxHref(folder)}
+                                    target="dropbox"
+                                    rel="noopener noreferrer"
+                                  >
+                                    ${folder}
+                                  </a>
+                                ` : folder}
+                                <span class="text-xs text-gray-500 font-normal">(${images.length} images)</span>
+                              </div>
+                              <div class="curate-grid">
+                                ${images.length ? images.map((image, index) => html`
+                                  <div
+                                    class="curate-thumb-wrapper ${this.searchDragSelection.includes(image.id) ? 'selected' : ''}"
+                                    data-image-id="${image.id}"
+                                    draggable="true"
+                                    @dragstart=${(event) => this._handleSearchDragStart(event, image)}
+                                    @click=${(event) => this._handleSearchImageClick(event, image, images)}
+                                  >
+                                    <img
+                                      src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
+                                      alt=${image.filename}
+                                      class="curate-thumb ${this.searchDragSelection.includes(image.id) ? 'selected' : ''} ${this._searchFlashSelectionIds?.has(image.id) ? 'flash' : ''}"
+                                      draggable="false"
+                                      @pointerdown=${(event) => this._handleBrowseByFolderPointerDown(event, index, image.id, order)}
+                                      @pointermove=${(event) => this._handleSearchPointerMove(event)}
+                                      @pointerenter=${() => this._handleBrowseByFolderSelectHover(index, order)}
+                                    >
+                                    ${this.renderCurateRatingWidget ? this.renderCurateRatingWidget(image) : ''}
+                                    ${this.renderCurateRatingStatic ? this.renderCurateRatingStatic(image) : ''}
+                                    ${this._renderSearchPermatagSummary(image)}
+                                    ${this.formatCurateDate && this.formatCurateDate(image) ? html`
+                                      <div class="curate-thumb-date">
+                                        <span class="curate-thumb-id">#${image.id}</span>
+                                        <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this.formatCurateDate(image)}
+                                      </div>
+                                    ` : ''}
+                                  </div>
+                                `) : html`
+                                  <div class="col-span-full flex items-center justify-center py-6">
+                                    <span class="curate-spinner large" aria-hidden="true"></span>
+                                  </div>
+                                `}
+                              </div>
+                            </div>
+                          `;
+                        })}
+                      </div>
+                    ` : html`
+                      <div class="p-8 text-center text-gray-500 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">
+                        <p class="text-sm">Select folders and apply to browse images.</p>
+                      </div>
+                    `}
+                  </div>
                   `}
                 </div>
               </div>
