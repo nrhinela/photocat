@@ -832,9 +832,14 @@ export function createSelectionHandlers(context, config) {
       if (event.button !== 0) {
         return;
       }
-      if (context[selectionProperty].length && context[selectionProperty].includes(imageId)) {
+      const alreadySelected = context[selectionProperty].length
+        && context[selectionProperty].includes(imageId);
+      if (alreadySelected) {
         context[suppressClickProp] = true;
         return;
+      }
+      if (dragSelectOnMove) {
+        event.preventDefault();
       }
       context[suppressClickProp] = false;
       context[pressActiveProperty] = true;

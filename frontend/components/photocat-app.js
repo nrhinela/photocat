@@ -2027,15 +2027,11 @@ class PhotoCatApp extends LitElement {
       switch (tab) {
           case 'search': {
               this.fetchKeywords();
-              if (this.searchSubTab === 'explore-by-tag') {
-                  this.fetchStats({
-                      includeRatings: true,
-                      includeMlStats: false,
-                      includeTagStats: false,
-                  });
-              } else {
-                  this.fetchStats();
-              }
+              this.fetchStats({
+                  includeRatings: this.searchSubTab === 'explore-by-tag',
+                  includeMlStats: false,
+                  includeTagStats: false,
+              });
               this._fetchSearchLists();
               if (this.searchSubTab === 'home') {
                   if (!this.searchImages?.length) {
@@ -2050,15 +2046,20 @@ class PhotoCatApp extends LitElement {
           }
           case 'curate': {
               this.fetchKeywords();
-              this.fetchStats();
+              this.fetchStats().finally(() => {
+                  this._curateHomeLastFetchKey = this._getCurateHomeFetchKey();
+              });
               if (this.curateSubTab === 'main') {
                   const curateFilters = this._buildCurateFilterObject();
                   this.curateHomeFilterPanel.updateFilters(curateFilters);
                   if (!this.curateImages?.length && !this.curateLoading) {
-                      this.curateHomeFilterPanel.fetchImages();
+                      this._fetchCurateHomeImages();
                   }
               } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
-                  this._fetchCurateAuditImages();
+                  const fetchKey = this._getCurateAuditFetchKey({ loadAll: this.curateAuditLoadAll, offset: this.curateAuditPageOffset || 0 });
+                  if (!this._curateAuditLastFetchKey || this._curateAuditLastFetchKey !== fetchKey) {
+                      this._fetchCurateAuditImages();
+                  }
               }
               break;
           }
@@ -2199,7 +2200,7 @@ class PhotoCatApp extends LitElement {
       }
       this.curateFilters = nextFilters;
       this.curateHomeFilterPanel.updateFilters(nextFilters);
-      this.curateHomeFilterPanel.fetchImages();
+      this._fetchCurateHomeImages();
   }
 
   /**
@@ -2291,6 +2292,15 @@ class PhotoCatApp extends LitElement {
       return filters;
   }
 
+  _getCurateAuditFetchKey(overrides = {}) {
+      const filters = this._buildCurateAuditFilterObject(overrides);
+      return JSON.stringify(filters);
+  }
+
+  _getCurateHomeFetchKey() {
+      return `curate-home:${this.tenant || 'no-tenant'}`;
+  }
+
   _applyCurateFilters({ resetOffset = false } = {}) {
       // NEW: Use filter panel for Curate Home
       const curateFilters = this._buildCurateFilterObject({ resetOffset });
@@ -2304,7 +2314,7 @@ class PhotoCatApp extends LitElement {
 
       // Update filter panel and fetch
       this.curateHomeFilterPanel.updateFilters(curateFilters);
-      this.curateHomeFilterPanel.fetchImages();
+      this._fetchCurateHomeImages();
 
       // Keep local mirror for UI state (no deprecated builder)
       if (resetOffset) {
@@ -2338,7 +2348,7 @@ class PhotoCatApp extends LitElement {
       });
 
       this.curateHomeFilterPanel.updateFilters(curateFilters);
-      this.curateHomeFilterPanel.fetchImages();
+      this._fetchCurateHomeImages();
   }
 
   _handleCurateOrderByChange(e) {
@@ -2348,7 +2358,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateSubTab === 'main') {
           const curateFilters = this._buildCurateFilterObject({ resetOffset: true });
           this.curateHomeFilterPanel.updateFilters(curateFilters);
-          this.curateHomeFilterPanel.fetchImages();
+          this._fetchCurateHomeImages();
       } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
@@ -2361,7 +2371,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateSubTab === 'main') {
           const curateFilters = this._buildCurateFilterObject({ resetOffset: true });
           this.curateHomeFilterPanel.updateFilters(curateFilters);
-          this.curateHomeFilterPanel.fetchImages();
+          this._fetchCurateHomeImages();
       } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
@@ -2379,7 +2389,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateSubTab === 'main') {
           const curateFilters = this._buildCurateFilterObject({ resetOffset: true });
           this.curateHomeFilterPanel.updateFilters(curateFilters);
-          this.curateHomeFilterPanel.fetchImages();
+          this._fetchCurateHomeImages();
       } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
@@ -2577,7 +2587,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateSubTab === 'main') {
           const curateFilters = this._buildCurateFilterObject({ resetOffset: true });
           this.curateHomeFilterPanel.updateFilters(curateFilters);
-          this.curateHomeFilterPanel.fetchImages();
+          this._fetchCurateHomeImages();
       } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
       }
@@ -2605,7 +2615,7 @@ class PhotoCatApp extends LitElement {
               resetOffset: true
           });
           this.curateHomeFilterPanel.updateFilters(curateFilters);
-          this.curateHomeFilterPanel.fetchImages();
+          this._fetchCurateHomeImages();
       } else if (this.curateSubTab === 'tag-audit' && this.curateAuditKeyword) {
           // Update Audit tab (both existing and missing share same settings)
           this._fetchCurateAuditImages();
@@ -2624,6 +2634,58 @@ class PhotoCatApp extends LitElement {
       this.curateAuditHideDeleted = e.target.checked;
       if (this.curateAuditKeyword) {
           this._fetchCurateAuditImages();
+      }
+  }
+
+  _handleSearchSortChanged(event) {
+      const nextOrderBy = event?.detail?.orderBy;
+      const nextDateOrder = event?.detail?.dateOrder;
+      if (nextOrderBy) {
+          this.curateOrderBy = nextOrderBy;
+      }
+      if (nextDateOrder) {
+          this.curateOrderDirection = nextDateOrder;
+      }
+      this.requestUpdate();
+      if (this.activeTab === 'search') {
+          if (this.searchSubTab === 'home' && this.searchFilterPanel) {
+              const current = this.searchFilterPanel.getState();
+              const searchFilters = {
+                  ...current,
+                  orderBy: this.curateOrderBy,
+                  sortOrder: this.curateOrderDirection,
+                  offset: 0,
+              };
+              this.searchFilterPanel.updateFilters(searchFilters);
+              this.searchFilterPanel.fetchImages();
+          } else if (this.searchSubTab === 'browse-by-folder') {
+              const searchTab = this.shadowRoot?.querySelector('search-tab');
+              searchTab?.refreshBrowseByFolder?.({
+                  force: true,
+                  orderBy: this.curateOrderBy,
+                  sortOrder: this.curateOrderDirection,
+              });
+          }
+      }
+  }
+
+  _startCurateLoading() {
+      this._curateLoadCount = (this._curateLoadCount || 0) + 1;
+      this.curateLoading = true;
+  }
+
+  _finishCurateLoading() {
+      this._curateLoadCount = Math.max(0, (this._curateLoadCount || 1) - 1);
+      this.curateLoading = this._curateLoadCount > 0;
+  }
+
+  async _fetchCurateHomeImages() {
+      if (!this.curateHomeFilterPanel) return;
+      this._startCurateLoading();
+      try {
+          return await this.curateHomeFilterPanel.fetchImages();
+      } finally {
+          this._finishCurateLoading();
       }
   }
 
@@ -2664,6 +2726,7 @@ class PhotoCatApp extends LitElement {
       this.curateHomeRefreshing = true;
       try {
           await this.fetchStats({ force: true });
+          this._curateHomeLastFetchKey = this._getCurateHomeFetchKey();
       } finally {
           this.curateHomeRefreshing = false;
       }
@@ -2860,6 +2923,8 @@ class PhotoCatApp extends LitElement {
       this.curateAuditPageOffset = 0;
       this.curateAuditAiEnabled = false;
       this.curateAuditAiModel = '';
+      this._curateAuditLastFetchKey = null;
+      this._curateHomeLastFetchKey = null;
       this._resetSearchListDraft();
       this._tabBootstrapped = new Set();
       this._initializeTab(this.activeTab, { force: true });
@@ -2885,7 +2950,7 @@ class PhotoCatApp extends LitElement {
     _handleUploadComplete() {
         const curateFilters = this._buildCurateFilterObject();
         this.curateHomeFilterPanel.updateFilters(curateFilters);
-        this.curateHomeFilterPanel.fetchImages();
+        this._fetchCurateHomeImages();
         this.fetchStats({ force: true });
         this.showUploadModal = false;
     }
@@ -3179,14 +3244,22 @@ class PhotoCatApp extends LitElement {
               // Use filter panel instead of deprecated method
               const curateFilters = this._buildCurateFilterObject();
               this.curateHomeFilterPanel.updateFilters(curateFilters);
-              this.curateHomeFilterPanel.fetchImages();
+              this._fetchCurateHomeImages();
           }
       }
       if (nextTab === 'home') {
-          this.fetchStats({ includeRatings: true });
+          const fetchKey = this._getCurateHomeFetchKey();
+          if (!this._curateHomeLastFetchKey || this._curateHomeLastFetchKey !== fetchKey) {
+              this.fetchStats({ includeRatings: true }).finally(() => {
+                  this._curateHomeLastFetchKey = fetchKey;
+              });
+          }
       }
       if (nextTab === 'tag-audit' && this.curateAuditKeyword) {
-          this._fetchCurateAuditImages();
+          const fetchKey = this._getCurateAuditFetchKey({ loadAll: this.curateAuditLoadAll, offset: this.curateAuditPageOffset || 0 });
+          if (!this._curateAuditLastFetchKey || this._curateAuditLastFetchKey !== fetchKey) {
+              this._fetchCurateAuditImages();
+          }
       }
   }
 
@@ -3429,25 +3502,27 @@ class PhotoCatApp extends LitElement {
   async _fetchCurateAuditImages({ append = false, loadAll = false, offset = null } = {}) {
       if (!this.tenant || !this.curateAuditKeyword) return;
 
+      const useLoadAll = loadAll || this.curateAuditLoadAll;
+      const resolvedOffset = offset !== null && offset !== undefined
+          ? offset
+          : append
+            ? this.curateAuditOffset
+            : (this.curateAuditPageOffset || 0);
+      const fetchKey = this._getCurateAuditFetchKey({ loadAll: useLoadAll, offset: resolvedOffset });
+
       // Check special case
       if (this.curateAuditMinRating === 0 && this.curateAuditHideDeleted) {
           this.curateAuditImages = [];
           this.curateAuditOffset = 0;
           this.curateAuditTotal = 0;
           this.curateAuditPageOffset = 0;
+          this._curateAuditLastFetchKey = fetchKey;
           return;
       }
 
       this.curateAuditLoading = true;
       const existingImages = append ? [...(this.curateAuditImages || [])] : null;
       try {
-          const useLoadAll = loadAll || this.curateAuditLoadAll;
-          const resolvedOffset = offset !== null && offset !== undefined
-              ? offset
-              : append
-                ? this.curateAuditOffset
-                : (this.curateAuditPageOffset || 0);
-
           // Build filter object using helper
           const filters = this._buildCurateAuditFilterObject({
               loadAll: useLoadAll,
@@ -3479,6 +3554,7 @@ class PhotoCatApp extends LitElement {
               this.curateAuditOffset = images.length;
               this.curateAuditTotal = images.length;
           }
+          this._curateAuditLastFetchKey = fetchKey;
       } catch (error) {
           console.error('Error fetching curate audit images:', error);
       } finally {
@@ -3623,7 +3699,7 @@ class PhotoCatApp extends LitElement {
           anchorId: imageId,
       };
       this.curateHomeFilterPanel.updateFilters(curateFilters);
-      await this.curateHomeFilterPanel.fetchImages();
+      await this._fetchCurateHomeImages();
       await this.updateComplete;
       this._scrollCurateThumbIntoView(imageId);
   }
@@ -3650,6 +3726,36 @@ class PhotoCatApp extends LitElement {
           this.curateImages = this.curateImages.map(update);
           this.curateAuditImages = this.curateAuditImages.map(update);
           this.curateAuditSelection = this.curateAuditSelection.map(update);
+      }
+      if (Array.isArray(this.searchImages)) {
+          this.searchImages = this.searchImages.map(update);
+      }
+      if (this.exploreByTagData && typeof this.exploreByTagData === 'object') {
+          const nextExplore = {};
+          let updated = false;
+          Object.entries(this.exploreByTagData).forEach(([keyword, images]) => {
+              if (!Array.isArray(images)) {
+                  nextExplore[keyword] = images;
+                  return;
+              }
+              let keywordUpdated = false;
+              const nextImages = images.map((image) => {
+                  if (image?.id === imageId && image.rating !== rating) {
+                      keywordUpdated = true;
+                      updated = true;
+                      return { ...image, rating };
+                  }
+                  return image;
+              });
+              nextExplore[keyword] = keywordUpdated ? nextImages : images;
+          });
+          if (updated) {
+              this.exploreByTagData = nextExplore;
+          }
+      }
+      const searchTab = this.shadowRoot?.querySelector('search-tab');
+      if (searchTab?.applyRatingUpdate) {
+          searchTab.applyRatingUpdate(imageId, rating);
       }
   }
 
@@ -4043,7 +4149,7 @@ class PhotoCatApp extends LitElement {
     const reviewedCount = this._formatStatNumber(this.imageStats?.reviewed_image_count);
     const mlTagCount = this._formatStatNumber(this.imageStats?.ml_tag_count);
     const trainedTagCount = this._formatStatNumber(this.mlTrainingStats?.trained_image_count);
-    const showCurateStatsOverlay = this.curateStatsLoading && !this.imageStats;
+    const showCurateStatsOverlay = this.curateStatsLoading || this.curateHomeRefreshing;
     const navCards = [
       { key: 'search', label: 'Search', subtitle: 'Explore and save results', icon: 'fa-magnifying-glass' },
       { key: 'curate', label: 'Curate', subtitle: 'Build stories and sets', icon: 'fa-star' },
@@ -4289,13 +4395,7 @@ class PhotoCatApp extends LitElement {
               @search-subtab-changed=${(e) => this._handleSearchSubTabChange(e.detail.subtab)}
               @search-filters-changed=${this._handleChipFiltersChanged}
               @thumb-size-changed=${(e) => this.curateThumbSize = e.detail.size}
-              @sort-changed=${(e) => {
-                this.curateOrderBy = e.detail.orderBy;
-                if (e.detail.dateOrder) {
-                  this.curateOrderDirection = e.detail.dateOrder;
-                }
-                this.requestUpdate();
-              }}
+              @sort-changed=${this._handleSearchSortChanged}
               @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
               @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
             ></search-tab>
@@ -4354,7 +4454,7 @@ class PhotoCatApp extends LitElement {
                     } else {
                       const curateFilters = this._buildCurateFilterObject();
                       this.curateHomeFilterPanel.updateFilters(curateFilters);
-                      this.curateHomeFilterPanel.fetchImages();
+                      this._fetchCurateHomeImages();
                     }
                   }}
                   title="Refresh"
@@ -4366,11 +4466,8 @@ class PhotoCatApp extends LitElement {
                 ${this.curateSubTab === 'home' ? html`
                 <div>
                   ${showCurateStatsOverlay ? html`
-                    <div class="curate-stats-overlay" aria-live="polite" aria-busy="true">
-                      <div class="curate-stats-card">
-                        <span class="curate-spinner xlarge" aria-hidden="true"></span>
-                        <div class="curate-stats-text">Refreshing Curate Stats...</div>
-                      </div>
+                    <div class="curate-loading-overlay" aria-label="Loading">
+                      <span class="curate-spinner large"></span>
                     </div>
                   ` : html``}
                   <curate-home-tab-v2

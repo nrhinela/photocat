@@ -163,7 +163,9 @@ export class SearchTab extends LitElement {
     this._exploreInitialLoadComplete = false;
     this._exploreInitialLoadPending = false;
     this._searchExploreOrder = null;
+    this._searchExploreGroupKey = null;
     this._searchBrowseOrder = null;
+    this._searchBrowseGroupKey = null;
     this._searchFilterPanelHandlers = null;
     this._folderBrowserPanelHandlers = null;
     this._searchDropboxFetchTimer = null;
@@ -214,6 +216,13 @@ export class SearchTab extends LitElement {
       const tasks = [];
       if (this.searchSubTab === 'home') {
         tasks.push(this.searchFilterPanel?.fetchImages());
+      }
+      if (this.searchSubTab === 'browse-by-folder') {
+        tasks.push(this.folderBrowserPanel?.loadFolders({ force: true }));
+        const dataPromise = this._refreshBrowseByFolderData({ force: true });
+        if (dataPromise) {
+          tasks.push(dataPromise);
+        }
       }
       tasks.push(this._fetchSearchLists({ force: true }));
       if (this.searchSubTab === 'explore-by-tag') {
@@ -383,7 +392,6 @@ export class SearchTab extends LitElement {
     // Debounce: prevent fetches within 5 seconds of last fetch
     const now = Date.now();
     if (now - this._lastListFetchTime < this._listFetchDebounceMs) {
-      console.log('Suppressing duplicate list fetch (within 5s debounce window)');
       return;
     }
 
@@ -627,6 +635,11 @@ export class SearchTab extends LitElement {
     this._refreshBrowseByFolderData({ force: true });
   }
 
+  _handleBrowseByFolderCancel() {
+    this.browseByFolderSelection = [...(this.browseByFolderAppliedSelection || [])];
+    this.browseByFolderAccordionOpen = false;
+  }
+
   _handleBrowseByFolderMultiSelectChange(event) {
     const selected = Array.from(event.target.selectedOptions || []).map(option => option.value);
     this.browseByFolderSelection = selected;
@@ -823,21 +836,58 @@ export class SearchTab extends LitElement {
     }
   }
 
-  _refreshBrowseByFolderData({ force = false } = {}) {
+  _refreshBrowseByFolderData({ force = false, orderBy, sortOrder } = {}) {
     if (!this.folderBrowserPanel) return;
-    const orderBy = this.curateOrderBy || 'photo_creation';
-    const sortOrder = this.curateDateOrder || 'desc';
+    const resolvedOrderBy = orderBy || this.curateOrderBy || 'photo_creation';
+    const resolvedSortOrder = sortOrder || this.curateDateOrder || 'desc';
     const appliedSelection = this.browseByFolderAppliedSelection || [];
     if (appliedSelection.length) {
       this.folderBrowserPanel.setSelection(appliedSelection);
     }
-    this.folderBrowserPanel.loadData({ orderBy, sortOrder, limit: 0, force });
+    return this.folderBrowserPanel.loadData({
+      orderBy: resolvedOrderBy,
+      sortOrder: resolvedSortOrder,
+      limit: 0,
+      force
+    });
+  }
+
+  refreshBrowseByFolder({ force = false, orderBy, sortOrder } = {}) {
+    return this._refreshBrowseByFolderData({ force, orderBy, sortOrder });
+  }
+
+  applyRatingUpdate(imageId, rating) {
+    if (!imageId) return false;
+    if (!this.browseByFolderData || typeof this.browseByFolderData !== 'object') {
+      return false;
+    }
+    let updated = false;
+    const nextData = {};
+    for (const [folder, images] of Object.entries(this.browseByFolderData)) {
+      if (!Array.isArray(images)) {
+        nextData[folder] = images;
+        continue;
+      }
+      let folderUpdated = false;
+      const nextImages = images.map((image) => {
+        if (image?.id === imageId && image.rating !== rating) {
+          folderUpdated = true;
+          updated = true;
+          return { ...image, rating };
+        }
+        return image;
+      });
+      nextData[folder] = folderUpdated ? nextImages : images;
+    }
+    if (updated) {
+      this.browseByFolderData = nextData;
+    }
+    return updated;
   }
 
   async _loadExploreByTagData(force = false) {
     // TODO: Implement explore by tag data loading
     // This will need to be connected to the parent's data loading logic
-    console.log('Load explore by tag data:', force);
   }
 
   // ========================================
@@ -863,11 +913,67 @@ export class SearchTab extends LitElement {
       bubbles: true,
       composed: true
     }));
+    if (this.searchSubTab === 'browse-by-folder') {
+      this._refreshBrowseByFolderData({
+        force: true,
+        orderBy: nextOrderBy,
+        sortOrder: nextDateOrder
+      });
+    }
   }
 
   _getCurateQuickSortArrow(field) {
     if (this.curateOrderBy !== field) return '';
     return this.curateDateOrder === 'desc' ? '↓' : '↑';
+  }
+
+  _getBrowseByFolderSortValue(image, field) {
+    if (!image) return null;
+    if (field === 'rating') {
+      return image.rating ?? null;
+    }
+    if (field === 'processed') {
+      return image.last_processed || image.created_at || image.processed || image.processed_at || null;
+    }
+    if (field === 'photo_creation') {
+      return image.photo_creation || image.capture_timestamp || image.modified_time || image.created_at || null;
+    }
+    return null;
+  }
+
+  _normalizeBrowseByFolderSortValue(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    const parsed = new Date(value).getTime();
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+    return null;
+  }
+
+  _sortBrowseByFolderImages(images) {
+    if (!Array.isArray(images) || images.length < 2) {
+      return images || [];
+    }
+    const field = this.curateOrderBy || 'photo_creation';
+    const direction = this.curateDateOrder === 'asc' ? 1 : -1;
+    const sorted = [...images];
+    sorted.sort((a, b) => {
+      const rawA = this._getBrowseByFolderSortValue(a, field);
+      const rawB = this._getBrowseByFolderSortValue(b, field);
+      const valueA = this._normalizeBrowseByFolderSortValue(rawA);
+      const valueB = this._normalizeBrowseByFolderSortValue(rawB);
+      if (valueA === null && valueB === null) return 0;
+      if (valueA === null) return 1;
+      if (valueB === null) return -1;
+      if (valueA === valueB) return 0;
+      return valueA > valueB ? direction : -direction;
+    });
+    return sorted;
   }
 
   _renderSearchPermatagSummary(image) {
@@ -946,25 +1052,27 @@ export class SearchTab extends LitElement {
     return this._searchSelectionHandlers.handleSelectHover(index);
   }
 
-  _handleExploreByTagPointerDown(event, index, imageId, order) {
+  _handleExploreByTagPointerDown(event, index, imageId, order, groupKey) {
     this._searchExploreOrder = order;
+    this._searchExploreGroupKey = groupKey;
     return this._handleSearchPointerDown(event, index, imageId);
   }
 
-  _handleExploreByTagSelectHover(index, order) {
-    if (this._searchExploreOrder !== order) {
+  _handleExploreByTagSelectHover(index, groupKey) {
+    if (this._searchExploreGroupKey !== groupKey) {
       return;
     }
     return this._handleSearchSelectHover(index);
   }
 
-  _handleBrowseByFolderPointerDown(event, index, imageId, order) {
+  _handleBrowseByFolderPointerDown(event, index, imageId, order, groupKey) {
     this._searchBrowseOrder = order;
+    this._searchBrowseGroupKey = groupKey;
     return this._handleSearchPointerDown(event, index, imageId);
   }
 
-  _handleBrowseByFolderSelectHover(index, order) {
-    if (this._searchBrowseOrder !== order) {
+  _handleBrowseByFolderSelectHover(index, groupKey) {
+    if (this._searchBrowseGroupKey !== groupKey) {
       return;
     }
     return this._handleSearchSelectHover(index);
@@ -1314,6 +1422,12 @@ export class SearchTab extends LitElement {
           </button>
         </div>
 
+        ${this.searchRefreshing ? html`
+          <div class="curate-loading-overlay" aria-label="Loading">
+            <span class="curate-spinner large"></span>
+          </div>
+        ` : html``}
+
         <!-- Search Home Subtab -->
         ${this.searchSubTab === 'home' ? html`
           <div>
@@ -1448,10 +1562,7 @@ export class SearchTab extends LitElement {
                 </div>
                 <div class="curate-pane-body">
                   ${this.exploreByTagLoading && !(this.exploreByTagKeywords && this.exploreByTagKeywords.length) ? html`
-                    <div class="flex items-center justify-center p-8">
-                      <span class="curate-spinner large"></span>
-                      <span class="ml-3 text-gray-600">Loading tag exploration data...</span>
-                    </div>
+                    <div class="p-8"></div>
                   ` : this.exploreByTagKeywords && this.exploreByTagKeywords.length > 0 ? html`
                     <div class="p-2">
                       ${explorePagination}
@@ -1480,9 +1591,9 @@ export class SearchTab extends LitElement {
                                     alt=${image.filename}
                                     class="curate-thumb ${this.searchDragSelection.includes(image.id) ? 'selected' : ''} ${this._searchFlashSelectionIds?.has(image.id) ? 'flash' : ''}"
                                     draggable="false"
-                                    @pointerdown=${(event) => this._handleExploreByTagPointerDown(event, index, image.id, order)}
+                                    @pointerdown=${(event) => this._handleExploreByTagPointerDown(event, index, image.id, order, keyword)}
                                     @pointermove=${(event) => this._handleSearchPointerMove(event)}
-                                    @pointerenter=${() => this._handleExploreByTagSelectHover(index, order)}
+                                    @pointerenter=${() => this._handleExploreByTagSelectHover(index, keyword)}
                                   >
                                   ${this.renderCurateRatingWidget ? this.renderCurateRatingWidget(image) : ''}
                                   ${this.renderCurateRatingStatic ? this.renderCurateRatingStatic(image) : ''}
@@ -1538,7 +1649,7 @@ export class SearchTab extends LitElement {
                       type="button"
                       @click=${() => { this.browseByFolderAccordionOpen = !this.browseByFolderAccordionOpen; }}
                     >
-                      <span>Folders</span>
+                      <span>Select Folders</span>
                       <span class="text-xs text-gray-500">
                         ${Array.isArray(this.browseByFolderSelection) ? this.browseByFolderSelection.length : 0} selected
                         <span class="ml-2">${this.browseByFolderAccordionOpen ? '▾' : '▸'}</span>
@@ -1580,7 +1691,15 @@ export class SearchTab extends LitElement {
                             </div>
                           `}
                         </div>
-                        <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center justify-end gap-3">
+                          <button
+                            class="px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-60"
+                            type="button"
+                            @click=${this._handleBrowseByFolderCancel}
+                            ?disabled=${!this._hasPendingBrowseByFolderSelection()}
+                          >
+                            Cancel
+                          </button>
                           <button
                             class="px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 rounded hover:bg-blue-50 disabled:opacity-60"
                             type="button"
@@ -1589,18 +1708,11 @@ export class SearchTab extends LitElement {
                           >
                             Apply selection
                           </button>
-                          <button
-                            class="text-xs text-gray-500"
-                            type="button"
-                            @click=${() => { this.browseByFolderAccordionOpen = false; }}
-                          >
-                            Collapse
-                          </button>
                         </div>
                       </div>
                     ` : ''}
 
-                    ${this.browseByFolderAccordionOpen ? '' : html`
+                    ${this.browseByFolderAccordionOpen || !(this.browseByFolderAppliedSelection || []).length ? '' : html`
                       <div class="mt-3 flex items-center gap-2">
                         <span class="text-sm font-semibold text-gray-700">Sort:</span>
                         <div class="curate-audit-toggle">
@@ -1633,13 +1745,11 @@ export class SearchTab extends LitElement {
                       <div class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm"></div>
                     ` : ''}
                     ${appliedFolders && appliedFolders.length > 0 ? html`
-                      <div class="p-2">
-                        ${browsePagination}
-                      </div>
                       <div class="p-4 space-y-6 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">
                         ${browseFoldersPage.map((folder) => {
                           const images = this.browseByFolderData?.[folder] || [];
-                          const order = images.map((image) => image.id);
+                          const sortedImages = this._sortBrowseByFolderImages(images);
+                          const order = sortedImages.map((image) => image.id);
                           return html`
                             <div>
                               <div class="text-sm font-semibold text-gray-900 mb-3">
@@ -1656,7 +1766,7 @@ export class SearchTab extends LitElement {
                                 <span class="text-xs text-gray-500 font-normal">(${images.length} images)</span>
                               </div>
                               <div class="curate-grid">
-                                ${images.length ? images.map((image, index) => html`
+                                ${sortedImages.length ? sortedImages.map((image, index) => html`
                                   <div
                                     class="curate-thumb-wrapper ${this.searchDragSelection.includes(image.id) ? 'selected' : ''}"
                                     data-image-id="${image.id}"
@@ -1669,9 +1779,9 @@ export class SearchTab extends LitElement {
                                       alt=${image.filename}
                                       class="curate-thumb ${this.searchDragSelection.includes(image.id) ? 'selected' : ''} ${this._searchFlashSelectionIds?.has(image.id) ? 'flash' : ''}"
                                       draggable="false"
-                                      @pointerdown=${(event) => this._handleBrowseByFolderPointerDown(event, index, image.id, order)}
+                                      @pointerdown=${(event) => this._handleBrowseByFolderPointerDown(event, index, image.id, order, folder)}
                                       @pointermove=${(event) => this._handleSearchPointerMove(event)}
-                                      @pointerenter=${() => this._handleBrowseByFolderSelectHover(index, order)}
+                                      @pointerenter=${() => this._handleBrowseByFolderSelectHover(index, folder)}
                                     >
                                     ${this.renderCurateRatingWidget ? this.renderCurateRatingWidget(image) : ''}
                                     ${this.renderCurateRatingStatic ? this.renderCurateRatingStatic(image) : ''}
@@ -1692,9 +1802,6 @@ export class SearchTab extends LitElement {
                             </div>
                           `;
                         })}
-                      </div>
-                      <div class="p-2">
-                        ${browsePagination}
                       </div>
                     ` : html`
                       <div class="p-8 text-center text-gray-500 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">
