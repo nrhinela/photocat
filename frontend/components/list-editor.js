@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
 import { getLists, createList, updateList, deleteList, getListItems, deleteListItem, fetchWithAuth } from '../services/api.js';
-import './image-card.js';
+import './shared/widgets/image-card.js';
 
 class ListEditor extends LitElement {
   static styles = [tailwind, css`
@@ -127,11 +127,9 @@ class ListEditor extends LitElement {
       console.warn('fetchLists: Tenant ID is not available.');
       return;
     }
-    console.log('fetchLists: Fetching lists for tenant:', this.tenant);
     this.isLoadingLists = true;
     try {
       const fetchedLists = await getLists(this.tenant, { force });
-      console.log('fetchLists: Fetched lists:', fetchedLists);
       this.lists = fetchedLists;
       this.dispatchEvent(new CustomEvent('lists-updated', { bubbles: true, composed: true }));
     } catch (error) {

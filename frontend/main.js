@@ -31,31 +31,15 @@ if (path.endsWith('/') && path !== '/') {
 // Get the app container
 const appContainer = document.getElementById('app');
 
-// Debug logging
-console.log('🔀 Routing:', {
-  path,
-  pathname: window.location.pathname,
-  href: window.location.href,
-  pathMatches: {
-    login: path === '/login',
-    signup: path === '/signup',
-    callback: path === '/auth/callback'
-  }
-});
-
 // Route based on path
 if (path === '/login') {
-  console.log('✅ Route: login');
   appContainer.innerHTML = '<login-page></login-page>';
 } else if (path === '/signup') {
-  console.log('✅ Route: signup');
   appContainer.innerHTML = '<signup-page></signup-page>';
 } else if (path === '/auth/callback') {
-  console.log('✅ Route: auth callback');
   appContainer.innerHTML = '<auth-callback></auth-callback>';
 } else {
   // All other routes require authentication
-  console.log('🔒 Route: protected (auth-guard)');
   appContainer.innerHTML = `
     <auth-guard>
       <photocat-app></photocat-app>
