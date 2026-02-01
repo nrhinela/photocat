@@ -127,11 +127,9 @@ class ListEditor extends LitElement {
       console.warn('fetchLists: Tenant ID is not available.');
       return;
     }
-    console.log('fetchLists: Fetching lists for tenant:', this.tenant);
     this.isLoadingLists = true;
     try {
       const fetchedLists = await getLists(this.tenant, { force });
-      console.log('fetchLists: Fetched lists:', fetchedLists);
       this.lists = fetchedLists;
       this.dispatchEvent(new CustomEvent('lists-updated', { bubbles: true, composed: true }));
     } catch (error) {
