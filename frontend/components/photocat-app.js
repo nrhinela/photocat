@@ -12,6 +12,7 @@ import './cli-commands.js';
 import './person-manager.js';
 import './people-tagger.js';
 import './shared/widgets/filter-chips.js';
+import './shared/widgets/keyword-dropdown.js';
 
 import ImageFilterPanel from './shared/state/image-filter-panel.js';
 import { tailwind } from './tailwind-lit.js';
@@ -33,11 +34,14 @@ import {
 } from '../services/api.js';
 import { enqueueCommand, subscribeQueue, retryFailedCommand } from '../services/command-queue.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
-import { createPaginationHandlers, renderResultsPagination } from './shared/pagination-controls.js';
+import { createPaginationHandlers } from './shared/pagination-controls.js';
 import { createRatingDragHandlers } from './shared/rating-drag-handlers.js';
 import { createHotspotHandlers, parseUtilityKeywordValue } from './shared/hotspot-controls.js';
+import { getKeywordsByCategory, getCategoryCount } from './shared/keyword-utils.js';
+import './home-tab.js';
 import './curate-home-tab.js';
 import './curate-explore-tab.js';
+import './curate-audit-tab.js';
 import './search-tab.js';
 
 class PhotoCatApp extends LitElement {
@@ -1180,6 +1184,7 @@ class PhotoCatApp extends LitElement {
       curateMinRating: { type: [Number, String] },
       curateKeywordFilters: { type: Object },
       curateKeywordOperators: { type: Object },
+      curateDropboxPathPrefix: { type: String },
       curateImages: { type: Array },
       curatePageOffset: { type: Number },
       curateTotal: { type: Number },
@@ -1217,8 +1222,9 @@ class PhotoCatApp extends LitElement {
       curateAuditOrderBy: { type: String },
       curateAuditOrderDirection: { type: String },
       curateAuditHideDeleted: { type: Boolean },
-      curateAuditMinRating: { type: Number },
+      curateAuditMinRating: { type: [Number, String] },
       curateAuditNoPositivePermatags: { type: Boolean },
+      curateAuditDropboxPathPrefix: { type: String },
       curateHomeRefreshing: { type: Boolean },
       curateStatsLoading: { type: Boolean },
       curateAdvancedOpen: { type: Boolean },
@@ -1281,6 +1287,7 @@ class PhotoCatApp extends LitElement {
       this.curateMinRating = null;
       this.curateKeywordFilters = {};
       this.curateKeywordOperators = {};
+      this.curateDropboxPathPrefix = '';
       this.curateFilters = this._buildCurateFilterObject();
       this.curateImages = [];
       this.curatePageOffset = 0;
@@ -1295,7 +1302,7 @@ class PhotoCatApp extends LitElement {
       this.curateEditorOpen = false;
       this.curateEditorImageSet = [];
       this.curateEditorImageIndex = -1;
-      this.curateSubTab = 'home';
+      this.curateSubTab = 'main';
       this.searchSubTab = 'home';
       this.searchChipFilters = [];
       this.curateAuditMode = 'existing';
@@ -1321,11 +1328,7 @@ class PhotoCatApp extends LitElement {
       this.curateAuditHideDeleted = true;
       this.curateAuditMinRating = null;
       this.curateAuditNoPositivePermatags = false;
-      this.curateAuditOrderBy = 'photo_creation';
-      this.curateAuditOrderDirection = 'desc';
-      this.curateAuditHideDeleted = true;
-      this.curateAuditMinRating = null;
-      this.curateAuditNoPositivePermatags = false;
+      this.curateAuditDropboxPathPrefix = '';
       this.curateHomeRefreshing = false;
       this.curateStatsLoading = false;
       this.curateAdvancedOpen = false;
@@ -1574,6 +1577,7 @@ class PhotoCatApp extends LitElement {
           curateMinRating: null,
           curateKeywordFilters: {},
           curateKeywordOperators: {},
+          curateDropboxPathPrefix: '',
           curateFilters: this._buildCurateFilterObject(),
           curateImages: [],
           curatePageOffset: 0,
@@ -1599,6 +1603,7 @@ class PhotoCatApp extends LitElement {
           curateMinRating: this.curateMinRating,
           curateKeywordFilters: { ...(this.curateKeywordFilters || {}) },
           curateKeywordOperators: { ...(this.curateKeywordOperators || {}) },
+          curateDropboxPathPrefix: this.curateDropboxPathPrefix,
           curateFilters: { ...(this.curateFilters || {}) },
           curateImages: Array.isArray(this.curateImages) ? [...this.curateImages] : [],
           curatePageOffset: this.curatePageOffset,
@@ -1624,6 +1629,7 @@ class PhotoCatApp extends LitElement {
       this.curateMinRating = next.curateMinRating;
       this.curateKeywordFilters = { ...(next.curateKeywordFilters || {}) };
       this.curateKeywordOperators = { ...(next.curateKeywordOperators || {}) };
+      this.curateDropboxPathPrefix = next.curateDropboxPathPrefix || '';
       this.curateFilters = { ...(next.curateFilters || this._buildCurateFilterObject()) };
       this.curateImages = Array.isArray(next.curateImages) ? [...next.curateImages] : [];
       this.curatePageOffset = next.curatePageOffset;
@@ -1653,6 +1659,23 @@ class PhotoCatApp extends LitElement {
           category: decodeURIComponent(rawCategory || 'Uncategorized'),
           keyword: decodeURIComponent(rawKeyword || ''),
       };
+  }
+
+  _resolveKeywordCategory(keyword, fallbackCategory = '') {
+      if (!keyword) return '';
+      const normalizedKeyword = keyword.trim();
+      if (!normalizedKeyword) return '';
+      const keywordEntry = (this.keywords || []).find((kw) => kw?.keyword === normalizedKeyword);
+      if (keywordEntry?.category) {
+          return keywordEntry.category;
+      }
+      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
+      for (const [category, keywords] of Object.entries(sourceStats)) {
+          if ((keywords || []).some((kw) => kw?.keyword === normalizedKeyword)) {
+              return category;
+          }
+      }
+      return fallbackCategory || 'Uncategorized';
   }
 
   // Explore hotspot handlers - now using factory to eliminate duplication
@@ -1713,6 +1736,28 @@ class PhotoCatApp extends LitElement {
               return this._handleCurateExploreHotspotDrop(event.detail.event, targetId);
           default:
               console.warn('Unknown hotspot event type:', type);
+      }
+  }
+
+  _handleCurateAuditHotspotChanged(event) {
+      const { type, targetId, value } = event.detail;
+      switch (type) {
+          case 'keyword-change':
+              return this._handleCurateAuditHotspotKeywordChange({ target: { value } }, targetId);
+          case 'action-change':
+              return this._handleCurateAuditHotspotActionChange({ target: { value } }, targetId);
+          case 'type-change':
+              return this._handleCurateAuditHotspotTypeChange({ target: { value } }, targetId);
+          case 'rating-change':
+              return this._handleCurateAuditHotspotRatingChange({ target: { value } }, targetId);
+          case 'add-target':
+              return this._handleCurateAuditHotspotAddTarget();
+          case 'remove-target':
+              return this._handleCurateAuditHotspotRemoveTarget(targetId);
+          case 'hotspot-drop':
+              return this._handleCurateAuditHotspotDrop(event.detail.event, targetId);
+          default:
+              console.warn('Unknown audit hotspot event type:', type);
       }
   }
 
@@ -1786,10 +1831,23 @@ class PhotoCatApp extends LitElement {
   _syncAuditHotspotPrimary() {
       const defaultAction = this.curateAuditMode === 'existing' ? 'remove' : 'add';
       const keyword = this.curateAuditKeyword || '';
-      const category = keyword ? (this.curateAuditCategory || 'Uncategorized') : '';
+      let category = '';
+      if (keyword) {
+          category = this.curateAuditCategory || '';
+          if (!category) {
+              const match = (this.keywords || []).find((kw) => kw?.keyword === keyword);
+              category = match?.category || '';
+          }
+          if (!category) {
+              category = 'Uncategorized';
+          }
+      }
+      if (keyword && category && this.curateAuditCategory !== category) {
+          this.curateAuditCategory = category;
+      }
       if (!this.curateAuditTargets || !this.curateAuditTargets.length) {
           this.curateAuditTargets = [
-              { id: 1, category, keyword, action: defaultAction, count: 0 },
+              { id: 1, type: 'keyword', category, keyword, action: defaultAction, count: 0 },
           ];
           this._curateAuditHotspotNextId = 2;
           return;
@@ -1797,6 +1855,7 @@ class PhotoCatApp extends LitElement {
       const [first, ...rest] = this.curateAuditTargets;
       const nextFirst = {
           ...first,
+          type: first?.type || 'keyword',
           category,
           keyword,
           action: defaultAction,
@@ -2083,7 +2142,7 @@ class PhotoCatApp extends LitElement {
           }
           case 'curate': {
               this.fetchKeywords();
-              this.fetchStats().finally(() => {
+              this.fetchStats({ includeTagStats: this.curateSubTab === 'home' }).finally(() => {
                   this._curateHomeLastFetchKey = this._getCurateHomeFetchKey();
               });
               if (this.curateSubTab === 'main') {
@@ -2101,7 +2160,7 @@ class PhotoCatApp extends LitElement {
               break;
           }
           case 'system': {
-              this.fetchStats();
+              this.fetchStats({ includeTagStats: false });
               break;
           }
           case 'admin':
@@ -2256,6 +2315,7 @@ class PhotoCatApp extends LitElement {
           keywords: overrides.keywords !== undefined ? overrides.keywords : this.curateKeywordFilters,
           operators: overrides.operators !== undefined ? overrides.operators : this.curateKeywordOperators || {},
           categoryFilterSource: 'permatags',
+          dropboxPathPrefix: overrides.dropboxPathPrefix !== undefined ? overrides.dropboxPathPrefix : this.curateDropboxPathPrefix,
       };
 
       // Handle rating filter
@@ -2295,6 +2355,7 @@ class PhotoCatApp extends LitElement {
           permatagSignum: 1,
           permatagMissing: this.curateAuditMode === 'missing',
           hideZeroRating: this.curateAuditHideDeleted,
+          dropboxPathPrefix: overrides.dropboxPathPrefix !== undefined ? overrides.dropboxPathPrefix : this.curateAuditDropboxPathPrefix,
       };
 
       // AI sorting for missing tags
@@ -2584,32 +2645,11 @@ class PhotoCatApp extends LitElement {
   }
 
   _getKeywordsByCategory() {
-      // Group keywords by category with counts, returns array of [category, keywords] tuples
-      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-      const result = [];
-
-      Object.entries(sourceStats).forEach(([category, keywords]) => {
-          const categoryKeywords = (keywords || [])
-              .map(kw => ({
-                  keyword: kw.keyword,
-                  count: kw.count || 0
-              }))
-              .sort((a, b) => a.keyword.localeCompare(b.keyword));
-
-          if (categoryKeywords.length > 0) {
-              result.push([category, categoryKeywords]);
-          }
-      });
-
-      // Sort categories alphabetically
-      return result.sort((a, b) => a[0].localeCompare(b[0]));
+      return getKeywordsByCategory(this.tagStatsBySource, this.activeCurateTagSource);
   }
 
   _getCategoryCount(category) {
-      // Get total positive permatag count for a category
-      const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-      const keywords = sourceStats[category] || [];
-      return (keywords || []).reduce((sum, kw) => sum + (kw.count || 0), 0);
+      return getCategoryCount(this.tagStatsBySource, category, this.activeCurateTagSource);
   }
 
   _handleCurateHideDeletedChange(e) {
@@ -2762,7 +2802,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateHomeRefreshing) return;
       this.curateHomeRefreshing = true;
       try {
-          await this.fetchStats({ force: true });
+          await this.fetchStats({ force: true, includeTagStats: true });
           this._curateHomeLastFetchKey = this._getCurateHomeFetchKey();
       } finally {
           this.curateHomeRefreshing = false;
@@ -2935,6 +2975,7 @@ class PhotoCatApp extends LitElement {
       this.curateNoPositivePermatags = false;
       this.curateKeywordFilters = {};
       this.curateKeywordOperators = {};
+      this.curateDropboxPathPrefix = '';
       this.curateFilters = this._buildCurateFilterObject({ resetOffset: true });
       this.curatePageOffset = 0;
       this.curateTotal = null;
@@ -2942,7 +2983,7 @@ class PhotoCatApp extends LitElement {
       const curateFilters = this._buildCurateFilterObject({ resetOffset: true });
       this.curateHomeFilterPanel.updateFilters(curateFilters);
       this.curateDragSelection = [];
-      this.curateSubTab = 'home';
+      this.curateSubTab = 'main';
       this.curateAuditMode = 'existing';
       this.curateAuditKeyword = '';
       this.curateAuditCategory = '';
@@ -2960,6 +3001,7 @@ class PhotoCatApp extends LitElement {
       this.curateAuditPageOffset = 0;
       this.curateAuditAiEnabled = false;
       this.curateAuditAiModel = '';
+      this.curateAuditDropboxPathPrefix = '';
       this._curateAuditLastFetchKey = null;
       this._curateHomeLastFetchKey = null;
       this._resetSearchListDraft();
@@ -2988,7 +3030,10 @@ class PhotoCatApp extends LitElement {
         const curateFilters = this._buildCurateFilterObject();
         this.curateHomeFilterPanel.updateFilters(curateFilters);
         this._fetchCurateHomeImages();
-        this.fetchStats({ force: true });
+        this.fetchStats({
+          force: true,
+          includeTagStats: this.activeTab === 'curate' && this.curateSubTab === 'home',
+        });
         this.showUploadModal = false;
     }
 
@@ -3120,12 +3165,14 @@ class PhotoCatApp extends LitElement {
                   }
                   break;
               case 'rating':
-                  searchFilters.rating = chip.value;
-                  // Set rating operator based on value
                   if (chip.value === 'unrated') {
+                      searchFilters.rating = undefined;
                       searchFilters.ratingOperator = 'is_null';
+                      searchFilters.hideZeroRating = true;
                   } else {
+                      searchFilters.rating = chip.value;
                       searchFilters.ratingOperator = chip.value === 0 ? 'eq' : 'gte';
+                      searchFilters.hideZeroRating = false;
                   }
                   break;
               case 'folder':
@@ -3134,18 +3181,139 @@ class PhotoCatApp extends LitElement {
           }
       });
 
-      // Check for special case: rating 0 with hideZeroRating
-      if (searchFilters.rating === 0 && searchFilters.hideZeroRating) {
-          this.curateImages = [];
-          this.curateTotal = 0;
-          return;
-      }
-
       // Update filter panel with the complete filter object
       this.searchFilterPanel.updateFilters(searchFilters);
 
       // Fetch images using the filter panel
       this.searchFilterPanel.fetchImages();
+  }
+
+  _handleCurateChipFiltersChanged(event) {
+      const chips = event.detail?.filters || [];
+      const nextKeywords = {};
+      const nextOperators = {};
+      let nextMinRating = null;
+      let nextNoPositivePermatags = false;
+      let nextDropboxPathPrefix = '';
+      let nextHideDeleted = true;
+
+      chips.forEach((chip) => {
+          switch (chip.type) {
+              case 'keyword':
+                  if (chip.value === '__untagged__') {
+                      nextNoPositivePermatags = true;
+                  } else if (chip.value) {
+                      const category = chip.category || 'Uncategorized';
+                      if (!nextKeywords[category]) {
+                          nextKeywords[category] = new Set();
+                      }
+                      nextKeywords[category].add(chip.value);
+                      nextOperators[category] = 'OR';
+                  }
+                  break;
+              case 'rating':
+                  if (chip.value === 'unrated') {
+                      nextMinRating = 'unrated';
+                      nextHideDeleted = true;
+                  } else {
+                      nextMinRating = chip.value;
+                      nextHideDeleted = false;
+                  }
+                  break;
+              case 'folder':
+                  nextDropboxPathPrefix = chip.value || '';
+                  break;
+          }
+      });
+
+      if (nextNoPositivePermatags) {
+          Object.keys(nextKeywords).forEach((key) => delete nextKeywords[key]);
+          Object.keys(nextOperators).forEach((key) => delete nextOperators[key]);
+      }
+
+      this.curateKeywordFilters = nextKeywords;
+      this.curateKeywordOperators = nextOperators;
+      this.curateNoPositivePermatags = nextNoPositivePermatags;
+      this.curateMinRating = nextMinRating;
+      this.curateHideDeleted = nextHideDeleted;
+      this.curateDropboxPathPrefix = nextDropboxPathPrefix;
+
+      this._applyCurateFilters({ resetOffset: true });
+  }
+
+  _handleCurateAuditChipFiltersChanged(event) {
+      const chips = event.detail?.filters || [];
+      const keywordChip = chips.find((chip) => chip.type === 'keyword');
+      const nextKeyword = keywordChip?.value || '';
+      let nextCategory = keywordChip?.category || '';
+      let nextMinRating = null;
+      let nextHideDeleted = true;
+      let nextDropboxPathPrefix = '';
+
+      chips.forEach((chip) => {
+          switch (chip.type) {
+              case 'rating':
+                  if (chip.value === 'unrated') {
+                      nextMinRating = 'unrated';
+                      nextHideDeleted = true;
+                  } else {
+                      nextMinRating = chip.value;
+                      nextHideDeleted = false;
+                  }
+                  break;
+              case 'folder':
+                  nextDropboxPathPrefix = chip.value || '';
+                  break;
+          }
+      });
+
+      nextCategory = this._resolveKeywordCategory(nextKeyword, nextCategory);
+      const keywordChanged = nextKeyword !== this.curateAuditKeyword
+          || nextCategory !== this.curateAuditCategory;
+
+      this.curateAuditKeyword = nextKeyword;
+      this.curateAuditCategory = nextCategory;
+      this.curateAuditMinRating = nextMinRating;
+      this.curateAuditHideDeleted = nextHideDeleted;
+      this.curateAuditDropboxPathPrefix = nextDropboxPathPrefix;
+      this.curateAuditPageOffset = 0;
+      this.curateAuditOffset = 0;
+      this.curateAuditLoadAll = false;
+
+      const defaultAction = this.curateAuditMode === 'existing' ? 'remove' : 'add';
+      const [firstTarget, ...restTargets] = this.curateAuditTargets || [];
+      const primaryType = firstTarget?.type || 'keyword';
+      const primaryId = firstTarget?.id || 1;
+      this.curateAuditTargets = [
+          {
+              ...firstTarget,
+              id: primaryId,
+              type: primaryType,
+              category: nextKeyword ? nextCategory : '',
+              keyword: nextKeyword,
+              action: defaultAction,
+              count: 0,
+          },
+          ...restTargets,
+      ];
+
+      if (keywordChanged) {
+          this.curateAuditSelection = [];
+          this.curateAuditDragSelection = [];
+          this.curateAuditDragTarget = null;
+          this.curateAuditDragSelecting = false;
+          this.curateAuditDragStartIndex = null;
+          this.curateAuditDragEndIndex = null;
+      }
+      this._syncAuditHotspotPrimary();
+
+      if (!this.curateAuditKeyword) {
+          this.curateAuditImages = [];
+          this.curateAuditTotal = null;
+          return;
+      }
+
+      this._fetchCurateAuditImages();
   }
 
   async _fetchDropboxFolders(query) {
@@ -3730,6 +3898,7 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordOperators = {};
       this.curateNoPositivePermatags = false;
       this.curateMinRating = null;
+      this.curateDropboxPathPrefix = '';
       this.curateFilters = this._buildCurateFilterObject();
       const curateFilters = {
           ...this._buildCurateFilterObject({ resetOffset: true }),
@@ -4014,7 +4183,6 @@ class PhotoCatApp extends LitElement {
       }
       return '';
     })();
-    const untaggedCountLabel = this._formatStatNumber(this.imageStats?.untagged_positive_count);
     const isAuditMode = mode === 'tag-audit';
     const activeHideDeleted = isAuditMode ? this.curateAuditHideDeleted : this.curateHideDeleted;
     const activeMinRating = isAuditMode ? this.curateAuditMinRating : this.curateMinRating;
@@ -4143,25 +4311,17 @@ class PhotoCatApp extends LitElement {
           <div class="flex gap-4 items-end">
             <div class="w-1/2 min-w-[260px]">
               <label class="block text-base font-semibold text-gray-700 mb-2">Keywords</label>
-              <select
-                class="w-full ${mode === 'tag-audit' ? 'px-3 py-2' : 'px-4 py-3 text-lg'} border rounded-lg ${selectedKeywordValue ? 'bg-yellow-100 border-yellow-200' : ''}"
+              <keyword-dropdown
                 .value=${selectedKeywordValue}
+                .placeholder=${'Select a keyword...'}
+                .tagStatsBySource=${this.tagStatsBySource}
+                .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+                .keywords=${this.keywords}
+                .imageStats=${this.imageStats}
+                .includeUntagged=${mode !== 'tag-audit'}
+                .compact=${mode === 'tag-audit'}
                 @change=${(event) => this._handleCurateKeywordSelect(event, mode)}
-              >
-                <option value="">Select a keyword...</option>
-                ${mode !== 'tag-audit'
-                  ? html`<option value="__untagged__">Untagged (${untaggedCountLabel})</option>`
-                  : html``}
-                ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                  <optgroup label="${category} (${this._getCategoryCount(category)})">
-                    ${keywords.map(kw => html`
-                      <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                        ${kw.keyword} (${kw.count})
-                      </option>
-                    `)}
-                  </optgroup>
-                `)}
-              </select>
+              ></keyword-dropdown>
             </div>
             
             <button
@@ -4184,10 +4344,6 @@ class PhotoCatApp extends LitElement {
   }
 
   render() {
-    const imageCount = this._formatStatNumber(this.imageStats?.image_count);
-    const reviewedCount = this._formatStatNumber(this.imageStats?.reviewed_image_count);
-    const mlTagCount = this._formatStatNumber(this.imageStats?.ml_tag_count);
-    const trainedTagCount = this._formatStatNumber(this.mlTrainingStats?.trained_image_count);
     const showCurateStatsOverlay = this.curateStatsLoading || this.curateHomeRefreshing;
     const navCards = [
       { key: 'search', label: 'Search', subtitle: 'Explore and save results', icon: 'fa-magnifying-glass' },
@@ -4217,7 +4373,6 @@ class PhotoCatApp extends LitElement {
       ? curateTotalCount
       : curatePageSize;
     const leftPaneLabel = `${this._formatStatNumber(leftPaneCount)} Items`;
-    const untaggedCountLabel = this._formatStatNumber(this.imageStats?.untagged_positive_count);
     const trimmedSearchListTitle = (this.searchListTitle || '').trim();
     const hasSearchListTitle = !!trimmedSearchListTitle;
     const duplicateNewListTitle = !this.searchListId && this._isDuplicateListTitle(this.searchListTitle);
@@ -4240,11 +4395,6 @@ class PhotoCatApp extends LitElement {
     const auditKeywordLabel = this.curateAuditKeyword
       ? this.curateAuditKeyword.replace(/[-_]/g, ' ')
       : '';
-    const auditLeftLabel = this.curateAuditKeyword
-      ? (this.curateAuditMode === 'existing'
-        ? `All images WITH tag: ${auditKeywordLabel}`
-        : `All images WITHOUT tag: ${auditKeywordLabel}`)
-      : 'Select a keyword';
     const auditRightLabel = this.curateAuditKeyword
       ? `${auditActionVerb === 'add' ? 'ADD TAG' : 'REMOVE TAG'}: ${auditKeywordLabel}`
       : `${auditActionVerb === 'add' ? 'ADD TAG' : 'REMOVE TAG'}: keyword`;
@@ -4254,17 +4404,6 @@ class PhotoCatApp extends LitElement {
     const curateRefreshBusy = this.curateSubTab === 'home'
       ? (this.curateHomeRefreshing || this.curateStatsLoading)
       : (this.curateSubTab === 'tag-audit' ? this.curateAuditLoading : this.curateLoading);
-    const auditLeftImages = this.curateAuditImages;
-    this._curateAuditLeftOrder = auditLeftImages.map((img) => img.id);
-    const auditLoadAll = this.curateAuditLoadAll;
-    const auditTotalCount = auditLoadAll
-      ? auditLeftImages.length
-      : Number.isFinite(this.curateAuditTotal)
-        ? this.curateAuditTotal
-        : null;
-    const auditPaginationTotal = Number.isFinite(auditTotalCount)
-      ? auditTotalCount
-      : auditLeftImages.length;
 
     return html`
         ${this._curateRatingModalActive ? html`
@@ -4310,41 +4449,13 @@ class PhotoCatApp extends LitElement {
         
         <tab-container .activeTab=${this.activeTab}>
             ${this.activeTab === 'home' ? html`
-            <div slot="home" class="container">
-                <div class="flex flex-wrap gap-4 mb-6">
-                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-                        <div class="text-xs text-gray-500 uppercase">Images</div>
-                        <div class="text-2xl font-semibold text-gray-900">${imageCount}</div>
-                    </div>
-                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-                        <div class="text-xs text-gray-500 uppercase">Reviewed</div>
-                        <div class="text-2xl font-semibold text-gray-900">${reviewedCount}</div>
-                    </div>
-                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-                        <div class="text-xs text-gray-500 uppercase">Zero-Shot</div>
-                        <div class="text-2xl font-semibold text-gray-900">${mlTagCount}</div>
-                    </div>
-                    <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-                        <div class="text-xs text-gray-500 uppercase">Keyword-Model</div>
-                        <div class="text-2xl font-semibold text-gray-900">${trainedTagCount}</div>
-                    </div>
-                </div>
-                <div class="home-nav-grid">
-                  ${navCards.map((card) => html`
-                    <button
-                      class="home-nav-button"
-                      type="button"
-                      @click=${() => { this.activeTab = card.key; }}
-                    >
-                      <div>
-                        <div class="text-lg font-semibold text-gray-900">${card.label}</div>
-                        <div class="text-sm text-gray-500">${card.subtitle}</div>
-                      </div>
-                      <span class="text-2xl text-blue-600"><i class="fas ${card.icon}"></i></span>
-                    </button>
-                  `)}
-                </div>
-            </div>
+            <home-tab
+              slot="home"
+              .imageStats=${this.imageStats}
+              .mlTrainingStats=${this.mlTrainingStats}
+              .navCards=${navCards}
+              @navigate=${(e) => { this.activeTab = e.detail.tab; }}
+            ></home-tab>
             ` : ''}
             ${this.activeTab === 'search' ? html`
             <search-tab
@@ -4365,6 +4476,7 @@ class PhotoCatApp extends LitElement {
               .curateThumbSize=${this.curateThumbSize}
               .tagStatsBySource=${this.tagStatsBySource}
               .activeCurateTagSource=${this.activeCurateTagSource}
+              .keywords=${this.keywords}
               .imageStats=${this.imageStats}
               .curateOrderBy=${this.curateOrderBy}
               .curateDateOrder=${this.curateOrderDirection}
@@ -4385,12 +4497,6 @@ class PhotoCatApp extends LitElement {
                 <div class="flex items-center justify-between mb-4">
                     <div class="curate-subtabs">
                         <button
-                          class="curate-subtab ${this.curateSubTab === 'home' ? 'active' : ''}"
-                          @click=${() => this._handleCurateSubTabChange('home')}
-                        >
-                          Curate Home
-                        </button>
-                        <button
                           class="curate-subtab ${this.curateSubTab === 'main' ? 'active' : ''}"
                           @click=${() => this._handleCurateSubTabChange('main')}
                         >
@@ -4402,13 +4508,19 @@ class PhotoCatApp extends LitElement {
                     >
                       Tag audit
                     </button>
+                        <button
+                          class="curate-subtab ${this.curateSubTab === 'home' ? 'active' : ''}"
+                          @click=${() => this._handleCurateSubTabChange('home')}
+                        >
+                          Stats
+                        </button>
                     <button
                       class="curate-subtab ${this.curateSubTab === 'help' ? 'active' : ''}"
                       @click=${() => this._handleCurateSubTabChange('help')}
                     >
                       <i class="fas fa-question-circle mr-1"></i>Help
                     </button>
-                </div>
+                    </div>
                 <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
                   <label class="font-semibold text-gray-600">Thumb</label>
                   <input
@@ -4473,12 +4585,12 @@ class PhotoCatApp extends LitElement {
                     .offset=${this.curatePageOffset}
                     .total=${this.curateTotal}
                     .loading=${this.curateLoading}
-                    .advancedOpen=${this.curateAdvancedOpen}
-                    .advancedContent=${this._renderCurateFilters({ mode: 'main', showHistogram: false, showHeader: false })}
                     .dragSelection=${this.curateDragSelection}
                     .dragSelecting=${this.curateDragSelecting}
                     .dragStartIndex=${this.curateDragStartIndex}
                     .dragEndIndex=${this.curateDragEndIndex}
+                    .minRating=${this.curateMinRating}
+                    .dropboxPathPrefix=${this.curateDropboxPathPrefix}
                     .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
                     .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
                     .renderCuratePermatagSummary=${this._renderCuratePermatagSummary.bind(this)}
@@ -4489,6 +4601,7 @@ class PhotoCatApp extends LitElement {
                     .selectedKeywordValueMain=${selectedKeywordValueMain}
                     .tagStatsBySource=${this.tagStatsBySource}
                     .activeCurateTagSource=${this.activeCurateTagSource}
+                    .keywords=${this.keywords}
                     .curateExploreTargets=${this.curateExploreTargets}
                     .curateExploreRatingEnabled=${this.curateExploreRatingEnabled}
                     .curateExploreRatingCount=${this.curateExploreRatingCount}
@@ -4498,284 +4611,72 @@ class PhotoCatApp extends LitElement {
                       this.curateDateOrder = e.detail.dateOrder;
                       this._applyCurateFilters();
                     }}
+                    @thumb-size-changed=${(e) => { this.curateThumbSize = e.detail.size; }}
                     @keyword-selected=${(e) => this._handleCurateKeywordSelect(e.detail.event, e.detail.mode)}
                     @pagination-changed=${(e) => {
                       this.curatePageOffset = e.detail.offset;
                       this.curateLimit = e.detail.limit;
                       this._applyCurateFilters();
                     }}
-                    @advanced-toggled=${(e) => { this.curateAdvancedOpen = e.detail.open; }}
                     @hotspot-changed=${this._handleCurateHotspotChanged}
                     @selection-changed=${(e) => { this.curateDragSelection = e.detail.selection; }}
                     @rating-drop=${(e) => this._handleCurateExploreRatingDrop(e.detail.event)}
+                    @curate-filters-changed=${this._handleCurateChipFiltersChanged}
                   ></curate-explore-tab>
                 </div>
                 ` : html``}
                 ${this.curateSubTab === 'tag-audit' ? html`
                 <div>
-                    ${this._renderCurateFilters({ mode: 'tag-audit', showHistogram: false })}
-                    ${this.curateAuditKeyword ? html`
-                      <div class="text-center text-xl font-semibold text-gray-800 mb-3">
-                        Auditing tag : ${this.curateAuditKeyword}
-                      </div>
-                    ` : html``}
-                    ${this.curateAuditKeyword ? html`
-                      <div class="bg-white rounded-lg shadow p-4 mb-4">
-                          <div class="flex flex-wrap items-start gap-4">
-                              <div>
-                                  <div class="text-xs font-semibold text-gray-600 mb-1">Audit mode</div>
-                                  <div class="curate-audit-toggle">
-                                      <button
-                                        class=${this.curateAuditMode === 'existing' ? 'active' : ''}
-                                        @click=${() => this._handleCurateAuditModeChange('existing')}
-                                      >
-                                        Verify Existing Tags
-                                      </button>
-                                      <button
-                                        class=${this.curateAuditMode === 'missing' ? 'active' : ''}
-                                        @click=${() => this._handleCurateAuditModeChange('missing')}
-                                      >
-                                        Find Missing Tags
-                                      </button>
-                                  </div>
-                              </div>
-                              ${this.curateAuditMode === 'missing' ? html`
-                                <div>
-                                  <div class="text-xs font-semibold text-gray-600 mb-1">Find with AI</div>
-                                  <div class="curate-ai-toggle text-xs text-gray-600">
-                                    <label class="inline-flex items-center gap-2">
-                                      <input
-                                        type="checkbox"
-                                        class="h-4 w-4"
-                                        .checked=${this.curateAuditAiEnabled}
-                                        @change=${this._handleCurateAuditAiEnabledChange}
-                                      >
-                                      <span>Enable</span>
-                                    </label>
-                                    ${this.curateAuditAiEnabled ? html`
-                                      <div class="flex items-center gap-2">
-                                        ${[
-                                          { key: 'siglip', label: 'Zero-shot' },
-                                          { key: 'trained', label: 'Keyword model' },
-                                        ].map((model) => html`
-                                          <button
-                                            class="px-2 py-1 rounded border text-xs ${this.curateAuditAiModel === model.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
-                                            aria-pressed=${this.curateAuditAiModel === model.key ? 'true' : 'false'}
-                                            @click=${() => this._handleCurateAuditAiModelChange(model.key)}
-                                          >
-                                            ${model.label}
-                                          </button>
-                                        `)}
-                                      </div>
-                                    ` : html``}
-                                  </div>
-                                </div>
-                              ` : html``}
-                          </div>
-                      </div>
-                      <div class="curate-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
-                        <div class="curate-pane">
-                            <div class="curate-pane-header">
-                                <div class="curate-pane-header-row">
-                                    <span>${auditLeftLabel}</span>
-                                    <div class="curate-pane-header-actions">
-                                        ${this.curateAuditKeyword && !auditLoadAll ? html`
-                                          ${renderResultsPagination({
-                                            total: auditPaginationTotal,
-                                            offset: this.curateAuditPageOffset || 0,
-                                            limit: this.curateAuditLimit,
-                                            count: auditLeftImages.length,
-                                            onPrev: this._handleCurateAuditPagePrev,
-                                            onNext: this._handleCurateAuditPageNext,
-                                            onLimitChange: this._handleCurateAuditLimitChange,
-                                            disabled: this.curateAuditLoading,
-                                          })}
-                                        ` : html``}
-                                    </div>
-                                </div>
-                            </div>
-                            ${this.curateAuditLoading ? html`
-                              <div class="curate-loading-overlay" aria-label="Loading">
-                                <span class="curate-spinner large"></span>
-                              </div>
-                            ` : html``}
-                            <div class="curate-pane-body">
-                                ${auditLeftImages.length ? html`
-                                  <div class="curate-grid">
-                                    ${auditLeftImages.map((image, index) => html`
-                                      <div class="curate-thumb-wrapper" @click=${(event) => this._handleCurateImageClick(event, image)}>
-                                        <img
-                                          src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                                          alt=${image.filename}
-                                          class="curate-thumb ${this.curateAuditDragSelection.includes(image.id) ? 'selected' : ''}"
-                                          draggable="true"
-                                          @dragstart=${(event) => this._handleCurateAuditDragStart(event, image)}
-                                          @pointerdown=${(event) => this._handleCurateAuditPointerDown(event, index, image.id)}
-                                          @pointermove=${(event) => this._handleCurateAuditPointerMove(event)}
-                                          @pointerenter=${() => this._handleCurateAuditSelectHover(index)}
-                                        >
-                                        ${this._renderCurateRatingWidget(image)}
-                                        ${this._renderCurateRatingStatic(image)}
-                                        ${this._renderCurateAiMLScore(image)}
-                                        ${this._renderCuratePermatagSummary(image)}
-                                        ${this._formatCurateDate(image) ? html`
-                                          <div class="curate-thumb-date">
-                                            <span class="curate-thumb-id">#${image.id}</span>
-                                            <span class="curate-thumb-icon" aria-hidden="true">📷</span>${this._formatCurateDate(image)}
-                                          </div>
-                                        ` : html``}
-                                      </div>
-                                    `)}
-                                  </div>
-                                ` : html`
-                                  <div class="curate-drop">
-                                    ${this.curateAuditKeyword ? 'No images available.' : 'Choose a keyword to start.'}
-                                  </div>
-                                `}
-                                ${this.curateAuditKeyword ? html`
-                                  ${auditLoadAll ? html`` : html`
-                                    <div class="mt-3">
-                                      ${renderResultsPagination({
-                                        total: auditPaginationTotal,
-                                        offset: this.curateAuditPageOffset || 0,
-                                        limit: this.curateAuditLimit,
-                                        count: auditLeftImages.length,
-                                        onPrev: this._handleCurateAuditPagePrev,
-                                        onNext: this._handleCurateAuditPageNext,
-                                        onLimitChange: this._handleCurateAuditLimitChange,
-                                        disabled: this.curateAuditLoading,
-                                        showPageSize: false,
-                                      })}
-                                    </div>
-                                  `}
-                                ` : html``}
-                            </div>
-                        </div>
-                        <div
-                          class="curate-pane utility-targets"
-                        >
-                            <div class="curate-pane-header">
-                                <div class="curate-pane-header-row">
-                                    <span>Hotspots</span>
-                                    <div class="curate-rating-checkbox" style="margin-left: auto;">
-                                        <input
-                                            type="checkbox"
-                                            id="rating-checkbox-audit"
-                                            .checked=${this.curateAuditRatingEnabled}
-                                            @change=${this._handleCurateAuditRatingToggle}
-                                        />
-                                        <label for="rating-checkbox-audit">Rating</label>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="curate-pane-body">
-                              ${this.curateAuditRatingEnabled ? html`
-                                <div
-                                  class="curate-rating-drop-zone ${this._curateAuditRatingDragTarget ? 'active' : ''}"
-                                  @dragover=${(event) => this._handleCurateAuditRatingDragOver(event)}
-                                  @dragleave=${this._handleCurateAuditRatingDragLeave}
-                                  @drop=${(event) => this._handleCurateAuditRatingDrop(event)}
-                                >
-                                  <div class="curate-rating-drop-zone-star">⭐</div>
-                                  <div class="curate-rating-drop-zone-content">
-                                    <div class="curate-rating-drop-hint">Drop to rate</div>
-                                    <div class="curate-rating-count">${this.curateAuditRatingCount || 0} rated</div>
-                                  </div>
-                                </div>
-                              ` : html``}
-                              <div class="curate-utility-panel">
-                                ${(this.curateAuditTargets || []).map((target) => {
-                                  const isPrimary = (this.curateAuditTargets?.[0]?.id === target.id);
-                                  const isRating = target.type === 'rating';
-                                  const selectedValue = target.keyword
-                                    ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
-                                    : '';
-                                  return html`
-                                    <div
-                                      class="curate-utility-box ${this._curateAuditHotspotDragTarget === target.id ? 'active' : ''}"
-                                      @dragover=${(event) => this._handleCurateAuditHotspotDragOver(event, target.id)}
-                                      @dragleave=${this._handleCurateAuditHotspotDragLeave}
-                                      @drop=${(event) => this._handleCurateAuditHotspotDrop(event, target.id)}
-                                    >
-                                      <div class="curate-utility-controls">
-                                        <select
-                                          class="curate-utility-type-select"
-                                          .value=${target.type || 'keyword'}
-                                          ?disabled=${isPrimary}
-                                          @change=${(event) => this._handleCurateAuditHotspotTypeChange(event, target.id)}
-                                        >
-                                          <option value="keyword">Keyword</option>
-                                          <option value="rating">Rating</option>
-                                        </select>
-                                        ${isRating ? html`
-                                          <select
-                                            class="curate-utility-select"
-                                            .value=${target.rating ?? ''}
-                                            ?disabled=${isPrimary}
-                                            @change=${(event) => this._handleCurateAuditHotspotRatingChange(event, target.id)}
-                                          >
-                                            <option value="">Select rating…</option>
-                                            <option value="0">🗑️ Garbage</option>
-                                            <option value="1">⭐ 1 Star</option>
-                                            <option value="2">⭐⭐ 2 Stars</option>
-                                            <option value="3">⭐⭐⭐ 3 Stars</option>
-                                          </select>
-                                        ` : html`
-                                          <select
-                                            class="curate-utility-select ${selectedValue ? 'selected' : ''}"
-                                            .value=${selectedValue}
-                                            ?disabled=${isPrimary}
-                                            @change=${(event) => this._handleCurateAuditHotspotKeywordChange(event, target.id)}
-                                          >
-                                            <option value="">Select keyword…</option>
-                                            ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                                              <optgroup label="${category}">
-                                                ${keywords.map((kw) => html`
-                                                  <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                                    ${kw.keyword}
-                                                  </option>
-                                                `)}
-                                              </optgroup>
-                                            `)}
-                                          </select>
-                                          <select
-                                            class="curate-utility-action"
-                                            .value=${target.action || 'add'}
-                                            ?disabled=${isPrimary}
-                                            @change=${(event) => this._handleCurateAuditHotspotActionChange(event, target.id)}
-                                          >
-                                            <option value="add">Add</option>
-                                            <option value="remove">Remove</option>
-                                          </select>
-                                        `}
-                                      </div>
-                                      ${!isPrimary ? html`
-                                        <button
-                                          type="button"
-                                          class="curate-utility-remove"
-                                          title="Remove box"
-                                          @click=${() => this._handleCurateAuditHotspotRemoveTarget(target.id)}
-                                        >
-                                          ×
-                                        </button>
-                                      ` : html``}
-                                      <div class="curate-utility-count">${target.count || 0}</div>
-                                      <div class="curate-utility-drop-hint">Drop images here</div>
-                                    </div>
-                                  `;
-                                })}
-                                <button class="curate-utility-add" @click=${this._handleCurateAuditHotspotAddTarget}>
-                                  +
-                                </button>
-                              </div>
-                        </div>
-                    </div>
-                      </div>
-                    ` : html`
-                      <div class="bg-white rounded-lg shadow p-6 text-sm text-gray-600">
-                        This screen lets you scan your collection for all images tagged to a Keyword. You can verify existing images, and look for images that should have it. Select a keyword to proceed.
-                      </div>
-                    `}
+                  <curate-audit-tab
+                    .tenant=${this.tenant}
+                    .keyword=${this.curateAuditKeyword}
+                    .keywordCategory=${this.curateAuditCategory}
+                    .mode=${this.curateAuditMode}
+                    .aiEnabled=${this.curateAuditAiEnabled}
+                    .aiModel=${this.curateAuditAiModel}
+                    .images=${this.curateAuditImages}
+                    .thumbSize=${this.curateThumbSize}
+                    .minRating=${this.curateAuditMinRating}
+                    .dropboxPathPrefix=${this.curateAuditDropboxPathPrefix}
+                    .offset=${this.curateAuditPageOffset || 0}
+                    .limit=${this.curateAuditLimit}
+                    .total=${this.curateAuditTotal}
+                    .loading=${this.curateAuditLoading}
+                    .loadAll=${this.curateAuditLoadAll}
+                    .dragSelection=${this.curateAuditDragSelection}
+                    .dragSelecting=${this.curateAuditDragSelecting}
+                    .dragStartIndex=${this.curateAuditDragStartIndex}
+                    .dragEndIndex=${this.curateAuditDragEndIndex}
+                    .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
+                    .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
+                    .renderCurateAiMLScore=${this._renderCurateAiMLScore.bind(this)}
+                    .renderCuratePermatagSummary=${this._renderCuratePermatagSummary.bind(this)}
+                    .formatCurateDate=${this._formatCurateDate.bind(this)}
+                    .tagStatsBySource=${this.tagStatsBySource}
+                    .activeCurateTagSource=${this.activeCurateTagSource}
+                    .keywords=${this.keywords}
+                    .targets=${this.curateAuditTargets}
+                    .ratingEnabled=${this.curateAuditRatingEnabled}
+                    .ratingCount=${this.curateAuditRatingCount}
+                    @audit-mode-changed=${(e) => this._handleCurateAuditModeChange(e.detail.mode)}
+                    @audit-ai-enabled-changed=${(e) => this._handleCurateAuditAiEnabledChange({ target: { checked: e.detail.enabled } })}
+                    @audit-ai-model-changed=${(e) => this._handleCurateAuditAiModelChange(e.detail.model)}
+                    @pagination-changed=${(e) => {
+                      this.curateAuditPageOffset = e.detail.offset;
+                      this.curateAuditLimit = e.detail.limit;
+                      this._fetchCurateAuditImages();
+                    }}
+                    @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
+                    @selection-changed=${(e) => {
+                      this.curateAuditDragSelection = e.detail.selection;
+                    }}
+                    @hotspot-changed=${this._handleCurateAuditHotspotChanged}
+                    @rating-toggle=${(e) => {
+                      this.curateAuditRatingEnabled = e.detail.enabled;
+                    }}
+                    @rating-drop=${(e) => this._handleCurateAuditRatingDrop(e.detail.event)}
+                    @curate-audit-filters-changed=${this._handleCurateAuditChipFiltersChanged}
+                  ></curate-audit-tab>
                 </div>
                 ` : html``}
                 ${this.curateSubTab === 'help' ? html`
@@ -4800,7 +4701,7 @@ class PhotoCatApp extends LitElement {
                           </li>
                           <li class="flex gap-3">
                             <span class="font-bold flex-shrink-0">3.</span>
-                            <span><button @click=${() => this._handleCurateSubTabChange('home')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Curate Home</button>: Monitor tag statistics and understand your collection's tagging patterns at a glance.</span>
+                            <span><button @click=${() => this._handleCurateSubTabChange('home')} class="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer">Stats</button>: Monitor tag statistics and understand your collection's tagging patterns at a glance.</span>
                           </li>
                         </ol>
                       </div>
@@ -5065,7 +4966,10 @@ class PhotoCatApp extends LitElement {
 
   _handleSyncComplete(e) {
       console.log(`Sync complete: ${e.detail.count} total images processed`);
-      this.fetchStats({ force: true });
+      this.fetchStats({
+        force: true,
+        includeTagStats: this.activeTab === 'curate' && this.curateSubTab === 'home',
+      });
   }
 
   _handleSyncError(e) {
@@ -5079,7 +4983,10 @@ class PhotoCatApp extends LitElement {
       }
       this._statsRefreshTimer = setTimeout(() => {
           this._statsRefreshTimer = null;
-          this.fetchStats({ force: true });
+          this.fetchStats({
+            force: true,
+            includeTagStats: this.activeTab === 'curate' && this.curateSubTab === 'home',
+          });
       }, 400);
   }
 
@@ -5386,6 +5293,9 @@ class PhotoCatApp extends LitElement {
 
   updated(changedProperties) {
       if (changedProperties.has('curateAuditKeyword') || changedProperties.has('curateAuditMode')) {
+          this._syncAuditHotspotPrimary();
+      }
+      if (changedProperties.has('keywords') && this.curateAuditKeyword) {
           this._syncAuditHotspotPrimary();
       }
       if (changedProperties.has('activeTab')) {

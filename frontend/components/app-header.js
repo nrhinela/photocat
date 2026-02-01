@@ -1,81 +1,10 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html } from 'lit';
 import { getTenantsPublic, sync, retagAll } from '../services/api.js';
 import { getCurrentUser } from '../services/auth.js';
 import { supabase } from '../services/supabase.js';
-import { tailwind } from './tailwind-lit.js';
+import './app-header.css';
 
 class AppHeader extends LitElement {
-    static styles = [tailwind, css`
-        :host {
-            display: block;
-        }
-        .user-menu-container {
-            position: relative;
-            display: inline-block;
-        }
-        .user-menu-button {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            padding: 8px 12px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.2s;
-        }
-        .user-menu-button:hover {
-            border-color: #d1d5db;
-            background: #f9fafb;
-        }
-        .user-menu-dropdown {
-            position: absolute;
-            right: 0;
-            top: 100%;
-            margin-top: 8px;
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-            min-width: 260px;
-            z-index: 1000;
-        }
-        .user-menu-header {
-            padding: 12px 16px;
-            border-bottom: 1px solid #e5e7eb;
-        }
-        .user-email {
-            font-size: 13px;
-            color: #6b7280;
-            margin: 4px 0 0 0;
-        }
-        .user-name {
-            font-weight: 500;
-            color: #1f2937;
-        }
-        .user-menu-item {
-            padding: 12px 16px;
-            cursor: pointer;
-            font-size: 14px;
-            color: #374151;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            transition: background 0.2s;
-        }
-        .user-menu-item:hover {
-            background: #f3f4f6;
-        }
-        .user-menu-item.logout {
-            color: #dc2626;
-            border-top: 1px solid #e5e7eb;
-        }
-        .user-menu-item.logout:hover {
-            background: #fee2e2;
-        }
-    `];
-
       static properties = {
         tenants: { type: Array },
         tenant: { type: String },
@@ -106,6 +35,10 @@ class AppHeader extends LitElement {
         this.userMenuOpen = false;
         this.currentUser = null;
     }
+
+  createRenderRoot() {
+      return this;
+  }
 
   connectedCallback() {
       super.connectedCallback();
@@ -163,7 +96,7 @@ class AppHeader extends LitElement {
 
   _handleDocumentClick(e) {
       // Check if click is inside the user menu container
-      const userMenu = this.shadowRoot?.querySelector('.user-menu-container');
+      const userMenu = this.querySelector('.user-menu-container');
       if (!userMenu) return;
 
       // If the click is from inside the component, don't close
@@ -173,14 +106,25 @@ class AppHeader extends LitElement {
       this.userMenuOpen = false;
   }
 
-  _toggleUserMenu() {
-      this.userMenuOpen = !this.userMenuOpen;
-      console.log('User menu toggled:', this.userMenuOpen);
+  _handleUserMenuChange(e) {
+      const value = e.target.value;
+      if (value === 'admin') {
+          this._openAdmin();
+      } else if (value === 'logout') {
+          this._handleLogout();
+      }
+      // Reset to default
+      e.target.value = '';
   }
 
   _isAdmin() {
       // User is admin if they are a super admin
       return this.currentUser?.user?.is_super_admin || false;
+  }
+
+  _getUserInitial() {
+      const name = this.currentUser?.user?.display_name || 'U';
+      return name.charAt(0).toUpperCase();
   }
 
   async _handleLogout() {
@@ -209,47 +153,20 @@ class AppHeader extends LitElement {
                     </div>
                     <div class="flex items-start space-x-4">
                         <div class="flex items-center space-x-2">
-                            <label for="tenantSelect" class="text-gray-700 font-medium">Tenant:</label>
-                            <select .value=${this.tenant} id="tenantSelect" class="px-4 py-2 border rounded-lg" @change=${this._switchTenant}>
+                            <label for="tenantSelect" class="text-gray-700 font-medium text-sm">Tenant:</label>
+                            <select .value=${this.tenant} id="tenantSelect" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-base font-medium focus:border-blue-500 focus:outline-none" style="min-height: 42px;" @change=${this._switchTenant}>
                                 ${this.tenants.map(tenant => html`<option value=${tenant.id}>${tenant.name}</option>`)}
                             </select>
                         </div>
-                        <div class="user-menu-container">
-                            <button class="user-menu-button" @click=${(e) => { e.stopPropagation(); this._toggleUserMenu(); }}>
-                                <i class="fas fa-user-circle text-gray-600"></i>
-                                <span>${this.currentUser?.user?.display_name || 'Login'}</span>
-                                <i class="fas fa-chevron-down text-gray-400" style="font-size: 12px;"></i>
-                            </button>
-                            ${this.userMenuOpen ? html`
-                                <div class="user-menu-dropdown">
-                                    ${this.currentUser ? html`
-                                        <div class="user-menu-header">
-                                            <div class="user-name">${this.currentUser.user?.display_name || 'User'}</div>
-                                            <div class="user-email">${this.currentUser.user?.email || ''}</div>
-                                        </div>
-                                        ${this._isAdmin() ? html`
-                                            <div class="user-menu-item" @click=${this._openAdmin}>
-                                                <i class="fas fa-cog mr-2"></i>
-                                                System Administration
-                                            </div>
-                                            <div style="height: 1px; background-color: #e5e7eb; margin: 4px 0;"></div>
-                                        ` : ''}
-                                        <div class="user-menu-item logout" @click=${this._handleLogout}>
-                                            <i class="fas fa-sign-out-alt"></i>
-                                            Sign Out
-                                        </div>
-                                    ` : html`
-                                        <div style="padding: 12px 16px; text-align: center; color: #6b7280;">
-                                            <p style="margin: 0; font-size: 14px;">Not logged in</p>
-                                        </div>
-                                        <div class="user-menu-item" @click=${() => window.location.href = '/login'}>
-                                            <i class="fas fa-sign-in-alt"></i>
-                                            Sign In
-                                        </div>
-                                    `}
-                                </div>
-                            ` : ''}
-                        </div>
+                        <select
+                            class="px-4 py-2 text-base font-medium focus:outline-none bg-transparent"
+                            style="min-height: 42px; border: none; appearance: none; cursor: pointer;"
+                            @change=${this._handleUserMenuChange}
+                        >
+                            <option value="">${this.currentUser?.user?.display_name || 'User Menu'}</option>
+                            ${this._isAdmin() ? html`<option value="admin">System Administration</option>` : ''}
+                            <option value="logout">Sign Out</option>
+                        </select>
                     </div>
                 </div>
             </div>
