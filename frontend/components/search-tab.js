@@ -8,7 +8,7 @@ import {
   getListItems,
   getDropboxFolders
 } from '../services/api.js';
-import { createSelectionHandlers } from './curate-shared.js';
+import { createSelectionHandlers, renderResultsPagination } from './curate-shared.js';
 import './filter-chips.js';
 import './image-card.js';
 import ImageFilterPanel from './image-filter-panel.js';
@@ -67,6 +67,7 @@ export class SearchTab extends LitElement {
     searchDropboxOptions: { type: Array },
     searchImages: { type: Array },
     searchSelectedImages: { type: Object },
+    searchTotal: { type: Number },
     searchLists: { type: Array },
     searchListId: { type: String, state: true },  // Internal state - not controlled by parent
     searchListTitle: { type: String, state: true },  // Internal state - not controlled by parent
@@ -76,6 +77,8 @@ export class SearchTab extends LitElement {
     exploreByTagData: { type: Object },
     exploreByTagKeywords: { type: Array },
     exploreByTagLoading: { type: Boolean },
+    exploreByTagOffset: { type: Number, state: true },
+    exploreByTagLimit: { type: Number, state: true },
     browseByFolderOptions: { type: Array, state: true },
     browseByFolderSelection: { type: Array, state: true },
     browseByFolderAppliedSelection: { type: Array, state: true },
@@ -83,6 +86,8 @@ export class SearchTab extends LitElement {
     browseByFolderLoading: { type: Boolean, state: true },
     browseByFolderAccordionOpen: { type: Boolean, state: true },
     browseByFolderQuery: { type: String, state: true },
+    browseByFolderOffset: { type: Number, state: true },
+    browseByFolderLimit: { type: Number, state: true },
     searchRefreshing: { type: Boolean },
     curateThumbSize: { type: Number },
     tagStatsBySource: { type: Object },
@@ -109,6 +114,7 @@ export class SearchTab extends LitElement {
     this.searchDropboxOptions = [];
     this.searchImages = [];
     this.searchSelectedImages = new Set();
+    this.searchTotal = 0;
     this.searchLists = [];
     this.searchListId = null;
     this.searchListTitle = '';
@@ -118,6 +124,8 @@ export class SearchTab extends LitElement {
     this.exploreByTagData = {};
     this.exploreByTagKeywords = [];
     this.exploreByTagLoading = false;
+    this.exploreByTagOffset = 0;
+    this.exploreByTagLimit = 100;
     this.browseByFolderOptions = [];
     this.browseByFolderSelection = [];
     this.browseByFolderAppliedSelection = [];
@@ -125,6 +133,8 @@ export class SearchTab extends LitElement {
     this.browseByFolderLoading = false;
     this.browseByFolderAccordionOpen = true;
     this.browseByFolderQuery = '';
+    this.browseByFolderOffset = 0;
+    this.browseByFolderLimit = 100;
     this.searchRefreshing = false;
     this.curateThumbSize = 120;
     this.tagStatsBySource = {};
@@ -221,6 +231,9 @@ export class SearchTab extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    if (!this.searchListId && !this.searchListTitle) {
+      this._resetSearchListDraft();
+    }
     this._fetchSearchLists();
     this._setupSearchFilterPanel(this.searchFilterPanel);
     this._setupFolderBrowserPanel();
@@ -289,6 +302,7 @@ export class SearchTab extends LitElement {
 
     if (changedProps.has('searchSubTab')) {
       if (this.searchSubTab === 'explore-by-tag') {
+        this.exploreByTagOffset = 0;
         if (this.exploreByTagLoading || (!this._exploreInitialLoadComplete && !(this.exploreByTagKeywords || []).length)) {
           this._startExploreRefresh();
         }
@@ -299,6 +313,7 @@ export class SearchTab extends LitElement {
         this._maybeStartInitialRefresh();
       }
       if (this.searchSubTab === 'browse-by-folder') {
+        this.browseByFolderOffset = 0;
         this.folderBrowserPanel?.loadFolders();
         if (this.browseByFolderAppliedSelection?.length) {
           this._refreshBrowseByFolderData();
@@ -340,6 +355,20 @@ export class SearchTab extends LitElement {
         this._finishExploreRefresh();
       } else if (!this._exploreInitialLoadComplete && (this.exploreByTagKeywords || []).length > 0) {
         this._exploreInitialLoadComplete = true;
+      }
+    }
+
+    if (changedProps.has('exploreByTagKeywords')) {
+      const total = (this.exploreByTagKeywords || []).length;
+      if (this.exploreByTagOffset >= total && total > 0) {
+        this.exploreByTagOffset = 0;
+      }
+    }
+
+    if (changedProps.has('browseByFolderAppliedSelection')) {
+      const total = (this.browseByFolderAppliedSelection || []).length;
+      if (this.browseByFolderOffset >= total && total > 0) {
+        this.browseByFolderOffset = 0;
       }
     }
   }
@@ -592,6 +621,7 @@ export class SearchTab extends LitElement {
   _handleBrowseByFolderApply() {
     const appliedSelection = [...(this.browseByFolderSelection || [])];
     this.browseByFolderAppliedSelection = appliedSelection;
+    this.browseByFolderOffset = 0;
     this.folderBrowserPanel?.setSelection(appliedSelection);
     this.browseByFolderAccordionOpen = false;
     this._refreshBrowseByFolderData({ force: true });
@@ -603,7 +633,7 @@ export class SearchTab extends LitElement {
   }
 
   async _handleSaveToList() {
-    if ((!this.searchListId && !this.searchListTitle) || (this.searchSavedImages || []).length === 0) return;
+    if (!this.searchListId && !this.searchListTitle) return;
 
     try {
       let listId = this.searchListId;
@@ -971,6 +1001,92 @@ export class SearchTab extends LitElement {
     event.dataTransfer.setData('image-ids', JSON.stringify(ids));
   }
 
+  _getSearchPaginationState() {
+    const filters = this.searchFilterPanel?.getState?.() || this.searchFilterPanel?.filters || {};
+    return {
+      offset: Number(filters.offset) || 0,
+      limit: Number(filters.limit) || 100,
+      total: Number(this.searchTotal) || 0,
+      count: (this.searchImages || []).length,
+    };
+  }
+
+  _getExplorePaginationState() {
+    const total = (this.exploreByTagKeywords || []).length;
+    const offset = Number(this.exploreByTagOffset) || 0;
+    const limit = Number(this.exploreByTagLimit) || 100;
+    const count = Math.max(0, Math.min(limit, total - offset));
+    return { total, offset, limit, count };
+  }
+
+  _getBrowseByFolderPaginationState() {
+    const total = (this.browseByFolderAppliedSelection || []).length;
+    const offset = Number(this.browseByFolderOffset) || 0;
+    const limit = Number(this.browseByFolderLimit) || 100;
+    const count = Math.max(0, Math.min(limit, total - offset));
+    return { total, offset, limit, count };
+  }
+
+  _handleSearchPagePrev() {
+    if (!this.searchFilterPanel) return;
+    const { offset, limit } = this._getSearchPaginationState();
+    const nextOffset = Math.max(0, offset - limit);
+    this.searchFilterPanel.setOffset(nextOffset);
+    this.searchFilterPanel.fetchImages();
+  }
+
+  _handleSearchPageNext() {
+    if (!this.searchFilterPanel) return;
+    const { offset, limit, total } = this._getSearchPaginationState();
+    const nextOffset = offset + limit < total ? offset + limit : offset;
+    this.searchFilterPanel.setOffset(nextOffset);
+    this.searchFilterPanel.fetchImages();
+  }
+
+  _handleSearchPageLimitChange(event) {
+    if (!this.searchFilterPanel) return;
+    const nextLimit = parseInt(event.target.value, 10);
+    if (!Number.isFinite(nextLimit)) return;
+    this.searchFilterPanel.setLimit(nextLimit);
+    this.searchFilterPanel.fetchImages();
+  }
+
+  _handleExploreByTagPagePrev() {
+    const { offset, limit } = this._getExplorePaginationState();
+    this.exploreByTagOffset = Math.max(0, offset - limit);
+  }
+
+  _handleExploreByTagPageNext() {
+    const { offset, limit, total } = this._getExplorePaginationState();
+    const nextOffset = offset + limit < total ? offset + limit : offset;
+    this.exploreByTagOffset = nextOffset;
+  }
+
+  _handleExploreByTagPageLimitChange(event) {
+    const nextLimit = parseInt(event.target.value, 10);
+    if (!Number.isFinite(nextLimit)) return;
+    this.exploreByTagLimit = nextLimit;
+    this.exploreByTagOffset = 0;
+  }
+
+  _handleBrowseByFolderPagePrev() {
+    const { offset, limit } = this._getBrowseByFolderPaginationState();
+    this.browseByFolderOffset = Math.max(0, offset - limit);
+  }
+
+  _handleBrowseByFolderPageNext() {
+    const { offset, limit, total } = this._getBrowseByFolderPaginationState();
+    const nextOffset = offset + limit < total ? offset + limit : offset;
+    this.browseByFolderOffset = nextOffset;
+  }
+
+  _handleBrowseByFolderPageLimitChange(event) {
+    const nextLimit = parseInt(event.target.value, 10);
+    if (!Number.isFinite(nextLimit)) return;
+    this.browseByFolderLimit = nextLimit;
+    this.browseByFolderOffset = 0;
+  }
+
   // ========================================
   // Render Method
   // ========================================
@@ -987,6 +1103,55 @@ export class SearchTab extends LitElement {
     const folderOptions = Array.from(new Set([...filteredFolders, ...selectedFolders]))
       .sort((a, b) => a.localeCompare(b));
     const showBrowseByFolderOverlay = this.browseByFolderAccordionOpen || this._hasPendingBrowseByFolderSelection();
+    const searchPagination = this.searchSubTab === 'home'
+      ? (() => {
+        const { offset, limit, total, count } = this._getSearchPaginationState();
+        return renderResultsPagination({
+          offset,
+          limit,
+          total,
+          count,
+          onPrev: () => this._handleSearchPagePrev(),
+          onNext: () => this._handleSearchPageNext(),
+          onLimitChange: (event) => this._handleSearchPageLimitChange(event),
+          disabled: this.searchRefreshing,
+        });
+      })()
+      : html``;
+    const explorePagination = this.searchSubTab === 'explore-by-tag'
+      ? (() => {
+        const { offset, limit, total, count } = this._getExplorePaginationState();
+        return renderResultsPagination({
+          offset,
+          limit,
+          total,
+          count,
+          onPrev: () => this._handleExploreByTagPagePrev(),
+          onNext: () => this._handleExploreByTagPageNext(),
+          onLimitChange: (event) => this._handleExploreByTagPageLimitChange(event),
+          disabled: this.exploreByTagLoading,
+        });
+      })()
+      : html``;
+    const browsePagination = this.searchSubTab === 'browse-by-folder'
+      ? (() => {
+        const { offset, limit, total, count } = this._getBrowseByFolderPaginationState();
+        return renderResultsPagination({
+          offset,
+          limit,
+          total,
+          count,
+          onPrev: () => this._handleBrowseByFolderPagePrev(),
+          onNext: () => this._handleBrowseByFolderPageNext(),
+          onLimitChange: (event) => this._handleBrowseByFolderPageLimitChange(event),
+          disabled: this.browseByFolderLoading,
+        });
+      })()
+      : html``;
+    const exploreKeywordsPage = (this.exploreByTagKeywords || [])
+      .slice(this.exploreByTagOffset, this.exploreByTagOffset + this.exploreByTagLimit);
+    const browseFoldersPage = (appliedFolders || [])
+      .slice(this.browseByFolderOffset, this.browseByFolderOffset + this.browseByFolderLimit);
     const browseByFolderBlurStyle = this.browseByFolderLoading
       ? 'filter: blur(2px); opacity: 0.6; pointer-events: none;'
       : '';
@@ -994,7 +1159,7 @@ export class SearchTab extends LitElement {
       <div class="curate-pane utility-targets search-saved-pane ${this.searchSavedDragTarget ? 'drag-active' : ''}">
         <div class="curate-pane-header">
           <div class="curate-pane-header-row">
-            <span class="text-sm font-semibold">Saved Items</span>
+            <span class="text-sm font-semibold">Lists</span>
           </div>
         </div>
         <div
@@ -1032,7 +1197,8 @@ export class SearchTab extends LitElement {
             <button
               class="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
               @click=${this._handleSaveToList}
-              ?disabled=${(!this.searchListId && (!this.searchListTitle || this._isDuplicateListTitle(this.searchListTitle))) || (this.searchSavedImages || []).length === 0}
+              ?disabled=${(!this.searchListId && (!this.searchListTitle || this._isDuplicateListTitle(this.searchListTitle)))
+                || (this.searchListId && (this.searchSavedImages || []).length === 0)}
             >
               ${this.searchListId ? 'Save' : 'Save new'} (${(this.searchSavedImages || []).length})
             </button>
@@ -1211,6 +1377,9 @@ export class SearchTab extends LitElement {
                   </div>
                 </div>
                 <div class="curate-pane-body">
+                  <div class="p-2">
+                    ${searchPagination}
+                  </div>
                   ${this.searchImages && this.searchImages.length > 0 ? html`
                     <div class="curate-grid">
                       <!-- ⭐ REFERENCE: Standardized image rendering pattern -->
@@ -1256,6 +1425,9 @@ export class SearchTab extends LitElement {
                       No images found. Adjust filters to search.
                     </div>
                   `}
+                  <div class="p-2">
+                    ${searchPagination}
+                  </div>
                 </div>
               </div>
 
@@ -1281,8 +1453,11 @@ export class SearchTab extends LitElement {
                       <span class="ml-3 text-gray-600">Loading tag exploration data...</span>
                     </div>
                   ` : this.exploreByTagKeywords && this.exploreByTagKeywords.length > 0 ? html`
+                    <div class="p-2">
+                      ${explorePagination}
+                    </div>
                     <div class="space-y-6">
-                      ${this.exploreByTagKeywords.map(keyword => {
+                      ${exploreKeywordsPage.map(keyword => {
                         const images = this.exploreByTagData[keyword] || [];
                         const order = images.map((image) => image.id);
                         return html`
@@ -1328,6 +1503,9 @@ export class SearchTab extends LitElement {
                           </div>
                         `;
                       })}
+                    </div>
+                    <div class="p-2">
+                      ${explorePagination}
                     </div>
                   ` : html`
                     <div class="p-8 text-center text-gray-500">
@@ -1455,8 +1633,11 @@ export class SearchTab extends LitElement {
                       <div class="absolute inset-0 z-10 bg-white/80 backdrop-blur-sm"></div>
                     ` : ''}
                     ${appliedFolders && appliedFolders.length > 0 ? html`
+                      <div class="p-2">
+                        ${browsePagination}
+                      </div>
                       <div class="p-4 space-y-6 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">
-                        ${appliedFolders.map((folder) => {
+                        ${browseFoldersPage.map((folder) => {
                           const images = this.browseByFolderData?.[folder] || [];
                           const order = images.map((image) => image.id);
                           return html`
@@ -1511,6 +1692,9 @@ export class SearchTab extends LitElement {
                             </div>
                           `;
                         })}
+                      </div>
+                      <div class="p-2">
+                        ${browsePagination}
                       </div>
                     ` : html`
                       <div class="p-8 text-center text-gray-500 ${showBrowseByFolderOverlay ? 'pointer-events-none blur-sm' : ''}">

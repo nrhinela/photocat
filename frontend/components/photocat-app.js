@@ -4270,6 +4270,7 @@ class PhotoCatApp extends LitElement {
               .searchFilterPanel=${this.searchFilterPanel}
               .searchDropboxOptions=${this.searchDropboxOptions}
               .searchImages=${this.searchImages}
+              .searchTotal=${this.searchTotal}
               .searchSelectedImages=${this.searchSelectedImages}
               .searchLists=${this.searchLists}
               .searchSavedImages=${this.searchSavedImages}
