@@ -283,7 +283,7 @@ class PhotoCatApp extends LitElement {
     }
     @media (min-width: 1024px) {
         .curate-layout {
-            grid-template-columns: 2fr 1fr;
+            grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
         }
         .search-layout {
             grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
@@ -295,6 +295,7 @@ class PhotoCatApp extends LitElement {
         background: #ffffff;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
         min-height: 520px;
+        min-width: 0;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -314,6 +315,12 @@ class PhotoCatApp extends LitElement {
         color: #6b7280;
         text-transform: uppercase;
         letter-spacing: 0.04em;
+    }
+    .right-panel-header {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #ffffff;
     }
     .curate-pane-header-row {
         display: flex;
@@ -349,6 +356,122 @@ class PhotoCatApp extends LitElement {
         flex: 1;
         overflow: auto;
         position: relative;
+    }
+    .list-target-card {
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 12px;
+        min-height: 140px;
+        background-color: #f9fafb;
+        transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+    .list-target-card--active {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
+    }
+    .list-target-tab {
+        border: 1px solid #e5e7eb;
+        border-radius: 999px;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #6b7280;
+        background: #ffffff;
+        transition: border-color 0.2s ease, color 0.2s ease, background-color 0.2s ease;
+    }
+    .list-target-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .list-target-select {
+        flex: 1;
+        min-width: 0;
+    }
+    .list-target-tab.active {
+        border-color: #2563eb;
+        color: #2563eb;
+        background: #eff6ff;
+    }
+    .list-target-tab:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .list-target-thumbs {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 8px 2px 12px;
+        min-height: 120px;
+        max-width: 100%;
+        width: 100%;
+        min-width: 0;
+        scrollbar-gutter: stable;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+    }
+    .list-target-thumbs-track {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        white-space: nowrap;
+        min-width: 100%;
+    }
+    .list-target-thumb {
+        flex: 0 0 120px;
+        width: 120px;
+        height: 120px;
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+        background: #f3f4f6;
+        overflow: hidden;
+        padding: 0;
+        cursor: pointer;
+        scroll-snap-align: start;
+    }
+    .list-target-thumbs::-webkit-scrollbar {
+        height: 10px;
+    }
+    .list-target-thumbs::-webkit-scrollbar-track {
+        background: #f3f4f6;
+        border-radius: 999px;
+    }
+    .list-target-thumbs::-webkit-scrollbar-thumb {
+        background: #cbd5f5;
+        border-radius: 999px;
+    }
+    .list-target-thumbs::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+    .list-target-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+    .list-target-drop {
+        margin-top: 10px;
+        padding: 10px 4px 4px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        text-align: center;
+        color: #6b7280;
+    }
+    .list-target-drop-count {
+        font-size: 26px;
+        font-weight: 700;
+        color: #111827;
+        line-height: 1;
+    }
+    .list-target-drop-label {
+        font-size: 13px;
+        font-weight: 500;
+    }
+    .list-target-drop-sub {
+        font-size: 12px;
+        color: #9ca3af;
+        font-weight: 600;
     }
     .curate-grid {
         display: grid;
@@ -651,6 +774,12 @@ class PhotoCatApp extends LitElement {
         gap: 8px;
         align-items: center;
     }
+    .curate-utility-controls.curate-utility-controls--tags {
+        grid-template-columns: 1fr auto;
+    }
+    .curate-utility-controls.rating-target-controls {
+        grid-template-columns: 1fr;
+    }
     .curate-utility-controls select {
         width: 100%;
         padding: 6px 8px;
@@ -690,6 +819,16 @@ class PhotoCatApp extends LitElement {
     }
     .curate-utility-add:hover {
         background: #eef5ff;
+    }
+    .list-target-add {
+        width: 100%;
+        border-style: dashed;
+        border-color: #c7d2fe;
+        background: #f8fafc;
+        color: #2563eb;
+        font-size: 24px;
+        line-height: 1;
+        height: 56px;
     }
     .curate-utility-remove {
         position: absolute;
@@ -1934,7 +2073,19 @@ class PhotoCatApp extends LitElement {
       return this._exploreRatingHandlers.handleToggle();
   }
 
-  _handleCurateExploreRatingDrop(event) {
+  _handleCurateExploreRatingDrop(event, ratingValue = null) {
+      const rating = Number.parseInt(ratingValue, 10);
+      if (Number.isFinite(rating)) {
+          const raw = event?.dataTransfer?.getData('text/plain') || '';
+          const ids = raw
+            .split(',')
+            .map((value) => Number.parseInt(value.trim(), 10))
+            .filter((value) => Number.isFinite(value) && value > 0);
+          if (ids.length) {
+              this._applyExploreRating(ids, rating);
+              return;
+          }
+      }
       return this._exploreRatingHandlers.handleDrop(event);
   }
 
@@ -3623,6 +3774,20 @@ class PhotoCatApp extends LitElement {
               .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
               .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
               .formatCurateDate=${formatCurateDate}
+              @sort-changed=${(e) => {
+                this.curateOrderBy = e.detail.orderBy;
+                this.curateOrderDirection = e.detail.dateOrder;
+                if (this.searchFilterPanel) {
+                  const filters = this.searchFilterPanel.getState();
+                  this.searchFilterPanel.updateFilters({
+                    ...filters,
+                    orderBy: this.curateOrderBy,
+                    sortOrder: this.curateOrderDirection,
+                    offset: 0,
+                  });
+                  this.searchFilterPanel.fetchImages();
+                }
+              }}
               @thumb-size-changed=${(e) => this.curateThumbSize = e.detail.size}
               @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
               @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
@@ -3717,7 +3882,7 @@ class PhotoCatApp extends LitElement {
                     .images=${leftImages}
                     .thumbSize=${this.curateThumbSize}
                     .orderBy=${this.curateOrderBy}
-                    .dateOrder=${this.curateDateOrder}
+                    .dateOrder=${this.curateOrderDirection}
                     .limit=${this.curateLimit}
                     .offset=${this.curatePageOffset}
                     .total=${this.curateTotal}
@@ -3745,7 +3910,7 @@ class PhotoCatApp extends LitElement {
                     @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
                     @sort-changed=${(e) => {
                       this.curateOrderBy = e.detail.orderBy;
-                      this.curateDateOrder = e.detail.dateOrder;
+                      this.curateOrderDirection = e.detail.dateOrder;
                       this._applyCurateFilters();
                     }}
                     @thumb-size-changed=${(e) => { this.curateThumbSize = e.detail.size; }}
@@ -3757,7 +3922,7 @@ class PhotoCatApp extends LitElement {
                     }}
                     @hotspot-changed=${this._handleCurateHotspotChanged}
                     @selection-changed=${(e) => { this.curateDragSelection = e.detail.selection; }}
-                    @rating-drop=${(e) => this._handleCurateExploreRatingDrop(e.detail.event)}
+                    @rating-drop=${(e) => this._handleCurateExploreRatingDrop(e.detail.event, e.detail.rating)}
                     @curate-filters-changed=${this._handleCurateChipFiltersChanged}
                   ></curate-explore-tab>
                 </div>

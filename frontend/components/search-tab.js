@@ -6,12 +6,23 @@ import {
   updateList,
   addToList,
   getListItems,
-  getDropboxFolders
+  getDropboxFolders,
+  getImageStats,
+  getImages
 } from '../services/api.js';
+import { createHotspotHandlers, parseUtilityKeywordValue } from './shared/hotspot-controls.js';
+import {
+  getKeywordsByCategory,
+  getKeywordsByCategoryFromList,
+} from './shared/keyword-utils.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import './shared/widgets/filter-chips.js';
 import './shared/widgets/image-card.js';
+import './shared/widgets/right-panel.js';
+import './shared/widgets/list-targets-panel.js';
+import './shared/widgets/hotspot-targets-panel.js';
+import './shared/widgets/rating-target-panel.js';
 import ImageFilterPanel from './shared/state/image-filter-panel.js';
 import FolderBrowserPanel from './folder-browser-panel.js';
 
@@ -106,6 +117,17 @@ export class SearchTab extends LitElement {
     searchDragStartIndex: { type: Number },
     searchDragEndIndex: { type: Number },
     searchSavedDragTarget: { type: Boolean },
+    rightPanelTool: { type: String },
+    searchHotspotTargets: { type: Array },
+    searchHotspotRatingEnabled: { type: Boolean },
+    searchHotspotRatingCount: { type: Number },
+    searchRatingTargets: { type: Array },
+    _searchHotspotDragTarget: { type: String, state: true },
+    _searchRatingDragTarget: { type: String, state: true },
+    _listTargets: { type: Array, state: true },
+    _listTargetCounter: { type: Number, state: true },
+    _listDragTargetId: { type: String, state: true },
+    _listsLoading: { type: Boolean, state: true },
   };
 
   constructor() {
@@ -129,6 +151,8 @@ export class SearchTab extends LitElement {
     this.exploreByTagLoading = false;
     this.exploreByTagOffset = 0;
     this.exploreByTagLimit = 100;
+    this._exploreByTagCache = new Map();
+    this._exploreByTagStatsPromise = null;
     this.browseByFolderOptions = [];
     this.browseByFolderSelection = [];
     this.browseByFolderAppliedSelection = [];
@@ -154,6 +178,49 @@ export class SearchTab extends LitElement {
     this.searchDragStartIndex = null;
     this.searchDragEndIndex = null;
     this.searchSavedDragTarget = false;
+    this.rightPanelTool = 'tags';
+    this.searchHotspotTargets = [{ id: 1, type: 'keyword', count: 0 }];
+    this.searchHotspotRatingEnabled = false;
+    this.searchHotspotRatingCount = 0;
+    this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+    this._searchRatingNextId = 2;
+    this._searchHotspotDragTarget = null;
+    this._searchRatingDragTarget = null;
+    this._searchHotspotNextId = 2;
+    this._listTargets = [{
+      id: 'list-target-1',
+      listId: '',
+      status: '',
+      mode: 'add',
+      addedCount: 0,
+      isCreating: false,
+      draftTitle: '',
+      error: '',
+      items: [],
+      itemsLoading: false,
+      itemsError: '',
+      itemsListId: '',
+    }];
+    this._listTargetCounter = 1;
+    this._listDragTargetId = null;
+    this._listsLoading = false;
+    this._searchHotspotHandlers = createHotspotHandlers(this, {
+      targetsProperty: 'searchHotspotTargets',
+      dragTargetProperty: '_searchHotspotDragTarget',
+      nextIdProperty: '_searchHotspotNextId',
+      parseKeywordValue: parseUtilityKeywordValue,
+      applyRating: (ids, rating) => this._applySearchHotspotRating(ids, rating),
+      processTagDrop: (ids, target) => this._processSearchHotspotTagDrop(ids, target),
+      removeImages: () => {},
+    });
+    try {
+      const storedTool = localStorage.getItem('rightPanelTool:search');
+      if (storedTool) {
+        this.rightPanelTool = storedTool === 'hotspots' ? 'tags' : storedTool;
+      }
+    } catch {
+      // ignore storage errors
+    }
     this._searchSuppressClick = false;
     this._searchFlashSelectionIds = new Set();
     this._searchPressActive = false;
@@ -307,10 +374,50 @@ export class SearchTab extends LitElement {
     if (changedProps.has('tenant') && this.folderBrowserPanel) {
       this.folderBrowserPanel.setTenant(this.tenant);
     }
+    if (changedProps.has('tenant')) {
+      this._exploreByTagCache = new Map();
+      this._exploreByTagStatsPromise = null;
+      this.exploreByTagData = {};
+      this.exploreByTagKeywords = [];
+      this.searchHotspotTargets = [{ id: 1, type: 'keyword', count: 0 }];
+      this.searchHotspotRatingEnabled = false;
+      this.searchHotspotRatingCount = 0;
+      this._searchHotspotDragTarget = null;
+      this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+      this._searchRatingDragTarget = null;
+      this._searchRatingNextId = 2;
+      this._searchHotspotNextId = 2;
+      this._listTargets = [{
+        id: 'list-target-1',
+        listId: '',
+        status: '',
+        mode: 'add',
+        addedCount: 0,
+        isCreating: false,
+        draftTitle: '',
+        error: '',
+        items: [],
+        itemsLoading: false,
+        itemsError: '',
+        itemsListId: '',
+      }];
+      this._listTargetCounter = 1;
+      this._listDragTargetId = null;
+      this._lastListFetchTime = 0;
+      this.searchLists = [];
+      this._fetchSearchLists({ force: true });
+    }
     if (changedProps.has('searchFilterPanel')) {
       this._teardownSearchFilterPanel(changedProps.get('searchFilterPanel'));
       this._setupSearchFilterPanel(this.searchFilterPanel);
       this._maybeStartInitialRefresh();
+    }
+    if (changedProps.has('rightPanelTool')) {
+      try {
+        localStorage.setItem('rightPanelTool:search', this.rightPanelTool);
+      } catch {
+        // ignore storage errors
+      }
     }
 
     if (changedProps.has('searchSubTab')) {
@@ -395,15 +502,18 @@ export class SearchTab extends LitElement {
 
     // Debounce: prevent fetches within 5 seconds of last fetch
     const now = Date.now();
-    if (now - this._lastListFetchTime < this._listFetchDebounceMs) {
+    if (!force && now - this._lastListFetchTime < this._listFetchDebounceMs) {
       return;
     }
 
     this._lastListFetchTime = now;
+    this._listsLoading = true;
     try {
-    this.searchLists = await getLists(this.tenant, { force });
+      this.searchLists = await getLists(this.tenant, { force });
     } catch (error) {
       console.error('Error fetching search lists:', error);
+    } finally {
+      this._listsLoading = false;
     }
   }
 
@@ -452,6 +562,440 @@ export class SearchTab extends LitElement {
         composed: true
       }));
     }
+  }
+
+  _handleRightPanelToolChange(tool) {
+    this.rightPanelTool = tool;
+    if (tool === 'lists' && !(this.searchLists || []).length) {
+      this._fetchSearchLists();
+    }
+  }
+
+  _handleSearchRatingChange(targetId, value) {
+    this.searchRatingTargets = (this.searchRatingTargets || []).map((entry) => (
+      entry.id === targetId ? { ...entry, rating: value, count: entry.count || 0 } : entry
+    ));
+  }
+
+  _handleSearchRatingAddTarget() {
+    const nextId = `rating-${this._searchRatingNextId++}`;
+    this.searchRatingTargets = [
+      ...(this.searchRatingTargets || []),
+      { id: nextId, rating: '', count: 0 },
+    ];
+  }
+
+  _handleSearchRatingRemoveTarget(targetId) {
+    this.searchRatingTargets = (this.searchRatingTargets || []).filter((entry) => entry.id !== targetId);
+  }
+
+  _handleSearchRatingDragOver(event, targetId) {
+    event.preventDefault();
+    this._searchRatingDragTarget = targetId;
+  }
+
+  _handleSearchRatingDragLeave(event) {
+    if (event && event.currentTarget !== event.target) return;
+    this._searchRatingDragTarget = null;
+  }
+
+  _handleSearchRatingDrop(event, targetId) {
+    event.preventDefault();
+    this._searchRatingDragTarget = null;
+    const target = (this.searchRatingTargets || []).find((entry) => entry.id === targetId);
+    const rating = Number.parseInt(target?.rating ?? '', 10);
+    if (!Number.isFinite(rating)) {
+      return;
+    }
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const ids = raw
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (!ids.length) return;
+    this.searchRatingTargets = (this.searchRatingTargets || []).map((entry) => (
+      entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+    ));
+    this._applySearchHotspotRating(ids, rating);
+  }
+
+  _getSearchKeywordsByCategory() {
+    if (this.keywords && this.keywords.length) {
+      return getKeywordsByCategoryFromList(this.keywords);
+    }
+    return getKeywordsByCategory(this.tagStatsBySource, this.activeCurateTagSource);
+  }
+
+  _applySearchHotspotRating(ids, rating) {
+    const uniqueIds = [...new Set(ids)].filter((id) => Number.isFinite(Number(id)));
+    if (!uniqueIds.length) return;
+    uniqueIds.forEach((id) => {
+      enqueueCommand({
+        type: 'set-rating',
+        tenantId: this.tenant,
+        imageId: id,
+        rating,
+      });
+    });
+    this.searchImages = (this.searchImages || []).map((image) => (
+      uniqueIds.includes(image.id) ? { ...image, rating } : image
+    ));
+    if (this.exploreByTagData && typeof this.exploreByTagData === 'object') {
+      const nextData = {};
+      Object.entries(this.exploreByTagData).forEach(([keyword, images]) => {
+        if (!Array.isArray(images)) {
+          nextData[keyword] = images;
+          return;
+        }
+        let updated = false;
+        const nextImages = images.map((image) => {
+          if (uniqueIds.includes(image.id)) {
+            updated = true;
+            return { ...image, rating };
+          }
+          return image;
+        });
+        nextData[keyword] = updated ? nextImages : images;
+      });
+      this.exploreByTagData = nextData;
+    }
+    uniqueIds.forEach((id) => this.applyRatingUpdate(id, rating));
+    this.searchHotspotRatingCount += uniqueIds.length;
+  }
+
+  _processSearchHotspotTagDrop(ids, target) {
+    const uniqueIds = [...new Set(ids)].filter((id) => Number.isFinite(Number(id)));
+    if (!uniqueIds.length) return;
+    if (!target?.keyword) return;
+    const signum = target.action === 'remove' ? -1 : 1;
+    const category = target.category || 'Uncategorized';
+    const operations = uniqueIds.map((imageId) => ({
+      image_id: imageId,
+      keyword: target.keyword,
+      category,
+      signum,
+    }));
+    enqueueCommand({
+      type: 'bulk-permatags',
+      tenantId: this.tenant,
+      operations,
+      description: `search hotspot · ${operations.length} updates`,
+    });
+  }
+
+  _handleListTargetSelect(targetId, selectedValue) {
+    if (selectedValue === '__new__') {
+      this._startInlineListCreate(targetId);
+      return;
+    }
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? {
+            ...target,
+            listId: String(selectedValue),
+            status: '',
+            isCreating: false,
+            draftTitle: '',
+            error: '',
+            addedCount: 0,
+            items: [],
+            itemsError: '',
+            itemsListId: '',
+          }
+        : target
+    ));
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (target?.mode === 'view' && target.listId) {
+      this._fetchListTargetItems(targetId, target.listId, { force: true });
+    }
+  }
+
+  _startInlineListCreate(targetId) {
+    const defaultTitle = this._buildNewListTitle();
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? {
+            ...target,
+            listId: '',
+            status: '',
+            isCreating: true,
+            draftTitle: defaultTitle,
+            error: '',
+            addedCount: 0,
+          }
+        : target
+    ));
+  }
+
+  _handleListTargetDraftChange(targetId, nextValue) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId ? { ...target, draftTitle: nextValue, error: '' } : target
+    ));
+  }
+
+  _handleListTargetCreateCancel(targetId) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? { ...target, isCreating: false, draftTitle: '', error: '', status: '' }
+        : target
+    ));
+  }
+
+  _handleListTargetModeChange(targetId, mode) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const nextMode = target?.mode === mode ? 'add' : mode;
+    this._listTargets = this._listTargets.map((entry) => (
+      entry.id === targetId ? { ...entry, mode: nextMode } : entry
+    ));
+    if (nextMode === 'view' && target?.listId) {
+      this._fetchListTargetItems(targetId, target.listId);
+    }
+  }
+
+  _handleListTargetItemClick(event, targetId, index) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const items = target?.items || [];
+    if (!items.length) return;
+    const imageSet = items.map((item) => {
+      const photo = item?.photo || {};
+      const id = photo.id ?? item.photo_id ?? item.id;
+      return {
+        ...photo,
+        id,
+        thumbnail_url: photo.thumbnail_url || (id ? `/api/v1/images/${id}/thumbnail` : undefined),
+        filename: photo.filename || item?.filename || '',
+      };
+    }).filter((image) => image?.id);
+    const image = imageSet[index];
+    if (!image) return;
+    this.dispatchEvent(new CustomEvent('image-clicked', {
+      detail: { event, image, imageSet },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  async _handleListTargetCreateSave(targetId) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const trimmedTitle = (target?.draftTitle || '').trim();
+    if (!trimmedTitle) {
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'List name cannot be empty.' } : entry
+      ));
+      return;
+    }
+    if (this._isDuplicateListTitle(trimmedTitle)) {
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'List name already exists.' } : entry
+      ));
+      return;
+    }
+    try {
+      const newList = await createList(this.tenant, { title: trimmedTitle, notebox: '' });
+      let resolvedId = newList?.id ?? newList?.list_id ?? newList?.listId ?? null;
+      if (newList && resolvedId !== null && resolvedId !== undefined) {
+        this.searchLists = [...(this.searchLists || []), newList];
+      } else {
+        await this._fetchSearchLists({ force: true });
+      }
+      if (resolvedId === null || resolvedId === undefined) {
+        const match = (this.searchLists || []).find((list) => {
+          const title = (list.title || '').trim().toLowerCase();
+          return title === trimmedTitle.toLowerCase();
+        });
+        resolvedId = match?.id ?? match?.list_id ?? match?.listId ?? null;
+      }
+      if (resolvedId === null || resolvedId === undefined) {
+        this._listTargets = this._listTargets.map((entry) => (
+          entry.id === targetId
+            ? { ...entry, error: 'List created but could not select it.' }
+            : entry
+        ));
+        return;
+      }
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? {
+              ...entry,
+              listId: String(resolvedId),
+              status: '',
+              isCreating: false,
+              draftTitle: '',
+              error: '',
+              addedCount: 0,
+              items: [],
+              itemsError: '',
+              itemsListId: String(resolvedId),
+            }
+          : entry
+      ));
+      const updated = this._listTargets.find((entry) => entry.id === targetId);
+      if (updated?.mode === 'view') {
+        this._fetchListTargetItems(targetId, String(resolvedId), { force: true });
+      }
+    } catch (error) {
+      console.error('Error creating list:', error);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'Failed to create list.' } : entry
+      ));
+    }
+  }
+
+  _handleListTargetDragOver(targetId) {
+    this._listDragTargetId = targetId;
+  }
+
+  _handleListTargetDragLeave(targetId) {
+    if (this._listDragTargetId === targetId) {
+      this._listDragTargetId = null;
+    }
+  }
+
+  _handleListTargetDrop(event, targetId) {
+    if (this._listDragTargetId === targetId) {
+      this._listDragTargetId = null;
+    }
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (!target?.listId) {
+      this._updateListTargetStatus(targetId, 'Select a list first.');
+      return;
+    }
+    const ids = this._parseSearchDragIds(event);
+    if (!ids.length) {
+      this._updateListTargetStatus(targetId, 'No images found to add.');
+      return;
+    }
+    this._addImagesToListTarget(targetId, target.listId, ids);
+  }
+
+  _handleAddListTarget() {
+    const nextId = `list-target-${this._listTargetCounter + 1}`;
+    this._listTargetCounter += 1;
+    this._listTargets = [
+      ...this._listTargets,
+      {
+        id: nextId,
+        listId: '',
+        status: '',
+        mode: 'add',
+        addedCount: 0,
+        isCreating: false,
+        draftTitle: '',
+        error: '',
+        items: [],
+        itemsLoading: false,
+        itemsError: '',
+        itemsListId: '',
+      },
+    ];
+  }
+
+  _handleRemoveListTarget(targetId) {
+    if (this._listTargets.length <= 1) return;
+    this._listTargets = this._listTargets.filter((target) => target.id !== targetId);
+  }
+
+  _updateListTargetStatus(targetId, status) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId ? { ...target, status } : target
+    ));
+  }
+
+  async _fetchListTargetItems(targetId, listId, { force = false } = {}) {
+    if (!this.tenant || !listId) return;
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (!target || target.itemsLoading) return;
+    if (!force && target.itemsListId === String(listId) && (target.items || []).length) {
+      return;
+    }
+    this._listTargets = this._listTargets.map((entry) => (
+      entry.id === targetId
+        ? { ...entry, itemsLoading: true, itemsError: '' }
+        : entry
+    ));
+    try {
+      const items = await getListItems(this.tenant, listId);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? {
+              ...entry,
+              items: items || [],
+              itemsLoading: false,
+              itemsError: '',
+              itemsListId: String(listId),
+            }
+          : entry
+      ));
+    } catch (error) {
+      console.error('Error fetching list items:', error);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? { ...entry, itemsLoading: false, itemsError: 'Failed to load list items.' }
+          : entry
+      ));
+    }
+  }
+
+  async _addImagesToListTarget(targetId, listId, ids) {
+    const uniqueIds = [...new Set(ids)].filter((id) => Number.isFinite(Number(id)));
+    if (!uniqueIds.length) return;
+    this._updateListTargetStatus(
+      targetId,
+      `Queued ${uniqueIds.length} image${uniqueIds.length === 1 ? '' : 's'}.`
+    );
+    uniqueIds.forEach((id) => {
+      enqueueCommand({
+        type: 'add-to-list',
+        tenantId: this.tenant,
+        imageId: id,
+        listId,
+        description: `list · ${id} → ${listId}`,
+      });
+    });
+    this.searchLists = (this.searchLists || []).map((list) => {
+      if (String(list.id) !== String(listId)) return list;
+      const nextCount = Number.isFinite(list.item_count)
+        ? list.item_count + uniqueIds.length
+        : undefined;
+      return nextCount !== undefined ? { ...list, item_count: nextCount } : list;
+    });
+    this._listTargets = this._listTargets.map((entry) => {
+      if (entry.id !== targetId) return entry;
+      const nextItems = entry.itemsListId && String(entry.itemsListId) === String(listId)
+        ? [
+            ...(entry.items || []),
+            ...uniqueIds.map((id) => ({
+              photo_id: id,
+              photo: {
+                id,
+                thumbnail_url: `/api/v1/images/${id}/thumbnail`,
+              },
+            })),
+          ]
+        : entry.items;
+      return {
+        ...entry,
+        addedCount: (entry.addedCount || 0) + uniqueIds.length,
+        items: nextItems,
+      };
+    });
+  }
+
+  _parseSearchDragIds(event) {
+    const jsonData = event.dataTransfer?.getData('image-ids');
+    if (jsonData) {
+      try {
+        return JSON.parse(jsonData).map((value) => Number(value)).filter(Number.isFinite);
+      } catch {
+        return [];
+      }
+    }
+    const textData = event.dataTransfer?.getData('text/plain');
+    if (!textData) return [];
+    return textData
+      .split(',')
+      .map((value) => Number(value.trim()))
+      .filter(Number.isFinite);
   }
 
   _handleSearchListTitleChange(event) {
@@ -890,8 +1434,80 @@ export class SearchTab extends LitElement {
   }
 
   async _loadExploreByTagData(force = false) {
-    // TODO: Implement explore by tag data loading
-    // This will need to be connected to the parent's data loading logic
+    if (!this.tenant) return;
+    this.exploreByTagLoading = true;
+    try {
+      const ratingByCategory = this.imageStats?.rating_by_category || {};
+      if (!Object.keys(ratingByCategory).length) {
+        if (!this._exploreByTagStatsPromise) {
+          this._exploreByTagStatsPromise = getImageStats(this.tenant, { force, includeRatings: true })
+            .catch((error) => {
+              console.error('Error fetching explore-by-tag stats:', error);
+              return null;
+            })
+            .finally(() => {
+              this._exploreByTagStatsPromise = null;
+            });
+        }
+        const stats = await this._exploreByTagStatsPromise;
+        if (stats && stats.rating_by_category) {
+          this.imageStats = stats;
+        }
+        if (!Object.keys(this.imageStats?.rating_by_category || {}).length) {
+          this.exploreByTagData = {};
+          this.exploreByTagKeywords = [];
+          return;
+        }
+      }
+
+      const keywordsByRating = {};
+      const imageStats = this.imageStats;
+      if (imageStats?.rating_by_category) {
+        Object.entries(imageStats.rating_by_category).forEach(([category, categoryData]) => {
+          Object.entries(categoryData.keywords || {}).forEach(([keyword, keywordData]) => {
+            const twoStarPlus = (keywordData.stars_2 || 0) + (keywordData.stars_3 || 0);
+            if (twoStarPlus > 0) {
+              const keywordName = `${category} - ${keyword}`;
+              keywordsByRating[keywordName] = { category, keyword, twoStarPlus };
+            }
+          });
+        });
+      }
+
+      const sortedKeywords = Object.entries(keywordsByRating).sort(([a], [b]) => a.localeCompare(b));
+      const exploreByTagData = {};
+      const exploreByTagKeywords = [];
+      for (const [keywordName, data] of sortedKeywords) {
+        const cacheKey = `${data.category}::${data.keyword}`;
+        let cachedImages = this._exploreByTagCache.get(cacheKey);
+        if (force || !Array.isArray(cachedImages)) {
+          try {
+            const result = await getImages(this.tenant, {
+              permatagKeyword: data.keyword,
+              permatagCategory: data.category,
+              permatagSignum: 1,
+              rating: 2,
+              ratingOperator: 'gte',
+              limit: 10,
+              orderBy: 'rating',
+              sortOrder: 'desc',
+            });
+            const images = Array.isArray(result) ? result : (result?.images || []);
+            cachedImages = images.filter((img) => img && img.id);
+            this._exploreByTagCache.set(cacheKey, cachedImages);
+          } catch (error) {
+            console.error(`Error loading images for keyword "${keywordName}":`, error);
+            cachedImages = [];
+          }
+        }
+        exploreByTagData[keywordName] = cachedImages || [];
+        exploreByTagKeywords.push(keywordName);
+      }
+      this.exploreByTagData = exploreByTagData;
+      this.exploreByTagKeywords = exploreByTagKeywords;
+    } finally {
+      this.exploreByTagLoading = false;
+    }
   }
 
   // ========================================
@@ -1316,112 +1932,59 @@ export class SearchTab extends LitElement {
       ? 'filter: blur(2px); opacity: 0.6; pointer-events: none;'
       : '';
     const savedPane = html`
-      <div class="curate-pane utility-targets search-saved-pane ${this.searchSavedDragTarget ? 'drag-active' : ''}">
-        <div class="curate-pane-header">
-          <div class="curate-pane-header-row">
-            <span class="text-sm font-semibold">Lists</span>
-          </div>
-        </div>
-        <div
-          class="curate-pane-body flex flex-col"
-          @dragover=${this._handleSearchSavedDragOver}
-          @dragleave=${this._handleSearchSavedDragLeave}
-          @drop=${this._handleSearchSavedDrop}
-        >
-          <!-- List Management Controls -->
-          <div class="p-3 bg-gray-50 border-t">
-            <label class="block text-xs font-semibold text-gray-700 mb-2">Current List:</label>
-            <select
-              class="w-full p-2 border rounded text-sm mb-2"
-              @change=${this._handleSearchListSelect}
-              .value=${this.searchListId || ''}
-            >
-              <option value="">New list</option>
-              ${this.searchLists.map(list => html`
-                <option value=${list.id}>${list.title}</option>
-              `)}
-            </select>
-
-            ${!this.searchListId ? html`
-              <label class="block text-xs font-semibold text-gray-700 mb-2">New list name:</label>
-              <input
-                id="search-list-title-input"
-                type="text"
-                placeholder="List title..."
-                .value=${this.searchListTitle || ''}
-                @input=${this._handleSearchListTitleChange}
-                class="w-full p-2 border rounded text-sm mb-2"
-              >
-            ` : ''}
-
-            <button
-              class="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-              @click=${this._handleSaveToList}
-              ?disabled=${(!this.searchListId && (!this.searchListTitle || this._isDuplicateListTitle(this.searchListTitle)))
-                || (this.searchListId && (this.searchSavedImages || []).length === 0)}
-            >
-              ${this.searchListId ? 'Save' : 'Save new'} (${(this.searchSavedImages || []).length})
-            </button>
-            ${this.searchListError ? html`
-              <div class="mt-2 text-xs font-semibold text-red-600">
-                ${this.searchListError}
-              </div>
-            ` : ''}
-          </div>
-
-          <!-- Combined Area: Existing List Items + Drag Target for New Images -->
-          <div class="flex-1">
-            ${this.searchListId && (this.searchListItems || []).length > 0 ? html`
-              <div class="p-2 border-b">
-                <div class="text-xs font-semibold text-gray-600 mb-2">
-                  ${this.searchListTitle} (${this.searchListItems.length} items)
-                </div>
-                <div class="search-saved-grid max-h-48 overflow-y-auto">
-                  ${this.searchListItems.map(item => html`
-                    <div class="search-saved-item">
-                      <img
-                        src=${item.photo?.thumbnail_url || `/api/v1/images/${item.photo_id}/thumbnail`}
-                        alt=${item.photo?.filename || ''}
-                        class="search-saved-thumb opacity-75"
-                      >
-                    </div>
-                  `)}
-                </div>
-              </div>
-            ` : ''}
-
-            ${(this.searchSavedImages || []).length > 0 ? html`
-              <div class="p-2">
-                <div class="text-xs font-semibold text-gray-600 mb-2">
-                  To be added (${this.searchSavedImages.length})
-                </div>
-                <div class="search-saved-grid">
-                  ${this.searchSavedImages.map(image => html`
-                    <div class="search-saved-item">
-                      <img
-                        src=${image.thumbnail_url || `/api/v1/images/${image.id}/thumbnail`}
-                        alt=${image.filename}
-                        class="search-saved-thumb"
-                        draggable="true"
-                        @dragstart=${(e) => this._handleSearchSavedDragStart(e, image)}
-                      >
-                      <button
-                        class="search-saved-remove"
-                        @click=${() => this._handleSearchRemoveSaved(image.id)}
-                        title="Remove"
-                      >×</button>
-                    </div>
-                  `)}
-                </div>
-              </div>
-            ` : !this.searchListId || !(this.searchListItems || []).length ? html`
-              <div class="p-4 text-center text-gray-500 text-sm">
-                Drag images here to save to a list
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      </div>
+      <right-panel
+        .tools=${[
+          { id: 'tags', label: 'Tags' },
+          { id: 'lists', label: 'Lists' },
+          { id: 'ratings', label: 'Ratings' },
+        ]}
+        .activeTool=${this.rightPanelTool}
+        @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
+      >
+        <hotspot-targets-panel
+          slot="tool-tags"
+          mode="tags"
+          .targets=${this.searchHotspotTargets}
+          .keywordsByCategory=${this._getSearchKeywordsByCategory()}
+          .dragTargetId=${this._searchHotspotDragTarget}
+          @hotspot-keyword-change=${(event) => this._searchHotspotHandlers.handleKeywordChange({ target: { value: event.detail.value } }, event.detail.targetId)}
+          @hotspot-action-change=${(event) => this._searchHotspotHandlers.handleActionChange({ target: { value: event.detail.value } }, event.detail.targetId)}
+          @hotspot-add=${() => this._searchHotspotHandlers.handleAddTarget()}
+          @hotspot-remove=${(event) => this._searchHotspotHandlers.handleRemoveTarget(event.detail.targetId)}
+          @hotspot-dragover=${(event) => this._searchHotspotHandlers.handleDragOver(event.detail.event, event.detail.targetId)}
+          @hotspot-dragleave=${() => this._searchHotspotHandlers.handleDragLeave()}
+          @hotspot-drop=${(event) => this._searchHotspotHandlers.handleDrop(event.detail.event, event.detail.targetId)}
+        ></hotspot-targets-panel>
+        <list-targets-panel
+          slot="tool-lists"
+          .listsLoading=${this._listsLoading}
+          .listTargets=${this._listTargets}
+          .lists=${this.searchLists}
+          .listDragTargetId=${this._listDragTargetId}
+          @list-target-select=${(event) => this._handleListTargetSelect(event.detail.targetId, event.detail.value)}
+          @list-target-remove=${(event) => this._handleRemoveListTarget(event.detail.targetId)}
+          @list-target-mode=${(event) => this._handleListTargetModeChange(event.detail.targetId, event.detail.mode)}
+          @list-target-draft-change=${(event) => this._handleListTargetDraftChange(event.detail.targetId, event.detail.value)}
+          @list-target-create-save=${(event) => this._handleListTargetCreateSave(event.detail.targetId)}
+          @list-target-create-cancel=${(event) => this._handleListTargetCreateCancel(event.detail.targetId)}
+          @list-target-dragover=${(event) => this._handleListTargetDragOver(event.detail.targetId)}
+          @list-target-dragleave=${(event) => this._handleListTargetDragLeave(event.detail.targetId)}
+          @list-target-drop=${(event) => this._handleListTargetDrop(event.detail.event, event.detail.targetId)}
+          @list-target-item-click=${(event) => this._handleListTargetItemClick(event.detail.event, event.detail.targetId, event.detail.index)}
+          @list-target-add=${this._handleAddListTarget}
+        ></list-targets-panel>
+        <rating-target-panel
+          slot="tool-ratings"
+          .targets=${this.searchRatingTargets}
+          .dragTargetId=${this._searchRatingDragTarget}
+          @rating-change=${(event) => this._handleSearchRatingChange(event.detail.targetId, event.detail.value)}
+          @rating-add=${this._handleSearchRatingAddTarget}
+          @rating-remove=${(event) => this._handleSearchRatingRemoveTarget(event.detail.targetId)}
+          @rating-dragover=${(event) => this._handleSearchRatingDragOver(event.detail.event, event.detail.targetId)}
+          @rating-dragleave=${(event) => this._handleSearchRatingDragLeave(event.detail.event)}
+          @rating-drop=${(event) => this._handleSearchRatingDrop(event.detail.event, event.detail.targetId)}
+        ></rating-target-panel>
+      </right-panel>
     `;
 
     return html`
@@ -1522,14 +2085,8 @@ export class SearchTab extends LitElement {
             ></filter-chips>
 
             <!-- Image Grid Layout -->
-            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">
-              <!-- Left Pane: Available Images -->
+            <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
-                <div class="curate-pane-header">
-                  <div class="curate-pane-header-row">
-                    <span class="text-sm font-semibold">Available Images</span>
-                  </div>
-                </div>
                 <div class="curate-pane-body">
                   <div class="p-2">
                     ${searchPagination}
@@ -1593,7 +2150,7 @@ export class SearchTab extends LitElement {
         <!-- Explore by Tag Subtab -->
         ${this.searchSubTab === 'explore-by-tag' ? html`
           <div>
-            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+            <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.curateThumbSize}px;">
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
                 <div class="curate-pane-header">
                   <div class="curate-pane-header-row">
@@ -1675,7 +2232,7 @@ export class SearchTab extends LitElement {
         <!-- Browse by Folder Subtab -->
         ${this.searchSubTab === 'browse-by-folder' ? html`
           <div>
-            <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+            <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.curateThumbSize}px;">
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
                 <div class="curate-pane-header">
                   <div class="curate-pane-header-row">

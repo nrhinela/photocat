@@ -311,11 +311,11 @@ class FilterChips extends LitElement {
     const hasSortControls = !!this.renderSortControls;
 
     return html`
-      <div class="bg-white rounded-lg shadow p-4 mb-4">
+      <div class="bg-white rounded-lg shadow p-4">
         <!-- FILTERS Section -->
         <div class="mb-4">
-          <div class="text-xs font-semibold text-gray-500 uppercase mb-2">Filters</div>
           <div class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-semibold text-gray-700">Filters:</span>
             <!-- Active filter chips -->
             ${this.activeFilters.map((filter, index) => html`
               <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full text-sm cursor-pointer hover:bg-blue-100"
@@ -362,7 +362,6 @@ class FilterChips extends LitElement {
         <!-- SORT & DISPLAY Section -->
         ${hasSortControls ? html`
           <div class="border-t pt-4">
-            <div class="text-xs font-semibold text-gray-500 uppercase mb-2">Sort</div>
             <div class="flex flex-wrap items-center gap-4">
               ${sortControls}
             </div>

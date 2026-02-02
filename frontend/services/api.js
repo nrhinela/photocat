@@ -141,10 +141,11 @@ export async function getImageStats(tenantId, { force = false, includeRatings = 
   );
 }
 
-export async function getFullImage(tenantId, imageId) {
+export async function getFullImage(tenantId, imageId, { signal } = {}) {
   return fetchWithAuth(`/images/${imageId}/full`, {
     tenantId,
     responseType: 'blob',
+    signal,
   });
 }
 

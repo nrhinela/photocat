@@ -36,6 +36,26 @@ export class AuthGuard extends LitElement {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
+    .loading-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 28px 36px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 16px;
+      backdrop-filter: blur(6px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+    }
+
+    .loading-title {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      color: white;
+    }
+
     .spinner {
       text-align: center;
       color: white;
@@ -61,8 +81,9 @@ export class AuthGuard extends LitElement {
     }
 
     .loading-text {
-      font-size: 16px;
-      margin-top: 1rem;
+      font-size: 14px;
+      opacity: 0.9;
+      margin-top: 4px;
     }
 
     .error-screen {
@@ -165,9 +186,12 @@ export class AuthGuard extends LitElement {
     if (this.loading) {
       return html`
         <div class="loading-screen">
-          <div class="spinner">
-            <div class="spinner-animation"></div>
-            <div class="loading-text">Loading...</div>
+          <div class="loading-card">
+            <div class="loading-title">PhotoCat</div>
+            <div class="spinner">
+              <div class="spinner-animation"></div>
+              <div class="loading-text">Loading workspace...</div>
+            </div>
           </div>
         </div>
       `;
@@ -177,8 +201,11 @@ export class AuthGuard extends LitElement {
     if (!this.authenticated) {
       return html`
         <div class="loading-screen">
-          <div class="spinner">
-            <div class="loading-text">Redirecting to login...</div>
+          <div class="loading-card">
+            <div class="loading-title">PhotoCat</div>
+            <div class="spinner">
+              <div class="loading-text">Redirecting to login...</div>
+            </div>
           </div>
         </div>
       `;
