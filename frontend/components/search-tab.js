@@ -28,7 +28,7 @@ import FolderBrowserPanel from './folder-browser-panel.js';
  *
  * @property {String} tenant - Current tenant ID
  * @property {String} searchSubTab - Active subtab ('home' or 'explore-by-tag')
- * @property {Object} searchChipFilters - Current filter chip selections
+ * @property {Array} searchChipFilters - Current filter chip selections
  * @property {Array} searchDropboxOptions - Dropbox folder options
  * @property {Array} searchImages - Images from filter panel
  * @property {Set} searchSelectedImages - Selected image IDs
@@ -41,6 +41,7 @@ import FolderBrowserPanel from './folder-browser-panel.js';
  * @property {Boolean} exploreByTagLoading - Loading state for explore
  * @property {Number} curateThumbSize - Thumbnail size
  * @property {Object} tagStatsBySource - Tag statistics
+ * @property {Array} keywords - Flat keyword list for faster dropdowns
  * @property {String} activeCurateTagSource - Active tag source
  * @property {Object} imageStats - Image statistics
  * @property {String} curateOrderBy - Sort field
@@ -63,7 +64,7 @@ export class SearchTab extends LitElement {
   static properties = {
     tenant: { type: String },
     searchSubTab: { type: String },
-    searchChipFilters: { type: Object },
+    searchChipFilters: { type: Array, state: true },  // Internal state - managed by filter-chips component
     searchFilterPanel: { type: Object },
     searchDropboxOptions: { type: Array },
     searchImages: { type: Array },
@@ -93,6 +94,7 @@ export class SearchTab extends LitElement {
     curateThumbSize: { type: Number },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
+    keywords: { type: Array },
     imageStats: { type: Object },
     curateOrderBy: { type: String },
     curateDateOrder: { type: String },
@@ -110,7 +112,7 @@ export class SearchTab extends LitElement {
     super();
     this.tenant = '';
     this.searchSubTab = 'home';
-    this.searchChipFilters = {};
+    this.searchChipFilters = [];
     this.searchFilterPanel = null;
     this.searchDropboxOptions = [];
     this.searchImages = [];
@@ -140,6 +142,7 @@ export class SearchTab extends LitElement {
     this.curateThumbSize = 120;
     this.tagStatsBySource = {};
     this.activeCurateTagSource = 'permatags';
+    this.keywords = [];
     this.imageStats = null;
     this.curateOrderBy = 'rating';
     this.curateDateOrder = 'desc';
@@ -812,7 +815,7 @@ export class SearchTab extends LitElement {
       return;
     }
     this._searchInitialLoadPending = true;
-    this.searchRefreshing = true;
+    this._refreshSearch();
   }
 
   _finishInitialRefresh() {
@@ -1001,11 +1004,59 @@ export class SearchTab extends LitElement {
   }
 
   _handleChipFiltersChanged(event) {
-    this.dispatchEvent(new CustomEvent('search-filters-changed', {
-      detail: event.detail,
-      bubbles: true,
-      composed: true
-    }));
+    const chips = event.detail.filters;
+
+    // Store the chip filters for UI state
+    this.searchChipFilters = chips;
+
+    // Build filter object from chip filters
+    const searchFilters = {
+      limit: 100,
+      offset: 0,
+      sortOrder: 'desc',
+      orderBy: 'photo_creation',
+      hideZeroRating: true,
+      keywords: {},
+      operators: {},
+      categoryFilterSource: 'permatags',
+    };
+
+    // Apply each chip filter to the filter object
+    chips.forEach(chip => {
+      switch (chip.type) {
+        case 'keyword':
+          if (chip.value === '__untagged__') {
+            searchFilters.permatagPositiveMissing = true;
+          } else {
+            // Merge into keywords object instead of replacing it
+            if (!searchFilters.keywords[chip.category]) {
+              searchFilters.keywords[chip.category] = new Set();
+            }
+            searchFilters.keywords[chip.category].add(chip.value);
+          }
+          break;
+        case 'rating':
+          if (chip.value === 'unrated') {
+            searchFilters.rating = undefined;
+            searchFilters.ratingOperator = 'is_null';
+            searchFilters.hideZeroRating = true;
+          } else {
+            searchFilters.rating = chip.value;
+            searchFilters.ratingOperator = chip.value === 0 ? 'eq' : 'gte';
+            searchFilters.hideZeroRating = false;
+          }
+          break;
+        case 'folder':
+          searchFilters.dropboxPathPrefix = chip.value;
+          break;
+      }
+    });
+
+    // Update filter panel with the complete filter object
+    if (this.searchFilterPanel) {
+      this.searchFilterPanel.updateFilters(searchFilters);
+      this.searchFilterPanel.fetchImages();
+    }
   }
 
   // ========================================
@@ -1385,16 +1436,16 @@ export class SearchTab extends LitElement {
               Search Home
             </button>
             <button
-              class="curate-subtab ${this.searchSubTab === 'explore-by-tag' ? 'active' : ''}"
-              @click=${() => this._handleSearchSubTabChange('explore-by-tag')}
-            >
-              Explore by Tag
-            </button>
-            <button
               class="curate-subtab ${this.searchSubTab === 'browse-by-folder' ? 'active' : ''}"
               @click=${() => this._handleSearchSubTabChange('browse-by-folder')}
             >
               Browse by Folder
+            </button>
+            <button
+              class="curate-subtab ${this.searchSubTab === 'explore-by-tag' ? 'active' : ''}"
+              @click=${() => this._handleSearchSubTabChange('explore-by-tag')}
+            >
+              Explore by Tag
             </button>
           </div>
 
@@ -1437,50 +1488,38 @@ export class SearchTab extends LitElement {
               .tenant=${this.tenant}
               .tagStatsBySource=${this.tagStatsBySource}
               .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+              .keywords=${this.keywords}
               .imageStats=${this.imageStats}
               .activeFilters=${this.searchChipFilters}
               .dropboxFolders=${this.searchDropboxOptions || []}
+              .renderSortControls=${() => html`
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                  <div class="curate-audit-toggle">
+                    <button
+                      class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('rating')}
+                    >
+                      Rating ${this._getCurateQuickSortArrow('rating')}
+                    </button>
+                    <button
+                      class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('photo_creation')}
+                    >
+                      Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                    </button>
+                    <button
+                      class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('processed')}
+                    >
+                      Process Date ${this._getCurateQuickSortArrow('processed')}
+                    </button>
+                  </div>
+                </div>
+              `}
               @filters-changed=${this._handleChipFiltersChanged}
               @folder-search=${this._handleSearchDropboxInput}
-            >
-              <div slot="sort-controls" class="flex items-center gap-2">
-                <span class="text-sm font-semibold text-gray-700">Sort:</span>
-                <div class="curate-audit-toggle">
-                  <button
-                    class=${this.curateOrderBy === 'rating' ? 'active' : ''}
-                    @click=${() => this._handleCurateQuickSort('rating')}
-                  >
-                    Rating ${this._getCurateQuickSortArrow('rating')}
-                  </button>
-                  <button
-                    class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
-                    @click=${() => this._handleCurateQuickSort('photo_creation')}
-                  >
-                    Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                  </button>
-                  <button
-                    class=${this.curateOrderBy === 'processed' ? 'active' : ''}
-                    @click=${() => this._handleCurateQuickSort('processed')}
-                  >
-                    Process Date ${this._getCurateQuickSortArrow('processed')}
-                  </button>
-                </div>
-              </div>
-
-              <div slot="view-controls" class="flex items-center gap-3">
-                <span class="text-sm font-semibold text-gray-700">View:</span>
-                <input
-                  type="range"
-                  min="80"
-                  max="220"
-                  step="10"
-                  .value=${String(this.curateThumbSize)}
-                  @input=${this._handleCurateThumbSizeChange}
-                  class="w-24"
-                >
-                <span class="text-xs text-gray-600">${this.curateThumbSize}px</span>
-              </div>
-            </filter-chips>
+            ></filter-chips>
 
             <!-- Image Grid Layout -->
             <div class="curate-layout search-layout mt-4" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">

@@ -1,66 +1,12 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html } from 'lit';
 import { enqueueCommand } from '../../../services/command-queue.js';
-import { tailwind } from '../../tailwind-lit.js';
+import './image-card.css';
 
 class ImageCard extends LitElement {
-  static styles = [tailwind, css`
-    .image-card {
-      transition: transform 0.2s;
-      overflow: visible;
-    }
-    .image-card:hover {
-      transform: scale(1.02);
-    }
-    .image-card .fa-star {
-      color: #fbbf24; /* text-yellow-400 */
-    }
-    .image-link {
-      cursor: pointer;
-    }
-    .image-hover {
-      position: relative;
-    }
-    .image-hover img {
-      border-radius: 12px 12px 0 0;
-    }
-    .thumb-rating {
-      position: absolute;
-      right: 8px;
-      bottom: 8px;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      background: rgba(17, 24, 39, 0.85);
-      color: #f9fafb;
-      padding: 6px 8px;
-      border-radius: 999px;
-      opacity: 0;
-      transform: translateY(4px);
-      transition: opacity 0.15s ease, transform 0.15s ease;
-      pointer-events: none;
-      z-index: 12;
-    }
-    .thumb-rating button {
-      font-size: 14px;
-      line-height: 1;
-    }
-    .image-hover:hover .thumb-rating {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-    }
-    .hover-label {
-      color: #d1d5db;
-      font-weight: 600;
-      margin-right: 4px;
-    }
-    .hover-line {
-      display: block;
-      white-space: normal;
-      overflow: visible;
-      word-break: break-word;
-    }
-  `];
+  // Use Light DOM to access Tailwind CSS classes
+  createRenderRoot() {
+    return this;
+  }
 
   static properties = {
     image: { type: Object },

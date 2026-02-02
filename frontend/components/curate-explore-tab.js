@@ -1,8 +1,16 @@
 import { LitElement, html } from 'lit';
 import { enqueueCommand } from '../services/command-queue.js';
+import { getDropboxFolders } from '../services/api.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import { renderImageGrid } from './shared/image-grid.js';
+import {
+  getKeywordsByCategory,
+  getCategoryCount,
+  getKeywordsByCategoryFromList,
+  getCategoryCountFromList,
+} from './shared/keyword-utils.js';
+import './shared/widgets/filter-chips.js';
 
 /**
  * Curate Explore Tab Component
@@ -24,7 +32,6 @@ import { renderImageGrid } from './shared/image-grid.js';
  * @property {Number} offset - Pagination offset
  * @property {Number} total - Total image count
  * @property {Boolean} loading - Loading state
- * @property {Boolean} advancedOpen - Advanced filter panel expanded
  * @property {Array} dragSelection - Selected image IDs
  * @property {Boolean} dragSelecting - Multi-select mode active
  * @property {Object} renderCurateRatingWidget - Rating widget renderer (from parent)
@@ -33,6 +40,9 @@ import { renderImageGrid } from './shared/image-grid.js';
  * @property {Object} imageStats - Image statistics
  * @property {Object} curateCategoryCards - Category card data
  * @property {String} selectedKeywordValueMain - Selected keyword filter
+ * @property {String|Number} minRating - Active rating filter value
+ * @property {String} dropboxPathPrefix - Active Dropbox folder filter
+ * @property {Array} dropboxFolders - Dropbox folder options
  * @property {Array} curateExploreTargets - Hotspot targets
  * @property {Boolean} curateExploreRatingEnabled - Rating hotspot enabled
  * @property {Number} curateExploreRatingCount - Rating hotspot count
@@ -50,6 +60,7 @@ import { renderImageGrid } from './shared/image-grid.js';
  * @fires keyword-selected - When keyword filter changes
  * @fires hotspot-changed - When hotspot configuration changes
  * @fires rating-drop - When images dropped on rating zone
+ * @fires curate-filters-changed - When filter chips change
  */
 export class CurateExploreTab extends LitElement {
   // Use Light DOM to access Tailwind CSS classes
@@ -67,7 +78,6 @@ export class CurateExploreTab extends LitElement {
     offset: { type: Number },
     total: { type: Number },
     loading: { type: Boolean },
-    advancedOpen: { type: Boolean },
     dragSelection: { type: Array },
     dragSelecting: { type: Boolean },
     dragStartIndex: { type: Number },
@@ -80,12 +90,15 @@ export class CurateExploreTab extends LitElement {
     imageStats: { type: Object },
     curateCategoryCards: { type: Array },
     selectedKeywordValueMain: { type: String },
+    minRating: { type: Object },
+    dropboxPathPrefix: { type: String },
+    dropboxFolders: { type: Array },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
+    keywords: { type: Array },
     curateExploreTargets: { type: Array },
     curateExploreRatingEnabled: { type: Boolean },
     curateExploreRatingCount: { type: Number },
-    advancedContent: { type: Object },
 
     // Internal state properties
     _curatePressActive: { type: Boolean, state: true },
@@ -113,7 +126,6 @@ export class CurateExploreTab extends LitElement {
     this.offset = 0;
     this.total = 0;
     this.loading = false;
-    this.advancedOpen = false;
     this.dragSelection = [];
     this.dragSelecting = false;
     this.dragStartIndex = null;
@@ -126,12 +138,17 @@ export class CurateExploreTab extends LitElement {
     this.imageStats = null;
     this.curateCategoryCards = [];
     this.selectedKeywordValueMain = '';
+    this.minRating = null;
+    this.dropboxPathPrefix = '';
+    this.dropboxFolders = [];
     this.tagStatsBySource = {};
     this.activeCurateTagSource = '';
+    this.keywords = [];
     this.curateExploreTargets = [{ id: '1', type: 'keyword', count: 0 }];
     this.curateExploreRatingEnabled = false;
     this.curateExploreRatingCount = 0;
-    this.advancedContent = null;
+    this._curateDropboxFetchTimer = null;
+    this._curateDropboxQuery = '';
 
     // Internal state
     this._curatePressActive = false;
@@ -365,6 +382,106 @@ export class CurateExploreTab extends LitElement {
     }));
   }
 
+  _handleCurateChipFiltersChanged(event) {
+    const filters = event.detail?.filters || [];
+    this.dispatchEvent(new CustomEvent('curate-filters-changed', {
+      detail: { filters },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  _handleCurateDropboxInput(event) {
+    const query = event.detail?.query || '';
+    this._curateDropboxQuery = query;
+    if (this._curateDropboxFetchTimer) {
+      clearTimeout(this._curateDropboxFetchTimer);
+    }
+    if (query.length < 2) {
+      this.dropboxFolders = [];
+      return;
+    }
+    this._curateDropboxFetchTimer = setTimeout(() => {
+      this._fetchDropboxFolders(query);
+    }, 500);
+  }
+
+  async _fetchDropboxFolders(query) {
+    if (!this.tenant) return;
+    try {
+      const response = await getDropboxFolders(this.tenant, { query });
+      this.dropboxFolders = response?.folders || [];
+    } catch (error) {
+      console.error('Error fetching Dropbox folders:', error);
+      this.dropboxFolders = [];
+    }
+  }
+
+  _buildActiveFiltersFromSelection() {
+    const filters = [];
+    const selected = this.selectedKeywordValueMain || '';
+    if (selected) {
+      if (selected === '__untagged__') {
+        filters.push({
+          type: 'keyword',
+          category: 'Untagged',
+          value: '__untagged__',
+          displayLabel: 'Keywords',
+          displayValue: 'Untagged',
+        });
+      } else {
+        const [encodedCategory, ...encodedKeywordParts] = selected.split('::');
+        const category = decodeURIComponent(encodedCategory || '');
+        const keyword = decodeURIComponent(encodedKeywordParts.join('::') || '');
+        if (keyword) {
+          filters.push({
+            type: 'keyword',
+            category,
+            value: keyword,
+            displayLabel: 'Keywords',
+            displayValue: keyword,
+          });
+        }
+      }
+    }
+
+    if (this.minRating !== null && this.minRating !== undefined && this.minRating !== '') {
+      const displayValue = this.minRating === 'unrated'
+        ? 'Unrated'
+        : (this.minRating === 0
+          ? html`<span class="text-gray-600" title="Rating 0" aria-label="Trash">🗑</span>`
+          : `${this.minRating}+`);
+      filters.push({
+        type: 'rating',
+        value: this.minRating,
+        displayLabel: 'Rating',
+        displayValue,
+      });
+    }
+
+    if (this.dropboxPathPrefix) {
+      filters.push({
+        type: 'folder',
+        value: this.dropboxPathPrefix,
+        displayLabel: 'Folder',
+        displayValue: this.dropboxPathPrefix,
+      });
+    }
+
+    return filters;
+  }
+
+  _handleThumbSizeChange(event) {
+    const nextSize = Number(event.target.value);
+    if (!Number.isFinite(nextSize)) return;
+    this.thumbSize = nextSize;
+    this.dispatchEvent(new CustomEvent('thumb-size-changed', {
+      detail: { size: nextSize },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   _handleCurateLimitChange = (newLimit) => {
     this.dispatchEvent(new CustomEvent('pagination-changed', {
       detail: { offset: 0, limit: newLimit },
@@ -501,32 +618,17 @@ export class CurateExploreTab extends LitElement {
   // ========================================
 
   _getKeywordsByCategory() {
-    // Group keywords by category with counts, returns array of [category, keywords] tuples
-    const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-    const result = [];
-
-    Object.entries(sourceStats).forEach(([category, keywords]) => {
-      const categoryKeywords = (keywords || [])
-        .map(kw => ({
-          keyword: kw.keyword,
-          count: kw.count || 0
-        }))
-        .sort((a, b) => a.keyword.localeCompare(b.keyword));
-
-      if (categoryKeywords.length > 0) {
-        result.push([category, categoryKeywords]);
-      }
-    });
-
-    // Sort categories alphabetically
-    return result.sort((a, b) => a[0].localeCompare(b[0]));
+    if (this.keywords && this.keywords.length) {
+      return getKeywordsByCategoryFromList(this.keywords);
+    }
+    return getKeywordsByCategory(this.tagStatsBySource, this.activeCurateTagSource);
   }
 
   _getCategoryCount(category) {
-    // Get total positive permatag count for a category
-    const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-    const keywords = sourceStats[category] || [];
-    return (keywords || []).reduce((sum, kw) => sum + (kw.count || 0), 0);
+    if (this.keywords && this.keywords.length) {
+      return getCategoryCountFromList(this.keywords, category);
+    }
+    return getCategoryCount(this.tagStatsBySource, category, this.activeCurateTagSource);
   }
 
   // ========================================
@@ -544,8 +646,7 @@ export class CurateExploreTab extends LitElement {
     const curateCountLabel = `${offset + 1}-${Math.min(offset + limit, total)} OF ${totalFormatted}`;
     const curateHasPrev = offset > 0;
     const curateHasMore = offset + limit < total;
-    const selectedKeywordValueMain = this.selectedKeywordValueMain || '';
-    const untaggedCountLabel = this.imageStats?.untagged_positive_count || 0;
+    const activeFilters = this._buildActiveFiltersFromSelection();
 
     // Update left order for selection
     this._curateLeftOrder = leftImages.map(img => img.id);
@@ -553,72 +654,46 @@ export class CurateExploreTab extends LitElement {
     return html`
       <div>
         <div class="curate-header-layout mb-4">
-            <div class="bg-white rounded-lg shadow p-4 w-full">
-              <div class="curate-control-grid">
-                <div>
-                  <div class="text-xs font-semibold text-gray-600 mb-1">Quick sort</div>
+          <div class="w-full">
+            <filter-chips
+              .tenant=${this.tenant}
+              .tagStatsBySource=${this.tagStatsBySource}
+              .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+              .keywords=${this.keywords}
+              .imageStats=${this.imageStats}
+              .activeFilters=${activeFilters}
+              .dropboxFolders=${this.dropboxFolders || []}
+              .renderSortControls=${() => html`
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-semibold text-gray-700">Sort:</span>
                   <div class="curate-audit-toggle">
-                      <button
-                        class=${this.orderBy === 'photo_creation' ? 'active' : ''}
-                        @click=${() => this._handleCurateQuickSort('photo_creation')}
-                      >
-                        Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                      </button>
-                      <button
-                        class=${this.orderBy === 'processed' ? 'active' : ''}
-                        @click=${() => this._handleCurateQuickSort('processed')}
-                      >
-                        Process Date ${this._getCurateQuickSortArrow('processed')}
-                      </button>
-                  </div>
-                </div>
-                <div>
-                  <div class="text-xs font-semibold text-gray-600 mb-1">Optional filter by keyword</div>
-                  <div class="curate-control-row">
-                    <select
-                      class="w-full px-3 py-2 border rounded-lg ${selectedKeywordValueMain ? 'bg-yellow-100 border-yellow-200' : ''}"
-                      .value=${selectedKeywordValueMain}
-                      @change=${(event) => this._handleCurateKeywordSelect(event, 'main')}
-                    >
-                      <option value="">Select a keyword...</option>
-                      <option value="__untagged__">Untagged (${untaggedCountLabel})</option>
-                      ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                        <optgroup label="${category} (${this._getCategoryCount(category)})">
-                          ${keywords
-                            .filter(kw => kw && kw.keyword)
-                            .map(kw => html`
-                              <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                ${kw.keyword} (${kw.count})
-                              </option>
-                            `)}
-                        </optgroup>
-                      `)}
-                    </select>
                     <button
-                      class="h-10 w-10 flex items-center justify-center border rounded-lg text-gray-600 hover:bg-gray-50"
-                      title="Advanced filters"
-                      aria-pressed=${this.advancedOpen ? 'true' : 'false'}
-                      @click=${() => {
-                        this.dispatchEvent(new CustomEvent('advanced-toggled', {
-                          detail: { open: !this.advancedOpen },
-                          bubbles: true,
-                          composed: true
-                        }));
-                      }}
+                      class=${this.orderBy === 'rating' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('rating')}
                     >
-                      <svg viewBox="0 0 24 24" class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="3"></circle>
-                        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.02.02a2 2 0 0 1-2.83 2.83l-.02-.02a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.03a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.02.02a2 2 0 1 1-2.83-2.83l.02-.02a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.03a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.02-.02a2 2 0 1 1 2.83-2.83l.02.02a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.03a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.02-.02a2 2 0 0 1 2.83 2.83l-.02.02a1.7 1.7 0 0 0-.34 1.87V9c0 .68.4 1.3 1.02 1.58.24.11.5.17.77.17H21a2 2 0 1 1 0 4h-.03a1.7 1.7 0 0 0-1.55 1z"></path>
-                      </svg>
+                      Rating ${this._getCurateQuickSortArrow('rating')}
+                    </button>
+                    <button
+                      class=${this.orderBy === 'photo_creation' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('photo_creation')}
+                    >
+                      Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                    </button>
+                    <button
+                      class=${this.orderBy === 'processed' ? 'active' : ''}
+                      @click=${() => this._handleCurateQuickSort('processed')}
+                    >
+                      Process Date ${this._getCurateQuickSortArrow('processed')}
                     </button>
                   </div>
                 </div>
-              </div>
-            </div>
-            <div></div>
+              `}
+              @filters-changed=${this._handleCurateChipFiltersChanged}
+              @folder-search=${this._handleCurateDropboxInput}
+            ></filter-chips>
+          </div>
+          <div></div>
         </div>
-
-        ${this.advancedContent || html``}
 
         <div class="curate-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
           <div class="curate-pane">

@@ -1,95 +1,27 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html } from 'lit';
 import { tailwind } from '../../tailwind-lit.js';
+import { getKeywordsByCategory, getCategoryCount, getKeywordsByCategoryFromList, getCategoryCountFromList } from '../keyword-utils.js';
 
 class FilterChips extends LitElement {
-  static styles = [tailwind, css`
-    :host {
-      display: block;
-    }
-    .filter-menu {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      margin-top: 4px;
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      z-index: 50;
-      min-width: 200px;
-    }
-    .filter-menu-item {
-      padding: 10px 16px;
-      cursor: pointer;
-      border-bottom: 1px solid #f3f4f6;
-      transition: background-color 0.15s;
-    }
-    .filter-menu-item:last-child {
-      border-bottom: none;
-    }
-    .filter-menu-item:hover {
-      background: #f9fafb;
-    }
-    .filter-controls {
-      position: relative;
-      flex: 1 1 100%;
-      min-width: 220px;
-    }
-    .value-selector {
-      position: absolute;
-      top: 100%;
-      left: 0;
-      margin-top: 4px;
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-      z-index: 50;
-      min-width: 300px;
-      max-width: 400px;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-    .value-selector.full-width {
-      left: 0;
-      right: 0;
-      width: 100%;
-      min-width: 0;
-      max-width: 100%;
-    }
-    .keyword-option {
-      padding: 8px 16px;
-      cursor: pointer;
-      transition: background-color 0.15s;
-      border-bottom: 1px solid #f9fafb;
-    }
-    .keyword-option:last-child {
-      border-bottom: none;
-    }
-    .keyword-option:hover {
-      background: #f3f4f6;
-    }
-    .keyword-category {
-      padding: 8px 16px;
-      font-weight: 600;
-      color: #6b7280;
-      background: #f9fafb;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-  `];
+  // Use Light DOM to access Tailwind CSS classes
+  createRenderRoot() {
+    return this;
+  }
 
   static properties = {
     tenant: { type: String },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
+    keywords: { type: Array },
     imageStats: { type: Object },
     activeFilters: { type: Array },
+    availableFilterTypes: { type: Array },
     filterMenuOpen: { type: Boolean },
     valueSelectorOpen: { type: String },
     dropboxFolders: { type: Array },
     searchDropboxQuery: { type: String },
+    renderSortControls: { type: Object },
+    renderFiltersActions: { type: Object },
   };
 
   constructor() {
@@ -97,12 +29,16 @@ class FilterChips extends LitElement {
     this.tenant = '';
     this.tagStatsBySource = {};
     this.activeCurateTagSource = 'permatags';
+    this.keywords = [];
     this.imageStats = {};
     this.activeFilters = [];
+    this.availableFilterTypes = null;
     this.filterMenuOpen = false;
     this.valueSelectorOpen = null;
     this.dropboxFolders = [];
     this.searchDropboxQuery = '';
+    this.renderSortControls = null;
+    this.renderFiltersActions = null;
   }
 
   _getAvailableFilterTypes() {
@@ -112,7 +48,12 @@ class FilterChips extends LitElement {
       { type: 'rating', label: 'Rating', icon: '⭐' },
       { type: 'folder', label: 'Folder', icon: '📂' },
     ];
-    return all.filter(f => !active.has(f.type));
+    const allowed = Array.isArray(this.availableFilterTypes) && this.availableFilterTypes.length
+      ? new Set(this.availableFilterTypes)
+      : null;
+    return all
+      .filter(f => !active.has(f.type))
+      .filter(f => !allowed || allowed.has(f.type));
   }
 
   _handleAddFilterClick() {
@@ -123,6 +64,12 @@ class FilterChips extends LitElement {
   }
 
   _handleFilterTypeSelect(type) {
+    this.filterMenuOpen = false;
+    this.valueSelectorOpen = type;
+  }
+
+  _handleEditFilter(type, index) {
+    // Close any open menus and open the value selector for this filter type
     this.filterMenuOpen = false;
     this.valueSelectorOpen = type;
   }
@@ -141,7 +88,9 @@ class FilterChips extends LitElement {
 
   _handleRatingSelect(rating) {
     this.valueSelectorOpen = null;
-    const displayValue = rating === 0 ? '0' : `${rating}+`;
+    const displayValue = rating === 'unrated'
+      ? 'Unrated'
+      : (rating === 0 ? html`<span class="text-gray-600" title="Rating 0" aria-label="Trash">🗑</span>` : `${rating}+`);
     const filter = {
       type: 'rating',
       value: rating,
@@ -183,31 +132,18 @@ class FilterChips extends LitElement {
 
   _getKeywordsByCategory() {
     // Group keywords by category with counts, returns array of [category, keywords] tuples
-    const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-    const result = [];
-
-    Object.entries(sourceStats).forEach(([category, keywords]) => {
-        const categoryKeywords = (keywords || [])
-            .map(kw => ({
-                keyword: kw.keyword,
-                count: kw.count || 0
-            }))
-            .sort((a, b) => a.keyword.localeCompare(b.keyword));
-
-        if (categoryKeywords.length > 0) {
-            result.push([category, categoryKeywords]);
-        }
-    });
-
-    // Sort categories alphabetically
-    return result.sort((a, b) => a[0].localeCompare(b[0]));
+    if (this.keywords && this.keywords.length) {
+      return getKeywordsByCategoryFromList(this.keywords);
+    }
+    return getKeywordsByCategory(this.tagStatsBySource, this.activeCurateTagSource);
   }
 
   _getCategoryCount(category) {
     // Get total positive permatag count for a category
-    const sourceStats = this.tagStatsBySource?.[this.activeCurateTagSource] || this.tagStatsBySource?.permatags || {};
-    const keywords = sourceStats[category] || [];
-    return (keywords || []).reduce((sum, kw) => sum + (kw.count || 0), 0);
+    if (this.keywords && this.keywords.length) {
+      return getCategoryCountFromList(this.keywords, category);
+    }
+    return getCategoryCount(this.tagStatsBySource, category, this.activeCurateTagSource);
   }
 
   _renderFilterMenu() {
@@ -215,10 +151,10 @@ class FilterChips extends LitElement {
     if (!available.length) return html``;
 
     return html`
-      <div class="filter-menu">
+      <div class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[200px]">
         ${available.map(filterType => html`
           <div
-            class="filter-menu-item"
+            class="px-4 py-2.5 cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-gray-50 transition-colors"
             @click=${() => this._handleFilterTypeSelect(filterType.type)}
           >
             <span class="mr-2">${filterType.icon}</span>
@@ -249,20 +185,20 @@ class FilterChips extends LitElement {
     const untaggedCount = this.imageStats?.untagged_positive_count || 0;
 
     return html`
-      <div class="value-selector">
+      <div class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[520px] max-w-[640px] max-h-[400px] overflow-y-auto">
         ${untaggedCount > 0 ? html`
           <div
-            class="keyword-option"
+            class="px-4 py-2 cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-100 transition-colors"
             @click=${() => this._handleKeywordSelect('Untagged', '__untagged__')}
           >
             <strong>Untagged</strong> (${untaggedCount})
           </div>
         ` : ''}
         ${categories.map(([category, keywords]) => html`
-          <div class="keyword-category">${category} (${this._getCategoryCount(category)})</div>
+          <div class="px-4 py-2 font-semibold text-gray-600 bg-gray-50 text-xs uppercase tracking-wide">${category}</div>
           ${keywords.map(kw => html`
             <div
-              class="keyword-option"
+              class="px-4 py-2 cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-100 transition-colors"
               @click=${() => this._handleKeywordSelect(category, kw.keyword)}
             >
               ${kw.keyword} <span class="text-gray-500 text-sm">(${kw.count || 0})</span>
@@ -275,21 +211,32 @@ class FilterChips extends LitElement {
 
   _renderRatingSelector() {
     return html`
-      <div class="value-selector">
+      <div class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[300px] max-w-[400px] max-h-[400px] overflow-y-auto">
         <div class="p-4">
-          <div class="text-sm font-semibold text-gray-700 mb-3">Minimum Rating</div>
-          <div class="flex gap-2">
+          <div class="text-sm font-semibold text-gray-700 mb-3">Rating</div>
+          <div class="flex flex-nowrap gap-2">
+            <button
+              class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
+              title="Rating is not set"
+              @click=${() => this._handleRatingSelect('unrated')}
+            >
+              <span class="text-gray-400" aria-hidden="true">☆</span>
+              <span class="ml-1">Unrated</span>
+            </button>
             ${[0, 1, 2, 3].map(rating => {
-              const label = rating === 0 ? '0' : `${rating}+`;
-              const title = rating === 0 ? 'Quality = 0' : `Quality >= ${rating}`;
+              const label = rating === 0
+                ? html`<span class="text-gray-600" aria-label="Trash">🗑</span>`
+                : `${rating}+`;
+              const title = rating === 0 ? 'Rating = 0' : `Rating >= ${rating}`;
               return html`
                 <button
                   class="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50"
                   title=${title}
                   @click=${() => this._handleRatingSelect(rating)}
                 >
-                  <i class="fas fa-star text-yellow-500"></i>
-                  <span class="ml-1">${label}</span>
+                  ${rating === 0
+                    ? html`<span class="ml-0">${label}</span>`
+                    : html`<span class="text-yellow-500" aria-hidden="true">★</span><span class="ml-1">${label}</span>`}
                 </button>
               `;
             })}
@@ -301,7 +248,7 @@ class FilterChips extends LitElement {
 
   _renderFolderSelector() {
     return html`
-      <div class="value-selector full-width">
+      <div class="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-full">
         <div class="p-4">
           <div class="text-sm font-semibold text-gray-700 mb-2">Dropbox Folder</div>
           <input
@@ -323,7 +270,7 @@ class FilterChips extends LitElement {
             <div class="mt-2 max-h-64 overflow-y-auto border rounded-lg">
               ${this.dropboxFolders.map(folder => html`
                 <div
-                  class="keyword-option cursor-pointer"
+                  class="px-4 py-2 cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-100 transition-colors"
                   @click=${() => this._handleFolderSelect(folder)}
                 >
                   ${folder}
@@ -358,6 +305,11 @@ class FilterChips extends LitElement {
   }
 
   render() {
+    const sortControls = typeof this.renderSortControls === 'function'
+      ? this.renderSortControls()
+      : (this.renderSortControls || html``);
+    const hasSortControls = !!this.renderSortControls;
+
     return html`
       <div class="bg-white rounded-lg shadow p-4 mb-4">
         <!-- FILTERS Section -->
@@ -366,11 +318,12 @@ class FilterChips extends LitElement {
           <div class="flex flex-wrap items-center gap-2">
             <!-- Active filter chips -->
             ${this.activeFilters.map((filter, index) => html`
-              <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full text-sm">
+              <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full text-sm cursor-pointer hover:bg-blue-100"
+                   @click=${() => this._handleEditFilter(filter.type, index)}>
                 <span class="font-medium text-blue-900">${filter.displayLabel}:</span>
                 <span class="text-blue-700">${filter.displayValue}</span>
                 <button
-                  @click=${() => this._removeFilter(index)}
+                  @click=${(e) => { e.stopPropagation(); this._removeFilter(index); }}
                   class="ml-1 text-blue-600 hover:text-blue-800"
                   aria-label="Remove filter"
                 >
@@ -382,7 +335,7 @@ class FilterChips extends LitElement {
             `)}
 
             <!-- Add filter button -->
-            <div class="filter-controls">
+            <div class="relative flex-1 min-w-[220px]">
               <button
                 @click=${this._handleAddFilterClick}
                 class="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-full text-sm text-gray-700 hover:bg-gray-50"
@@ -398,17 +351,23 @@ class FilterChips extends LitElement {
               ${this.filterMenuOpen ? this._renderFilterMenu() : ''}
               ${this._renderValueSelector()}
             </div>
+            ${this.renderFiltersActions ? html`
+              <div class="ml-auto flex items-center">
+                ${this.renderFiltersActions()}
+              </div>
+            ` : ''}
           </div>
         </div>
 
         <!-- SORT & DISPLAY Section -->
-        <div class="border-t pt-4">
-          <div class="text-xs font-semibold text-gray-500 uppercase mb-2">Sort & Display</div>
-          <div class="flex flex-wrap items-center gap-4">
-            <slot name="sort-controls"></slot>
-            <slot name="view-controls"></slot>
+        ${hasSortControls ? html`
+          <div class="border-t pt-4">
+            <div class="text-xs font-semibold text-gray-500 uppercase mb-2">Sort</div>
+            <div class="flex flex-wrap items-center gap-4">
+              ${sortControls}
+            </div>
           </div>
-        </div>
+        ` : html``}
       </div>
     `;
   }
