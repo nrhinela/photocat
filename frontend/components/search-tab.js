@@ -122,7 +122,6 @@ export class SearchTab extends LitElement {
     searchHotspotRatingEnabled: { type: Boolean },
     searchHotspotRatingCount: { type: Number },
     searchRatingTargets: { type: Array },
-    searchRatingPromptEnabled: { type: Boolean },
     _searchHotspotDragTarget: { type: String, state: true },
     _searchRatingDragTarget: { type: String, state: true },
     _searchRatingModalActive: { type: Boolean, state: true },
@@ -186,7 +185,6 @@ export class SearchTab extends LitElement {
     this.searchHotspotRatingEnabled = false;
     this.searchHotspotRatingCount = 0;
     this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
-    this.searchRatingPromptEnabled = false;
     this._searchRatingNextId = 2;
     this._searchRatingModalActive = false;
     this._searchRatingModalImageIds = [];
@@ -392,7 +390,6 @@ export class SearchTab extends LitElement {
       this.searchHotspotRatingCount = 0;
       this._searchHotspotDragTarget = null;
       this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
-      this.searchRatingPromptEnabled = false;
       this._searchRatingDragTarget = null;
       this._searchRatingNextId = 2;
       this._searchRatingModalActive = false;
@@ -579,25 +576,6 @@ export class SearchTab extends LitElement {
     this.rightPanelTool = tool;
     if (tool === 'lists' && !(this.searchLists || []).length) {
       this._fetchSearchLists();
-    }
-  }
-
-  _handleSearchRatingPromptToggle(event) {
-    this.searchRatingPromptEnabled = event.target.checked;
-    this._syncSearchRatingPromptTarget();
-  }
-
-  _syncSearchRatingPromptTarget() {
-    const promptId = 'rating-prompt';
-    const targets = Array.isArray(this.searchRatingTargets) ? this.searchRatingTargets : [];
-    const hasPrompt = targets.some((entry) => entry?.id === promptId || entry?.prompt);
-    if (this.searchRatingPromptEnabled) {
-      if (!hasPrompt || (targets[0] && !targets[0].prompt && targets[0].id !== promptId)) {
-        const rest = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
-        this.searchRatingTargets = [{ id: promptId, rating: '', count: 0, prompt: true }, ...rest];
-      }
-    } else if (hasPrompt) {
-      this.searchRatingTargets = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
     }
   }
 

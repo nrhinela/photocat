@@ -41,7 +41,12 @@ export class RightPanel extends LitElement {
     containers.forEach((container) => {
       const slotName = container.getAttribute('data-slot');
       const nodes = slotMap.get(slotName) || [];
-      if (!nodes.length) return;
+      if (!nodes.length) {
+        while (container.firstChild) {
+          container.removeChild(container.firstChild);
+        }
+        return;
+      }
       const keep = nodes[nodes.length - 1];
       nodes.forEach((node) => {
         if (node !== keep && node.parentElement) {

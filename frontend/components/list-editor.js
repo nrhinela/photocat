@@ -70,6 +70,8 @@ class ListEditor extends LitElement {
     isDownloading: { type: Boolean },
     isLoadingItems: { type: Boolean },
     isLoadingLists: { type: Boolean },
+    listSortKey: { type: String },
+    listSortDir: { type: String },
   };
 
   constructor() {
@@ -82,6 +84,8 @@ class ListEditor extends LitElement {
     this.isDownloading = false;
     this.isLoadingItems = false;
     this.isLoadingLists = false;
+    this.listSortKey = 'id';
+    this.listSortDir = 'asc';
     this._isVisible = false;
     this._hasRefreshedOnce = false;
   }
@@ -404,9 +408,63 @@ class ListEditor extends LitElement {
     }
   }
 
+  _handleListSort(key) {
+    if (!key) return;
+    if (this.listSortKey === key) {
+      this.listSortDir = this.listSortDir === 'asc' ? 'desc' : 'asc';
+      return;
+    }
+    this.listSortKey = key;
+    this.listSortDir = 'asc';
+  }
+
+  _getSortedLists() {
+    const lists = Array.isArray(this.lists) ? [...this.lists] : [];
+    const key = this.listSortKey || 'id';
+    const dir = this.listSortDir === 'desc' ? -1 : 1;
+    const normalize = (value) => {
+      if (value === null || value === undefined) return '';
+      return String(value).toLowerCase();
+    };
+    lists.sort((a, b) => {
+      let left = '';
+      let right = '';
+      if (key === 'id') {
+        left = Number(a.id) || 0;
+        right = Number(b.id) || 0;
+      } else if (key === 'item_count') {
+        left = Number(a.item_count) || 0;
+        right = Number(b.item_count) || 0;
+      } else if (key === 'created_at') {
+        left = new Date(a.created_at).getTime() || 0;
+        right = new Date(b.created_at).getTime() || 0;
+      } else if (key === 'title') {
+        left = normalize(a.title);
+        right = normalize(b.title);
+      } else if (key === 'created_by_name') {
+        left = normalize(a.created_by_name);
+        right = normalize(b.created_by_name);
+      } else if (key === 'notebox') {
+        left = normalize(a.notebox);
+        right = normalize(b.notebox);
+      }
+      if (left < right) return -1 * dir;
+      if (left > right) return 1 * dir;
+      return 0;
+    });
+    return lists;
+  }
+
+  _renderSortLabel(label, key) {
+    const isActive = this.listSortKey === key;
+    const arrow = isActive ? (this.listSortDir === 'asc' ? '↑' : '↓') : '';
+    return html`${label} ${arrow}`;
+  }
+
   render() {
     // Check visibility on each render to detect when tab becomes active
     this._checkVisibility();
+    const sortedLists = this._getSortedLists();
 
     return html`
       <div class="p-4">
@@ -517,17 +575,43 @@ class ListEditor extends LitElement {
             <table class="min-w-full bg-white border border-gray-300">
               <thead>
                 <tr class="bg-gray-50">
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Title</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Item Count</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Created At</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Author</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Notes</th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('id')}>
+                      ${this._renderSortLabel('ID', 'id')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('title')}>
+                      ${this._renderSortLabel('Title', 'title')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('item_count')}>
+                      ${this._renderSortLabel('Item Count', 'item_count')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('created_at')}>
+                      ${this._renderSortLabel('Created At', 'created_at')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('created_by_name')}>
+                      ${this._renderSortLabel('Author', 'created_by_name')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('notebox')}>
+                      ${this._renderSortLabel('Notes', 'notebox')}
+                    </button>
+                  </th>
                   <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                ${this.lists.map(list => html`
+                ${sortedLists.map(list => html`
                   <tr class="hover:bg-gray-50 border-b">
+                    <td class="py-2 px-4 text-xs text-gray-700">${list.id}</td>
                     <td class="py-2 px-4 text-xs text-gray-900">${list.title}</td>
                     <td class="py-2 px-4 text-center text-xs text-gray-700">${list.item_count}</td>
                     <td class="py-2 px-4 text-xs text-gray-700">${new Date(list.created_at).toLocaleDateString()}</td>

@@ -55,7 +55,6 @@ export class CurateBrowseFolderTab extends LitElement {
     rightPanelTool: { type: String },
     browseHotspotTargets: { type: Array },
     browseRatingTargets: { type: Array },
-    browseRatingPromptEnabled: { type: Boolean },
 
     _browseHotspotDragTarget: { type: String, state: true },
     _browseRatingDragTarget: { type: String, state: true },
@@ -98,7 +97,6 @@ export class CurateBrowseFolderTab extends LitElement {
     this.rightPanelTool = 'tags';
     this.browseHotspotTargets = [{ id: 1, type: 'keyword', count: 0 }];
     this.browseRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
-    this.browseRatingPromptEnabled = false;
     this._browseHotspotNextId = 2;
     this._browseRatingNextId = 2;
     this._browseHotspotDragTarget = null;
@@ -322,25 +320,6 @@ export class CurateBrowseFolderTab extends LitElement {
     if (tool === 'lists' && !(this._lists || []).length) {
       this._fetchLists();
     }
-  }
-
-  _syncRatingPromptTarget() {
-    const promptId = 'rating-prompt';
-    const targets = Array.isArray(this.browseRatingTargets) ? this.browseRatingTargets : [];
-    const hasPrompt = targets.some((entry) => entry?.id === promptId || entry?.prompt);
-    if (this.browseRatingPromptEnabled) {
-      if (!hasPrompt || (targets[0] && !targets[0].prompt && targets[0].id !== promptId)) {
-        const rest = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
-        this.browseRatingTargets = [{ id: promptId, rating: '', count: 0, prompt: true }, ...rest];
-      }
-    } else if (hasPrompt) {
-      this.browseRatingTargets = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
-    }
-  }
-
-  _handleBrowseRatingPromptToggle(event) {
-    this.browseRatingPromptEnabled = event.target.checked;
-    this._syncRatingPromptTarget();
   }
 
   _handleBrowseRatingChange(targetId, value) {
@@ -1183,17 +1162,6 @@ export class CurateBrowseFolderTab extends LitElement {
           .activeTool=${this.rightPanelTool}
           @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
         >
-          ${this.rightPanelTool === 'ratings' ? html`
-            <div slot="header-right" class="curate-rating-checkbox" style="margin-left: auto;">
-              <input
-                type="checkbox"
-                id="rating-checkbox-browse"
-                .checked=${this.browseRatingPromptEnabled}
-                @change=${this._handleBrowseRatingPromptToggle}
-              />
-              <label for="rating-checkbox-browse">Prompt</label>
-            </div>
-          ` : html``}
           <hotspot-targets-panel
             slot="tool-tags"
             mode="tags"
