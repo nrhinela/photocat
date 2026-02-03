@@ -664,6 +664,7 @@ export class CurateAuditTab extends LitElement {
               .keywords=${this.keywords}
               .activeFilters=${activeFilters}
               .dropboxFolders=${this.dropboxFolders || []}
+              .availableFilterTypes=${['keyword', 'rating', 'folder']}
               @filters-changed=${this._handleAuditChipFiltersChanged}
               @folder-search=${this._handleAuditDropboxInput}
             ></filter-chips>

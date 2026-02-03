@@ -398,57 +398,6 @@ class PhotoCatApp extends LitElement {
         opacity: 0.5;
         cursor: not-allowed;
     }
-    .list-target-thumbs {
-        overflow-x: auto;
-        overflow-y: hidden;
-        padding: 8px 2px 12px;
-        min-height: 120px;
-        max-width: 100%;
-        width: 100%;
-        min-width: 0;
-        scrollbar-gutter: stable;
-        scroll-snap-type: x proximity;
-        scrollbar-width: thin;
-    }
-    .list-target-thumbs-track {
-        display: inline-flex;
-        gap: 10px;
-        align-items: center;
-        white-space: nowrap;
-        min-width: 100%;
-    }
-    .list-target-thumb {
-        flex: 0 0 120px;
-        width: 120px;
-        height: 120px;
-        border-radius: 8px;
-        border: 1px solid #e5e7eb;
-        background: #f3f4f6;
-        overflow: hidden;
-        padding: 0;
-        cursor: pointer;
-        scroll-snap-align: start;
-    }
-    .list-target-thumbs::-webkit-scrollbar {
-        height: 10px;
-    }
-    .list-target-thumbs::-webkit-scrollbar-track {
-        background: #f3f4f6;
-        border-radius: 999px;
-    }
-    .list-target-thumbs::-webkit-scrollbar-thumb {
-        background: #cbd5f5;
-        border-radius: 999px;
-    }
-    .list-target-thumbs::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
-    }
-    .list-target-thumb img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
     .list-target-drop {
         margin-top: 10px;
         padding: 10px 4px 4px;
@@ -1338,6 +1287,8 @@ class PhotoCatApp extends LitElement {
       curateKeywordFilters: { type: Object },
       curateKeywordOperators: { type: Object },
       curateDropboxPathPrefix: { type: String },
+      curateListId: { type: [Number, String] },
+      curateListExcludeId: { type: [Number, String] },
       curateImages: { type: Array },
       curatePageOffset: { type: Number },
       curateTotal: { type: Number },
@@ -1421,6 +1372,8 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordFilters = {};
       this.curateKeywordOperators = {};
       this.curateDropboxPathPrefix = '';
+      this.curateListId = '';
+      this.curateListExcludeId = '';
       this.curateFilters = buildCurateFilterObject(this);
       this.curateImages = [];
       this.curatePageOffset = 0;
@@ -1690,6 +1643,8 @@ class PhotoCatApp extends LitElement {
           curateKeywordFilters: {},
           curateKeywordOperators: {},
           curateDropboxPathPrefix: '',
+          curateListId: '',
+          curateListExcludeId: '',
           curateFilters: buildCurateFilterObject(this),
           curateImages: [],
           curatePageOffset: 0,
@@ -1716,6 +1671,8 @@ class PhotoCatApp extends LitElement {
           curateKeywordFilters: { ...(this.curateKeywordFilters || {}) },
           curateKeywordOperators: { ...(this.curateKeywordOperators || {}) },
           curateDropboxPathPrefix: this.curateDropboxPathPrefix,
+          curateListId: this.curateListId,
+          curateListExcludeId: this.curateListExcludeId,
           curateFilters: { ...(this.curateFilters || {}) },
           curateImages: Array.isArray(this.curateImages) ? [...this.curateImages] : [],
           curatePageOffset: this.curatePageOffset,
@@ -1742,6 +1699,8 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordFilters = { ...(next.curateKeywordFilters || {}) };
       this.curateKeywordOperators = { ...(next.curateKeywordOperators || {}) };
       this.curateDropboxPathPrefix = next.curateDropboxPathPrefix || '';
+      this.curateListId = next.curateListId || '';
+      this.curateListExcludeId = next.curateListExcludeId || '';
       this.curateFilters = { ...(next.curateFilters || buildCurateFilterObject(this)) };
       this.curateImages = Array.isArray(next.curateImages) ? [...next.curateImages] : [];
       this.curatePageOffset = next.curatePageOffset;
@@ -2650,6 +2609,8 @@ class PhotoCatApp extends LitElement {
       this.curateKeywordFilters = {};
       this.curateKeywordOperators = {};
       this.curateDropboxPathPrefix = '';
+      this.curateListId = '';
+      this.curateListExcludeId = '';
       this.curateFilters = buildCurateFilterObject(this, { resetOffset: true });
       this.curatePageOffset = 0;
       this.curateTotal = null;
@@ -2720,6 +2681,8 @@ class PhotoCatApp extends LitElement {
       let nextNoPositivePermatags = false;
       let nextDropboxPathPrefix = '';
       let nextHideDeleted = true;
+      let nextListId = '';
+      let nextListExcludeId = '';
 
       chips.forEach((chip) => {
           switch (chip.type) {
@@ -2747,6 +2710,13 @@ class PhotoCatApp extends LitElement {
               case 'folder':
                   nextDropboxPathPrefix = chip.value || '';
                   break;
+              case 'list':
+                  if (chip.mode === 'exclude') {
+                      nextListExcludeId = chip.value || '';
+                  } else {
+                      nextListId = chip.value || '';
+                  }
+                  break;
           }
       });
 
@@ -2761,7 +2731,17 @@ class PhotoCatApp extends LitElement {
       this.curateMinRating = nextMinRating;
       this.curateHideDeleted = nextHideDeleted;
       this.curateDropboxPathPrefix = nextDropboxPathPrefix;
+      this.curateListId = nextListId;
+      this.curateListExcludeId = nextListExcludeId;
 
+      this._applyCurateFilters({ resetOffset: true });
+  }
+
+  _handleCurateListExcludeFromRightPanel(event) {
+      const listId = event?.detail?.listId ? String(event.detail.listId) : '';
+      if (!listId) return;
+      this.curateListId = '';
+      this.curateListExcludeId = listId;
       this._applyCurateFilters({ resetOffset: true });
   }
 
@@ -3204,6 +3184,8 @@ class PhotoCatApp extends LitElement {
       this.curateNoPositivePermatags = false;
       this.curateMinRating = null;
       this.curateDropboxPathPrefix = '';
+      this.curateListId = '';
+      this.curateListExcludeId = '';
       this.curateFilters = buildCurateFilterObject(this);
       const curateFilters = {
           ...buildCurateFilterObject(this, { resetOffset: true }),
@@ -3918,6 +3900,8 @@ class PhotoCatApp extends LitElement {
                     .imageStats=${this.imageStats}
                     .curateCategoryCards=${this.curateCategoryCards}
                     .selectedKeywordValueMain=${selectedKeywordValueMain}
+                    .listFilterId=${this.curateListExcludeId || this.curateListId}
+                    .listFilterMode=${this.curateListExcludeId ? 'exclude' : 'include'}
                     .tagStatsBySource=${this.tagStatsBySource}
                     .activeCurateTagSource=${this.activeCurateTagSource}
                     .keywords=${this.keywords}
@@ -3941,6 +3925,7 @@ class PhotoCatApp extends LitElement {
                     @selection-changed=${(e) => { this.curateDragSelection = e.detail.selection; }}
                     @rating-drop=${(e) => this._handleCurateExploreRatingDrop(e.detail.event, e.detail.rating)}
                     @curate-filters-changed=${this._handleCurateChipFiltersChanged}
+                    @list-filter-exclude=${this._handleCurateListExcludeFromRightPanel}
                   ></curate-explore-tab>
                 </div>
                 ` : html``}
@@ -3953,6 +3938,7 @@ class PhotoCatApp extends LitElement {
                     .curateDateOrder=${this.curateOrderDirection}
                     .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
                     .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
+                    .renderCuratePermatagSummary=${this._renderCuratePermatagSummary.bind(this)}
                     .formatCurateDate=${formatCurateDate}
                     .tagStatsBySource=${this.tagStatsBySource}
                     .activeCurateTagSource=${this.activeCurateTagSource}
@@ -4077,6 +4063,11 @@ class PhotoCatApp extends LitElement {
             <div slot="lists" class="container p-4">
                 <list-editor
                   .tenant=${this.tenant}
+                  .thumbSize=${this.curateThumbSize}
+                  .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
+                  .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
+                  .renderCuratePermatagSummary=${this._renderCuratePermatagSummary.bind(this)}
+                  .formatCurateDate=${formatCurateDate}
                   @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
                 ></list-editor>
             </div>

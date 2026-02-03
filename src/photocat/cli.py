@@ -871,7 +871,7 @@ def backfill_thumbnails(
 
 @cli.command(name='sync-dropbox')
 @click.option('--tenant-id', default='demo', help='Tenant ID to sync')
-@click.option('--count', default=1, help='Number of images to sync (default: 1)')
+@click.option('--count', default=500, help='Number of images to sync (default: 500)')
 def sync_dropbox(tenant_id: str, count: int):
     """Sync images from Dropbox (same as pressing sync button on web)."""
 

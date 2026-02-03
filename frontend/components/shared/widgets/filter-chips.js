@@ -22,6 +22,8 @@ class FilterChips extends LitElement {
     searchDropboxQuery: { type: String },
     renderSortControls: { type: Object },
     renderFiltersActions: { type: Object },
+    lists: { type: Array },
+    listFilterMode: { type: String },
   };
 
   constructor() {
@@ -39,6 +41,8 @@ class FilterChips extends LitElement {
     this.searchDropboxQuery = '';
     this.renderSortControls = null;
     this.renderFiltersActions = null;
+    this.lists = [];
+    this.listFilterMode = 'include';
   }
 
   _getAvailableFilterTypes() {
@@ -47,6 +51,7 @@ class FilterChips extends LitElement {
       { type: 'keyword', label: 'Keywords', icon: '🏷️' },
       { type: 'rating', label: 'Rating', icon: '⭐' },
       { type: 'folder', label: 'Folder', icon: '📂' },
+      { type: 'list', label: 'List', icon: '🧾' },
     ];
     const allowed = Array.isArray(this.availableFilterTypes) && this.availableFilterTypes.length
       ? new Set(this.availableFilterTypes)
@@ -66,12 +71,27 @@ class FilterChips extends LitElement {
   _handleFilterTypeSelect(type) {
     this.filterMenuOpen = false;
     this.valueSelectorOpen = type;
+    if (type === 'list') {
+      if (!this.listFilterMode) {
+        this.listFilterMode = 'include';
+      }
+      if (!Array.isArray(this.lists) || this.lists.length === 0) {
+        this._requestLists();
+      }
+    }
   }
 
   _handleEditFilter(type, index) {
     // Close any open menus and open the value selector for this filter type
     this.filterMenuOpen = false;
     this.valueSelectorOpen = type;
+    if (type === 'list') {
+      const existing = this.activeFilters[index];
+      this.listFilterMode = existing?.mode === 'exclude' ? 'exclude' : 'include';
+      if (!Array.isArray(this.lists) || this.lists.length === 0) {
+        this._requestLists();
+      }
+    }
   }
 
   _handleKeywordSelect(category, keyword) {
@@ -112,8 +132,35 @@ class FilterChips extends LitElement {
     this._addFilter(filter);
   }
 
+  _handleListModeChange(mode) {
+    this.listFilterMode = mode === 'exclude' ? 'exclude' : 'include';
+  }
+
+  _handleListSelect(list) {
+    if (!list) return;
+    this.valueSelectorOpen = null;
+    const mode = this.listFilterMode === 'exclude' ? 'exclude' : 'include';
+    const title = list.title || `List ${list.id}`;
+    const displayValue = mode === 'exclude' ? `Not in ${title}` : title;
+    const filter = {
+      type: 'list',
+      value: list.id,
+      mode,
+      displayLabel: 'List',
+      displayValue,
+    };
+    this._addFilter(filter);
+  }
+
   _addFilter(filter) {
-    this.activeFilters = [...this.activeFilters, filter];
+    const nextFilters = [...this.activeFilters];
+    const existingIndex = nextFilters.findIndex((entry) => entry.type === filter.type);
+    if (existingIndex >= 0) {
+      nextFilters[existingIndex] = filter;
+    } else {
+      nextFilters.push(filter);
+    }
+    this.activeFilters = nextFilters;
     this.dispatchEvent(new CustomEvent('filters-changed', {
       detail: { filters: this.activeFilters },
       bubbles: true,
@@ -122,7 +169,11 @@ class FilterChips extends LitElement {
   }
 
   _removeFilter(index) {
+    const removed = this.activeFilters[index];
     this.activeFilters = this.activeFilters.filter((_, i) => i !== index);
+    if (removed?.type === 'list') {
+      this.listFilterMode = 'include';
+    }
     this.dispatchEvent(new CustomEvent('filters-changed', {
       detail: { filters: this.activeFilters },
       bubbles: true,
@@ -175,6 +226,8 @@ class FilterChips extends LitElement {
         return this._renderRatingSelector();
       case 'folder':
         return this._renderFolderSelector();
+      case 'list':
+        return this._renderListSelector();
       default:
         return html``;
     }
@@ -285,6 +338,65 @@ class FilterChips extends LitElement {
         </div>
       </div>
     `;
+  }
+
+  _renderListSelector() {
+    const lists = Array.isArray(this.lists) ? [...this.lists] : [];
+    lists.sort((a, b) => (a?.title || '').localeCompare(b?.title || ''));
+    return html`
+      <div class="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[360px] max-w-[520px] max-h-[400px] overflow-hidden">
+        <div class="p-4">
+          <div class="text-sm font-semibold text-gray-700 mb-3">List</div>
+          <div class="inline-flex items-center gap-2 mb-3">
+            <button
+              class=${`px-3 py-1.5 text-xs rounded-full border ${this.listFilterMode !== 'exclude' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-300'}`}
+              @click=${() => this._handleListModeChange('include')}
+              type="button"
+            >
+              In list
+            </button>
+            <button
+              class=${`px-3 py-1.5 text-xs rounded-full border ${this.listFilterMode === 'exclude' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-300'}`}
+              @click=${() => this._handleListModeChange('exclude')}
+              type="button"
+            >
+              Not in list
+            </button>
+          </div>
+          ${lists.length ? html`
+            <div class="max-h-64 overflow-y-auto border rounded-lg">
+              ${lists.map((list) => html`
+                <div
+                  class="px-4 py-2 cursor-pointer border-b border-gray-50 last:border-b-0 hover:bg-gray-100 transition-colors flex items-center justify-between gap-2"
+                  @click=${() => this._handleListSelect(list)}
+                >
+                  <span>${list.title || `List ${list.id}`}</span>
+                  ${Number.isFinite(list.item_count) ? html`
+                    <span class="text-xs text-gray-500">${list.item_count}</span>
+                  ` : ''}
+                </div>
+              `)}
+            </div>
+          ` : html`
+            <div class="text-xs text-gray-500 mb-2">No lists available.</div>
+            <button
+              class="px-3 py-1.5 text-xs border rounded-full text-gray-700 hover:bg-gray-50"
+              @click=${this._requestLists}
+              type="button"
+            >
+              Refresh lists
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  _requestLists() {
+    this.dispatchEvent(new CustomEvent('lists-requested', {
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   _handleClickOutside(e) {

@@ -98,7 +98,26 @@ export class FolderBrowserPanel {
     this.setSelection(Array.from(next));
   }
 
-  async loadData({ orderBy = 'photo_creation', sortOrder = 'desc', limit = 0, force = false } = {}) {
+  _normalizeFilters(filters) {
+    if (!filters || typeof filters !== 'object') return {};
+    const normalized = { ...filters };
+    if (normalized.keywords && typeof normalized.keywords === 'object') {
+      const nextKeywords = {};
+      Object.entries(normalized.keywords).forEach(([category, values]) => {
+        if (values instanceof Set) {
+          nextKeywords[category] = [...values];
+        } else if (Array.isArray(values)) {
+          nextKeywords[category] = [...values];
+        } else if (values) {
+          nextKeywords[category] = values;
+        }
+      });
+      normalized.keywords = nextKeywords;
+    }
+    return normalized;
+  }
+
+  async loadData({ orderBy = 'photo_creation', sortOrder = 'desc', limit = 0, force = false, listExcludeId, filters } = {}) {
     if (!this.tenant) {
       this._emit('error', { panelId: this.panelId, message: 'Tenant not set' });
       return;
@@ -109,7 +128,15 @@ export class FolderBrowserPanel {
       this._emit('data-loaded', { panelId: this.panelId, data: {} });
       return;
     }
-    const signature = JSON.stringify({ folders, orderBy, sortOrder, limit });
+    const normalizedFilters = this._normalizeFilters(filters);
+    const signature = JSON.stringify({
+      folders,
+      orderBy,
+      sortOrder,
+      limit,
+      listExcludeId: listExcludeId || '',
+      filters: normalizedFilters,
+    });
     if (!force && signature === this._dataSignature) {
       return;
     }
@@ -120,11 +147,16 @@ export class FolderBrowserPanel {
     try {
       const results = await Promise.allSettled(
         folders.map(async (folder) => {
+          const baseFilters = { ...(filters || {}) };
+          delete baseFilters.dropboxPathPrefix;
+          const resolvedListExcludeId = listExcludeId || baseFilters.listExcludeId;
           const result = await getImages(this.tenant, {
+            ...baseFilters,
             dropboxPathPrefix: folder,
             orderBy,
             sortOrder,
             limit,
+            listExcludeId: resolvedListExcludeId,
           });
           const images = Array.isArray(result) ? result : (result.images || []);
           return { folder, images };

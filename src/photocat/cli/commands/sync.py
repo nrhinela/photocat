@@ -19,7 +19,7 @@ from photocat.cli.base import CliCommand
 
 @click.command(name='sync-dropbox')
 @click.option('--tenant-id', default='demo', help='Tenant ID to sync from Dropbox')
-@click.option('--count', default=1, type=int, help='Number of sync iterations to perform (useful for incremental syncs)')
+@click.option('--count', default=500, type=int, help='Number of sync iterations to perform (useful for incremental syncs)')
 def sync_dropbox_command(tenant_id: str, count: int):
     """Sync images from Dropbox to GCP Cloud Storage with full processing pipeline.
 

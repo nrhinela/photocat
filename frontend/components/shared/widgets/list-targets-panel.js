@@ -1,4 +1,5 @@
 import { LitElement, html } from 'lit';
+import { renderImageGrid } from '../image-grid.js';
 
 export class ListTargetsPanel extends LitElement {
   createRenderRoot() {
@@ -10,6 +11,10 @@ export class ListTargetsPanel extends LitElement {
     listTargets: { type: Array },
     lists: { type: Array },
     listDragTargetId: { type: String },
+    renderCurateRatingWidget: { type: Object },
+    renderCurateRatingStatic: { type: Object },
+    renderCuratePermatagSummary: { type: Object },
+    formatCurateDate: { type: Object },
   };
 
   constructor() {
@@ -18,6 +23,10 @@ export class ListTargetsPanel extends LitElement {
     this.listTargets = [];
     this.lists = [];
     this.listDragTargetId = null;
+    this.renderCurateRatingWidget = null;
+    this.renderCurateRatingStatic = null;
+    this.renderCuratePermatagSummary = null;
+    this.formatCurateDate = null;
   }
 
   _emit(name, detail) {
@@ -140,23 +149,46 @@ export class ListTargetsPanel extends LitElement {
                 ` : target.itemsError ? html`
                   <div class="text-xs text-red-500">${target.itemsError}</div>
                 ` : target.listId && (target.items || []).length ? html`
-                  <div class="list-target-thumbs">
-                    <div class="list-target-thumbs-track">
-                      ${(target.items || []).map((item, index) => {
-                        const photo = item?.photo || {};
-                        const id = photo.id ?? item.photo_id ?? item.id;
-                        const src = photo.thumbnail_url || (id ? `/api/v1/images/${id}/thumbnail` : '');
-                        return html`
-                          <button
-                            class="list-target-thumb"
-                            @click=${(event) => this._emit('list-target-item-click', { targetId: target.id, index, event })}
-                            title=${photo.filename || ''}
-                          >
-                            <img src=${src} alt=${photo.filename || ''} loading="lazy">
-                          </button>
-                        `;
-                      })}
-                    </div>
+                  <div class="list-target-grid">
+                    ${(() => {
+                      const items = Array.isArray(target.items) ? target.items : [];
+                      const images = items
+                        .map((item, index) => {
+                          const photo = item?.photo || item?.image || {};
+                          const imageId = Number(photo.id ?? item.photo_id ?? item.id);
+                          if (!Number.isFinite(imageId)) {
+                            return null;
+                          }
+                          return {
+                            ...photo,
+                            id: imageId,
+                            __listTargetIndex: index,
+                          };
+                        })
+                        .filter(Boolean);
+                      return renderImageGrid({
+                        images,
+                        selection: [],
+                        flashSelectionIds: new Set(),
+                        renderFunctions: {
+                          renderCurateRatingWidget: this.renderCurateRatingWidget,
+                          renderCurateRatingStatic: this.renderCurateRatingStatic,
+                          renderCuratePermatagSummary: this.renderCuratePermatagSummary,
+                          formatCurateDate: this.formatCurateDate,
+                        },
+                        eventHandlers: {
+                          onImageClick: (event, image) => {
+                            const index = image?.__listTargetIndex ?? 0;
+                            this._emit('list-target-item-click', { targetId: target.id, index, event });
+                          },
+                          onDragStart: (event) => event.preventDefault(),
+                        },
+                        options: {
+                          emptyMessage: 'No items in this list yet.',
+                          showPermatags: true,
+                        },
+                      });
+                    })()}
                   </div>
                 ` : html`
                   <div class="text-xs text-gray-500">

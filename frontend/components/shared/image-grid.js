@@ -39,6 +39,7 @@ import { html } from 'lit';
  * @param {boolean} config.options.showPermatags - Show permatag summary (default: false)
  * @param {boolean} config.options.showAiScore - Show AI/ML score (default: false)
  * @param {string} config.options.emptyMessage - Message when no images (default: "No images available.")
+ * @param {Function} config.options.renderItemFooter - Optional render function for per-item footer content
  *
  * @returns {TemplateResult} Lit HTML template
  *
@@ -97,6 +98,7 @@ export function renderImageGrid(config) {
     showPermatags = false,
     showAiScore = false,
     emptyMessage = 'No images available.',
+    renderItemFooter,
   } = options;
 
   const safeImages = (images || []).filter((image) => {
@@ -119,8 +121,7 @@ export function renderImageGrid(config) {
         const imageId = Number(image.id);
         const isSelected = selection.includes(imageId) || selection.includes(image.id);
         const isFlashing = flashSelectionIds?.has(image.id);
-
-        return html`
+        const thumb = html`
           <div
             class="curate-thumb-wrapper ${isSelected ? 'selected' : ''}"
             data-image-id="${imageId}"
@@ -151,6 +152,19 @@ export function renderImageGrid(config) {
             ` : ''}
           </div>
         `;
+
+        if (renderItemFooter) {
+          return html`
+            <div class="curate-thumb-tile">
+              ${thumb}
+              <div class="curate-thumb-footer">
+                ${renderItemFooter(image)}
+              </div>
+            </div>
+          `;
+        }
+
+        return thumb;
       })}
     </div>
   `;

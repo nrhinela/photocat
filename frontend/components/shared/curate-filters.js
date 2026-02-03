@@ -9,6 +9,8 @@ export function buildCurateFilterObject(state, overrides = {}) {
     operators: overrides.operators !== undefined ? overrides.operators : state.curateKeywordOperators || {},
     categoryFilterSource: 'permatags',
     dropboxPathPrefix: overrides.dropboxPathPrefix !== undefined ? overrides.dropboxPathPrefix : state.curateDropboxPathPrefix,
+    listId: overrides.listId !== undefined ? overrides.listId : state.curateListId,
+    listExcludeId: overrides.listExcludeId !== undefined ? overrides.listExcludeId : state.curateListExcludeId,
   };
 
   const rating = overrides.rating !== undefined ? overrides.rating : state.curateMinRating;

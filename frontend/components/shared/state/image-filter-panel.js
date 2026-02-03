@@ -54,6 +54,8 @@ export class ImageFilterPanel {
       ratingOperator: undefined,
       dropboxPathPrefix: '',
       permatagPositiveMissing: false,
+      listId: undefined,
+      listExcludeId: undefined,
     };
 
     // Event listeners for state changes

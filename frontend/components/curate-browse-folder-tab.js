@@ -9,6 +9,7 @@ import {
 } from './shared/keyword-utils.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import FolderBrowserPanel from './folder-browser-panel.js';
+import './shared/widgets/filter-chips.js';
 import './shared/widgets/right-panel.js';
 import './shared/widgets/list-targets-panel.js';
 import './shared/widgets/hotspot-targets-panel.js';
@@ -32,6 +33,7 @@ export class CurateBrowseFolderTab extends LitElement {
     curateDateOrder: { type: String },
     renderCurateRatingWidget: { type: Object },
     renderCurateRatingStatic: { type: Object },
+    renderCuratePermatagSummary: { type: Object },
     formatCurateDate: { type: Object },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
@@ -46,6 +48,9 @@ export class CurateBrowseFolderTab extends LitElement {
     browseByFolderQuery: { type: String, state: true },
     browseByFolderOffset: { type: Number, state: true },
     browseByFolderLimit: { type: Number, state: true },
+    browseChipFilters: { type: Array, state: true },
+    browseFilterParams: { type: Object, state: true },
+    listExcludeId: { type: [String, Number], state: true },
 
     browseDragSelection: { type: Array },
     browseDragSelecting: { type: Boolean },
@@ -74,6 +79,7 @@ export class CurateBrowseFolderTab extends LitElement {
     this.curateDateOrder = 'desc';
     this.renderCurateRatingWidget = null;
     this.renderCurateRatingStatic = null;
+    this.renderCuratePermatagSummary = null;
     this.formatCurateDate = null;
     this.tagStatsBySource = {};
     this.activeCurateTagSource = 'permatags';
@@ -88,6 +94,14 @@ export class CurateBrowseFolderTab extends LitElement {
     this.browseByFolderQuery = '';
     this.browseByFolderOffset = 0;
     this.browseByFolderLimit = 100;
+    this.browseChipFilters = [];
+    this.browseFilterParams = {
+      hideZeroRating: true,
+      keywords: {},
+      operators: {},
+      categoryFilterSource: 'permatags',
+    };
+    this.listExcludeId = '';
 
     this.browseDragSelection = [];
     this.browseDragSelecting = false;
@@ -576,6 +590,8 @@ export class CurateBrowseFolderTab extends LitElement {
       orderBy: resolvedOrderBy,
       sortOrder: resolvedSortOrder,
       limit: 0,
+      listExcludeId: this.listExcludeId || '',
+      filters: this.browseFilterParams,
       force
     });
   }
@@ -732,7 +748,81 @@ export class CurateBrowseFolderTab extends LitElement {
     ));
     if (selectedValue) {
       this._fetchListTargetItems(targetId, String(selectedValue));
+      this._applyListExcludeFilter(selectedValue);
     }
+  }
+
+  _applyListExcludeFilter(listId) {
+    const resolvedId = listId ? String(listId) : '';
+    if (!resolvedId) return;
+    const list = (this._lists || []).find((entry) => String(entry.id) === resolvedId);
+    const title = list?.title || `List ${resolvedId}`;
+    const nextFilters = (this.browseChipFilters || []).filter((filter) => filter.type !== 'list');
+    nextFilters.push({
+      type: 'list',
+      value: resolvedId,
+      mode: 'exclude',
+      displayLabel: 'List',
+      displayValue: `Not in ${title}`,
+    });
+    this._handleBrowseChipFiltersChanged({ detail: { filters: nextFilters } });
+  }
+
+  _handleBrowseChipFiltersChanged(event) {
+    const chips = event.detail?.filters || [];
+    this.browseChipFilters = chips;
+
+    const nextFilters = {
+      hideZeroRating: true,
+      keywords: {},
+      operators: {},
+      categoryFilterSource: 'permatags',
+      listId: undefined,
+      listExcludeId: undefined,
+      rating: undefined,
+      ratingOperator: undefined,
+      permatagPositiveMissing: false,
+    };
+
+    chips.forEach((chip) => {
+      switch (chip.type) {
+        case 'keyword':
+          if (chip.value === '__untagged__') {
+            nextFilters.permatagPositiveMissing = true;
+          } else {
+            if (!nextFilters.keywords[chip.category]) {
+              nextFilters.keywords[chip.category] = new Set();
+            }
+            nextFilters.keywords[chip.category].add(chip.value);
+          }
+          break;
+        case 'rating':
+          if (chip.value === 'unrated') {
+            nextFilters.ratingOperator = 'is_null';
+            nextFilters.hideZeroRating = true;
+          } else {
+            nextFilters.rating = chip.value;
+            nextFilters.ratingOperator = chip.value === 0 ? 'eq' : 'gte';
+            nextFilters.hideZeroRating = false;
+          }
+          break;
+        case 'list':
+          if (chip.mode === 'exclude') {
+            nextFilters.listExcludeId = chip.value;
+          } else {
+            nextFilters.listId = chip.value;
+          }
+          break;
+      }
+    });
+
+    this.listExcludeId = nextFilters.listExcludeId || '';
+    this.browseFilterParams = nextFilters;
+    this._refreshBrowseByFolderData({ force: true });
+  }
+
+  _handleBrowseListsRequested() {
+    this._fetchLists({ force: true });
   }
 
   _handleListTargetDraftChange(targetId, nextValue) {
@@ -816,6 +906,7 @@ export class CurateBrowseFolderTab extends LitElement {
       ));
       if (resolvedId) {
         this._fetchListTargetItems(targetId, resolvedId, { force: true });
+        this._applyListExcludeFilter(resolvedId);
       }
     } catch (error) {
       console.error('Error creating list:', error);
@@ -973,6 +1064,46 @@ export class CurateBrowseFolderTab extends LitElement {
 
     return html`
       ${ratingModal}
+      <div class="curate-header-layout search-header-layout mb-4">
+        <div class="w-full">
+          <filter-chips
+            .tenant=${this.tenant}
+            .tagStatsBySource=${this.tagStatsBySource}
+            .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+            .keywords=${this.keywords}
+            .activeFilters=${this.browseChipFilters}
+            .lists=${this._lists}
+            .availableFilterTypes=${['keyword', 'rating', 'list']}
+            .renderSortControls=${() => html`
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                <div class="curate-audit-toggle">
+                  <button
+                    class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('rating')}
+                  >
+                    Rating ${this._getCurateQuickSortArrow('rating')}
+                  </button>
+                  <button
+                    class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('photo_creation')}
+                  >
+                    Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                  </button>
+                  <button
+                    class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('processed')}
+                  >
+                    Process Date ${this._getCurateQuickSortArrow('processed')}
+                  </button>
+                </div>
+              </div>
+            `}
+            @filters-changed=${this._handleBrowseChipFiltersChanged}
+            @lists-requested=${this._handleBrowseListsRequested}
+          ></filter-chips>
+        </div>
+      </div>
       <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.thumbSize}px;">
         <div class="curate-pane">
           <div class="curate-pane-header">
@@ -1050,31 +1181,7 @@ export class CurateBrowseFolderTab extends LitElement {
                 </div>
               ` : ''}
 
-              ${this.browseByFolderAccordionOpen || !(this.browseByFolderAppliedSelection || []).length ? '' : html`
-                <div class="mt-3 flex items-center gap-2">
-                  <span class="text-sm font-semibold text-gray-700">Sort:</span>
-                  <div class="curate-audit-toggle">
-                    <button
-                      class=${this.curateOrderBy === 'rating' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('rating')}
-                    >
-                      Rating ${this._getCurateQuickSortArrow('rating')}
-                    </button>
-                    <button
-                      class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('photo_creation')}
-                    >
-                      Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                    </button>
-                    <button
-                      class=${this.curateOrderBy === 'processed' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('processed')}
-                    >
-                      Process Date ${this._getCurateQuickSortArrow('processed')}
-                    </button>
-                  </div>
-                </div>
-              `}
+              ${this.browseByFolderAccordionOpen || !(this.browseByFolderAppliedSelection || []).length ? '' : html``}
             </div>
 
             ${this.browseByFolderAccordionOpen ? '' : html`
@@ -1182,6 +1289,10 @@ export class CurateBrowseFolderTab extends LitElement {
             .listTargets=${this._listTargets}
             .lists=${this._lists}
             .listDragTargetId=${this._listDragTargetId}
+            .renderCurateRatingWidget=${this.renderCurateRatingWidget}
+            .renderCurateRatingStatic=${this.renderCurateRatingStatic}
+            .renderCuratePermatagSummary=${this.renderCuratePermatagSummary}
+            .formatCurateDate=${this.formatCurateDate}
             @list-target-select=${(event) => this._handleListTargetSelect(event.detail.targetId, event.detail.value)}
             @list-target-remove=${(event) => this._handleRemoveListTarget(event.detail.targetId)}
             @list-target-mode=${(event) => this._handleListTargetModeChange(event.detail.targetId, event.detail.mode)}

@@ -86,6 +86,7 @@ export class SearchTab extends LitElement {
     searchListTitle: { type: String, state: true },  // Internal state - not controlled by parent
     searchListItems: { type: Array, state: true },  // Internal state - not controlled by parent
     searchListError: { type: String, state: true },  // Internal state - not controlled by parent
+    searchListExcludeId: { type: [String, Number], state: true },
     searchSavedImages: { type: Array },
     exploreByTagData: { type: Object },
     exploreByTagKeywords: { type: Array },
@@ -147,6 +148,7 @@ export class SearchTab extends LitElement {
     this.searchListTitle = '';
     this.searchListItems = [];
     this.searchListError = '';
+    this.searchListExcludeId = '';
     this.searchSavedImages = [];
     this.exploreByTagData = {};
     this.exploreByTagKeywords = [];
@@ -740,6 +742,31 @@ export class SearchTab extends LitElement {
     if (target?.mode === 'view' && target.listId) {
       this._fetchListTargetItems(targetId, target.listId, { force: true });
     }
+    if (selectedValue) {
+      this._applyListExcludeFilter(selectedValue);
+    }
+  }
+
+  _applyListExcludeFilter(listId) {
+    const resolvedId = listId ? String(listId) : '';
+    if (!resolvedId) return;
+    const list = (this.searchLists || []).find((entry) => String(entry.id) === resolvedId);
+    const title = list?.title || `List ${resolvedId}`;
+    const nextFilters = (this.searchChipFilters || []).filter((filter) => filter.type !== 'list');
+    nextFilters.push({
+      type: 'list',
+      value: resolvedId,
+      mode: 'exclude',
+      displayLabel: 'List',
+      displayValue: `Not in ${title}`,
+    });
+    this._handleChipFiltersChanged({ detail: { filters: nextFilters } });
+    if (this.searchSubTab === 'browse-by-folder') {
+      this._refreshBrowseByFolderData({ force: true });
+    }
+    if (this.searchSubTab === 'explore-by-tag') {
+      this._loadExploreByTagData(true);
+    }
   }
 
   _startInlineListCreate(targetId) {
@@ -865,6 +892,7 @@ export class SearchTab extends LitElement {
       if (updated?.mode === 'view') {
         this._fetchListTargetItems(targetId, String(resolvedId), { force: true });
       }
+      this._applyListExcludeFilter(resolvedId);
     } catch (error) {
       console.error('Error creating list:', error);
       this._listTargets = this._listTargets.map((entry) => (
@@ -1428,6 +1456,7 @@ export class SearchTab extends LitElement {
       orderBy: resolvedOrderBy,
       sortOrder: resolvedSortOrder,
       limit: 0,
+      listExcludeId: this.searchListExcludeId || '',
       force
     });
   }
@@ -1523,6 +1552,7 @@ export class SearchTab extends LitElement {
               limit: 10,
               orderBy: 'rating',
               sortOrder: 'desc',
+              listExcludeId: this.searchListExcludeId || '',
             });
             const images = Array.isArray(result) ? result : (result?.images || []);
             cachedImages = images.filter((img) => img && img.id);
@@ -1667,6 +1697,8 @@ export class SearchTab extends LitElement {
       keywords: {},
       operators: {},
       categoryFilterSource: 'permatags',
+      listId: undefined,
+      listExcludeId: undefined,
     };
 
     // Apply each chip filter to the filter object
@@ -1697,14 +1729,27 @@ export class SearchTab extends LitElement {
         case 'folder':
           searchFilters.dropboxPathPrefix = chip.value;
           break;
+        case 'list':
+          if (chip.mode === 'exclude') {
+            searchFilters.listExcludeId = chip.value;
+          } else {
+            searchFilters.listId = chip.value;
+          }
+          break;
       }
     });
+
+    this.searchListExcludeId = searchFilters.listExcludeId || '';
 
     // Update filter panel with the complete filter object
     if (this.searchFilterPanel) {
       this.searchFilterPanel.updateFilters(searchFilters);
       this.searchFilterPanel.fetchImages();
     }
+  }
+
+  _handleSearchListsRequested() {
+    this._fetchSearchLists();
   }
 
   // ========================================
@@ -2007,6 +2052,9 @@ export class SearchTab extends LitElement {
           .listTargets=${this._listTargets}
           .lists=${this.searchLists}
           .listDragTargetId=${this._listDragTargetId}
+          .renderCurateRatingWidget=${this.renderCurateRatingWidget}
+          .renderCuratePermatagSummary=${this._renderSearchPermatagSummary.bind(this)}
+          .formatCurateDate=${this.formatCurateDate}
           @list-target-select=${(event) => this._handleListTargetSelect(event.detail.targetId, event.detail.value)}
           @list-target-remove=${(event) => this._handleRemoveListTarget(event.detail.targetId)}
           @list-target-mode=${(event) => this._handleListTargetModeChange(event.detail.targetId, event.detail.mode)}
@@ -2091,6 +2139,7 @@ export class SearchTab extends LitElement {
               .imageStats=${this.imageStats}
               .activeFilters=${this.searchChipFilters}
               .dropboxFolders=${this.searchDropboxOptions || []}
+              .lists=${this.searchLists}
               .renderSortControls=${() => html`
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold text-gray-700">Sort:</span>
@@ -2118,6 +2167,7 @@ export class SearchTab extends LitElement {
               `}
               @filters-changed=${this._handleChipFiltersChanged}
               @folder-search=${this._handleSearchDropboxInput}
+              @lists-requested=${this._handleSearchListsRequested}
             ></filter-chips>
 
             <!-- Image Grid Layout -->

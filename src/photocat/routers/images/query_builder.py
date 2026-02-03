@@ -60,7 +60,12 @@ class QueryBuilder:
         if self.order_by and self.order_by not in ("photo_creation", "image_id", "processed", "ml_score", "rating"):
             self.order_by = None
 
-    def apply_subqueries(self, query: Query, subqueries_list: List[Selectable]) -> Query:
+    def apply_subqueries(
+        self,
+        query: Query,
+        subqueries_list: List[Selectable],
+        exclude_subqueries_list: Optional[List[Selectable]] = None
+    ) -> Query:
         """Apply list of subquery filters to a SQLAlchemy query.
 
         This consolidates the filter application pattern used in 3 different places
@@ -76,6 +81,8 @@ class QueryBuilder:
         """
         for subquery in subqueries_list:
             query = query.filter(ImageMetadata.id.in_(subquery))
+        for subquery in exclude_subqueries_list or []:
+            query = query.filter(~ImageMetadata.id.in_(subquery))
         return query
 
     def build_order_clauses(self, ml_keyword_id: Optional[int] = None) -> Tuple:
@@ -253,7 +260,8 @@ class QueryBuilder:
     def apply_filters_to_id_set(
         self,
         image_ids: List[int],
-        subqueries_list: List[Selectable]
+        subqueries_list: List[Selectable],
+        exclude_subqueries_list: Optional[List[Selectable]] = None
     ) -> List[int]:
         """Filter a materialized ID set with subqueries (Path 1 special case).
 
@@ -276,7 +284,7 @@ class QueryBuilder:
         )
 
         # Apply all subqueries
-        filtered_query = self.apply_subqueries(filtered_query, subqueries_list)
+        filtered_query = self.apply_subqueries(filtered_query, subqueries_list, exclude_subqueries_list)
 
         # Execute and extract IDs
         return [row[0] for row in filtered_query.all()]

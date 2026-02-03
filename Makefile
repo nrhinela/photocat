@@ -3,7 +3,7 @@
 .PHONY: help install test lint format clean deploy migrate dev worker dev-backend dev-frontend dev-css
 .PHONY: db-dev db-prod db-migrate-prod db-migrate-dev db-create-migration
 .PHONY: deploy-api deploy-worker deploy-all status logs-api logs-worker env-check
-.PHONY: train-and-recompute
+.PHONY: train-and-recompute daily
 
 # Default environment
 ENV ?= prod
@@ -43,6 +43,7 @@ help:
 	@echo "Utilities:"
 	@echo "  env-check          Show current environment configuration"
 	@echo "  train-and-recompute Train keyword models and recompute tags"
+	@echo "  daily              Sync Dropbox then train + recompute tags"
 	@echo ""
 	@echo "Environment variables:"
 	@echo "  ENV=dev|prod       Target environment (default: dev)"
@@ -267,3 +268,14 @@ train-and-recompute:
 	@echo "Recomputing SigLIP tags..."
 	photocat recompute-siglip-tags --replace --tenant-id $(TENANT_ID)
 	@echo "Done!"
+
+daily:
+	@if [ -z "$(TENANT_ID)" ]; then \
+		echo "ERROR: TENANT_ID is required"; \
+		echo "Usage: make daily TENANT_ID=<tenant_id>"; \
+		exit 1; \
+	fi
+	@echo "Syncing Dropbox for tenant: $(TENANT_ID)..."
+	photocat sync-dropbox --tenant-id $(TENANT_ID)
+	@echo "Running train-and-recompute..."
+	$(MAKE) train-and-recompute TENANT_ID=$(TENANT_ID)

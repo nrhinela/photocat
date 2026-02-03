@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
 import { getLists, createList, updateList, deleteList, getListItems, deleteListItem, fetchWithAuth } from '../services/api.js';
+import { renderImageGrid } from './shared/image-grid.js';
 
 class ListEditor extends LitElement {
   static styles = [tailwind, css`
@@ -47,7 +48,19 @@ class ListEditor extends LitElement {
     }
     .list-items-grid {
       --curate-thumb-size: 160px;
+    }
+    .list-items-grid .curate-grid {
       gap: 12px;
+    }
+    .list-items-grid .curate-thumb-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .list-items-grid .curate-thumb-footer {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
     .list-items-grid .curate-thumb {
       cursor: pointer;
@@ -72,6 +85,11 @@ class ListEditor extends LitElement {
     isLoadingLists: { type: Boolean },
     listSortKey: { type: String },
     listSortDir: { type: String },
+    thumbSize: { type: Number },
+    renderCurateRatingWidget: { type: Object },
+    renderCurateRatingStatic: { type: Object },
+    renderCuratePermatagSummary: { type: Object },
+    formatCurateDate: { type: Object },
   };
 
   constructor() {
@@ -86,6 +104,11 @@ class ListEditor extends LitElement {
     this.isLoadingLists = false;
     this.listSortKey = 'id';
     this.listSortDir = 'asc';
+    this.thumbSize = 190;
+    this.renderCurateRatingWidget = null;
+    this.renderCurateRatingStatic = null;
+    this.renderCuratePermatagSummary = null;
+    this.formatCurateDate = null;
     this._isVisible = false;
     this._hasRefreshedOnce = false;
   }
@@ -461,6 +484,12 @@ class ListEditor extends LitElement {
     return html`${label} ${arrow}`;
   }
 
+  _handleThumbSizeChange(event) {
+    const nextSize = Number(event.target.value);
+    if (!Number.isFinite(nextSize)) return;
+    this.thumbSize = nextSize;
+  }
+
   render() {
     // Check visibility on each render to detect when tab becomes active
     this._checkVisibility();
@@ -470,24 +499,39 @@ class ListEditor extends LitElement {
       <div class="p-4">
         <div class="flex justify-between items-center mb-6">
             <h2 class="text-lg font-semibold text-gray-900">Lists</h2>
-            <div class="ml-auto flex items-center gap-2">
-              <button
-                @click=${this._createList}
-                class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
-              >
-                <span aria-hidden="true">+</span>
-                Add New List
-              </button>
-              <button
-                @click=${() => this.fetchLists({ force: true })}
-                class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-                title="Refresh"
-                ?disabled=${this.isLoadingLists}
-                aria-busy=${this.isLoadingLists ? 'true' : 'false'}
-              >
-                <span aria-hidden="true" class=${this.isLoadingLists ? 'animate-spin' : ''}>↻</span>
-                ${this.isLoadingLists ? 'Refreshing…' : 'Refresh'}
-              </button>
+            <div class="ml-auto flex items-center gap-4 text-xs text-gray-600">
+              ${this.selectedList ? html`
+                <label class="font-semibold text-gray-600">Thumb</label>
+                <input
+                  type="range"
+                  min="80"
+                  max="220"
+                  step="10"
+                  .value=${String(this.thumbSize)}
+                  @input=${this._handleThumbSizeChange}
+                  class="w-24"
+                >
+                <span class="w-12 text-right text-xs">${this.thumbSize}px</span>
+              ` : html``}
+              <div class="flex items-center gap-2">
+                <button
+                  @click=${this._createList}
+                  class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50"
+                >
+                  <span aria-hidden="true">+</span>
+                  Add New List
+                </button>
+                <button
+                  @click=${() => this.fetchLists({ force: true })}
+                  class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Refresh"
+                  ?disabled=${this.isLoadingLists}
+                  aria-busy=${this.isLoadingLists ? 'true' : 'false'}
+                >
+                  <span aria-hidden="true" class=${this.isLoadingLists ? 'animate-spin' : ''}>↻</span>
+                  ${this.isLoadingLists ? 'Refreshing…' : 'Refresh'}
+                </button>
+              </div>
             </div>
         </div>
         ${this.selectedList ? html`
@@ -536,37 +580,56 @@ class ListEditor extends LitElement {
               <div class="text-xs font-semibold text-gray-700 mb-3">List Items (${this.listItems.length})</div>
               ${this.listItems.length === 0 ? html`
                 <p class="text-base text-gray-500">No items in this list yet.</p>
-              ` : html`
-                <div class="curate-grid list-items-grid">
-                  ${this.listItems.map((item) => {
-                    const photo = item.image || item.photo || {};
-                    const imageId = photo.id ?? item.photo_id ?? item.id;
-                    const addedAt = item.added_at ? new Date(item.added_at).toLocaleString() : '';
-                    return html`
-                      <div class="flex flex-col gap-2">
-                        <div
-                          class="curate-thumb-wrapper"
-                          data-image-id=${imageId || ''}
-                          @click=${(event) => this._handleListItemImageSelected(event, photo)}
-                        >
-                          <img
-                            src="${photo.thumbnail_url || `/api/v1/images/${imageId}/thumbnail`}"
-                            alt="${photo.filename || ''}"
-                            class="curate-thumb"
-                            loading="lazy"
-                            @click=${(event) => this._handleListItemImageSelected(event, photo)}
-                          >
-                        </div>
-                        <div class="text-xs font-semibold text-gray-900 truncate">${photo.filename || `#${imageId}`}</div>
-                        <div class="list-item-meta">
-                          <div class="text-[11px] text-gray-500">${addedAt ? `Added: ${addedAt}` : ''}</div>
-                          <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50">Remove</button>
-                        </div>
-                      </div>
-                    `;
-                  })}
-                </div>
-              `}
+              ` : (() => {
+                const items = Array.isArray(this.listItems) ? this.listItems : [];
+                const images = items
+                  .map((item) => item.image || item.photo || {})
+                  .filter((image) => image?.id);
+                const itemByImageId = new Map();
+                items.forEach((item) => {
+                  const photo = item.image || item.photo || {};
+                  const imageId = Number(photo.id ?? item.photo_id ?? item.id);
+                  if (Number.isFinite(imageId)) {
+                    itemByImageId.set(imageId, item);
+                  }
+                });
+                return html`
+                  <div class="list-items-grid" style="--curate-thumb-size: ${this.thumbSize}px;">
+                    ${renderImageGrid({
+                      images,
+                      selection: [],
+                      flashSelectionIds: new Set(),
+                      renderFunctions: {
+                        renderCurateRatingWidget: this.renderCurateRatingWidget,
+                        renderCurateRatingStatic: this.renderCurateRatingStatic,
+                        renderCuratePermatagSummary: this.renderCuratePermatagSummary,
+                        formatCurateDate: this.formatCurateDate,
+                      },
+                      eventHandlers: {
+                        onImageClick: (event, image) => this._handleListItemImageSelected(event, image),
+                        onDragStart: (event) => event.preventDefault(),
+                      },
+                      options: {
+                        emptyMessage: 'No items in this list yet.',
+                        showPermatags: true,
+                        renderItemFooter: (image) => {
+                          const item = itemByImageId.get(Number(image.id));
+                          const addedAt = item?.added_at ? new Date(item.added_at).toLocaleString() : '';
+                          return html`
+                            <div class="text-xs font-semibold text-gray-900 truncate">${image.filename || `#${image.id}`}</div>
+                            <div class="list-item-meta">
+                              <div class="text-[11px] text-gray-500">${addedAt ? `Added: ${addedAt}` : ''}</div>
+                              ${item ? html`
+                                <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50">Remove</button>
+                              ` : ''}
+                            </div>
+                          `;
+                        },
+                      },
+                    })}
+                  </div>
+                `;
+              })()}
             `}
           </div>
         ` : (this.lists.length === 0

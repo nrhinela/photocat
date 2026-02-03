@@ -96,6 +96,8 @@ export class CurateExploreTab extends LitElement {
     selectedKeywordValueMain: { type: String },
     minRating: { type: Object },
     dropboxPathPrefix: { type: String },
+    listFilterId: { type: [String, Number] },
+    listFilterMode: { type: String },
     dropboxFolders: { type: Array },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
@@ -150,6 +152,8 @@ export class CurateExploreTab extends LitElement {
     this.selectedKeywordValueMain = '';
     this.minRating = null;
     this.dropboxPathPrefix = '';
+    this.listFilterId = '';
+    this.listFilterMode = 'include';
     this.dropboxFolders = [];
     this.tagStatsBySource = {};
     this.activeCurateTagSource = '';
@@ -428,6 +432,10 @@ export class CurateExploreTab extends LitElement {
     }));
   }
 
+  _handleListsRequested() {
+    this._ensureListsLoaded();
+  }
+
   _handleCurateDropboxInput(event) {
     const query = event.detail?.query || '';
     this._curateDropboxQuery = query;
@@ -534,6 +542,19 @@ export class CurateExploreTab extends LitElement {
     if (target?.mode === 'view' && target.listId) {
       this._fetchListTargetItems(targetId, target.listId, { force: true });
     }
+    if (selectedValue) {
+      this._notifyListFilterExclude(selectedValue);
+    }
+  }
+
+  _notifyListFilterExclude(listId) {
+    const resolvedId = listId ? String(listId) : '';
+    if (!resolvedId) return;
+    this.dispatchEvent(new CustomEvent('list-filter-exclude', {
+      detail: { listId: resolvedId },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   _buildNewListTitle() {
@@ -675,6 +696,7 @@ export class CurateExploreTab extends LitElement {
       if (updated?.mode === 'view') {
         this._fetchListTargetItems(targetId, String(resolvedId), { force: true });
       }
+      this._notifyListFilterExclude(resolvedId);
     } catch (error) {
       console.error('Error creating list:', error);
       this._listTargets = this._listTargets.map((entry) => (
@@ -885,6 +907,21 @@ export class CurateExploreTab extends LitElement {
         value: this.dropboxPathPrefix,
         displayLabel: 'Folder',
         displayValue: this.dropboxPathPrefix,
+      });
+    }
+
+    if (this.listFilterId) {
+      const lists = this._lists || [];
+      const match = lists.find((list) => String(list.id) === String(this.listFilterId));
+      const title = match?.title || `List ${this.listFilterId}`;
+      const mode = this.listFilterMode === 'exclude' ? 'exclude' : 'include';
+      const displayValue = mode === 'exclude' ? `Not in ${title}` : title;
+      filters.push({
+        type: 'list',
+        value: this.listFilterId,
+        mode,
+        displayLabel: 'List',
+        displayValue,
       });
     }
 
@@ -1104,6 +1141,7 @@ export class CurateExploreTab extends LitElement {
               .imageStats=${this.imageStats}
               .activeFilters=${activeFilters}
               .dropboxFolders=${this.dropboxFolders || []}
+              .lists=${this._lists}
               .renderSortControls=${() => html`
                 <div class="flex items-center gap-2">
                   <span class="text-sm font-semibold text-gray-700">Sort:</span>
@@ -1131,6 +1169,7 @@ export class CurateExploreTab extends LitElement {
               `}
               @filters-changed=${this._handleCurateChipFiltersChanged}
               @folder-search=${this._handleCurateDropboxInput}
+              @lists-requested=${this._handleListsRequested}
             ></filter-chips>
           </div>
           <div></div>
@@ -1225,6 +1264,10 @@ export class CurateExploreTab extends LitElement {
               .listTargets=${this._listTargets}
               .lists=${this._lists}
               .listDragTargetId=${this._listDragTargetId}
+              .renderCurateRatingWidget=${this.renderCurateRatingWidget}
+              .renderCurateRatingStatic=${this.renderCurateRatingStatic}
+              .renderCuratePermatagSummary=${this.renderCuratePermatagSummary}
+              .formatCurateDate=${this.formatCurateDate}
               @list-target-select=${(event) => this._handleListTargetSelect(event.detail.targetId, event.detail.value)}
               @list-target-remove=${(event) => this._handleRemoveListTarget(event.detail.targetId)}
               @list-target-mode=${(event) => this._handleListTargetModeChange(event.detail.targetId, event.detail.mode)}

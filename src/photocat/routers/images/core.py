@@ -81,6 +81,7 @@ async def list_images(
     operator: str = "OR",  # "AND" or "OR" (deprecated)
     category_filters: Optional[str] = None,  # JSON string with per-category filters
     list_id: Optional[int] = None,
+    list_exclude_id: Optional[int] = None,
     rating: Optional[int] = None,
     rating_operator: str = "eq",
     hide_zero_rating: bool = False,
@@ -105,10 +106,11 @@ async def list_images(
         build_image_query_with_subqueries
     )
 
-    base_query, subqueries_list, has_empty_filter = build_image_query_with_subqueries(
+    base_query, subqueries_list, exclude_subqueries_list, has_empty_filter = build_image_query_with_subqueries(
         db,
         tenant,
         list_id=list_id,
+        list_exclude_id=list_exclude_id,
         rating=rating,
         rating_operator=rating_operator,
         hide_zero_rating=hide_zero_rating,
@@ -202,8 +204,12 @@ async def list_images(
             if unique_image_ids_set:
                 unique_image_ids = list(unique_image_ids_set)
 
-                if subqueries_list:
-                    unique_image_ids = builder.apply_filters_to_id_set(unique_image_ids, subqueries_list)
+                if subqueries_list or exclude_subqueries_list:
+                    unique_image_ids = builder.apply_filters_to_id_set(
+                        unique_image_ids,
+                        subqueries_list,
+                        exclude_subqueries_list
+                    )
 
                 # Get all keywords for relevance counting
                 all_keywords = []
@@ -382,7 +388,7 @@ async def list_images(
                 )
 
                 # Apply base_query subquery filters (list, rating, etc.) to the keyword query
-                query = builder.apply_subqueries(query, subqueries_list)
+                query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
 
                 total = builder.get_total_count(query)
                 offset = resolve_anchor_offset(query, offset)
@@ -420,7 +426,7 @@ async def list_images(
                     and_query = and_query.filter(ImageMetadata.id.in_(keyword_subquery))
 
                 # Apply base_query subquery filters (list, rating, etc.)
-                and_query = builder.apply_subqueries(and_query, subqueries_list)
+                and_query = builder.apply_subqueries(and_query, subqueries_list, exclude_subqueries_list)
 
                 # Get matching image IDs
                 matching_image_ids = and_query.subquery()
@@ -456,7 +462,7 @@ async def list_images(
         else:
             # No valid keywords, use base_query with subquery filters
             query = base_query
-            query = builder.apply_subqueries(query, subqueries_list)
+            query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
             total = builder.get_total_count(query)
             order_by_clauses = builder.build_order_clauses()
             images = builder.apply_pagination(query.order_by(*order_by_clauses), offset, limit)

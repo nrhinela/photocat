@@ -728,6 +728,7 @@ def build_image_query_with_subqueries(
     db: Session,
     tenant: Tenant,
     list_id: Optional[int] = None,
+    list_exclude_id: Optional[int] = None,
     rating: Optional[int] = None,
     rating_operator: str = "eq",
     hide_zero_rating: bool = False,
@@ -751,6 +752,7 @@ def build_image_query_with_subqueries(
         db: Database session
         tenant: Current tenant
         list_id: Optional PhotoList ID to filter by
+        list_exclude_id: Optional PhotoList ID to exclude
         rating: Optional rating value to filter by
         rating_operator: Comparison operator for rating ("eq", "gte", "gt")
         hide_zero_rating: Whether to exclude zero-rated images
@@ -775,6 +777,10 @@ def build_image_query_with_subqueries(
     )
     
     subqueries_list = []
+    exclude_subqueries_list = []
+
+    if list_id is not None and list_exclude_id is not None and list_id == list_exclude_id:
+        return base_query, subqueries_list, exclude_subqueries_list, True
     
     # Apply list filter if provided
     if list_id is not None:
@@ -783,7 +789,16 @@ def build_image_query_with_subqueries(
             subqueries_list.append(list_subquery)
         except HTTPException:
             # List not found - return empty result
-            return base_query, subqueries_list, True
+            return base_query, subqueries_list, exclude_subqueries_list, True
+
+    # Apply list exclusion filter if provided
+    if list_exclude_id is not None:
+        try:
+            list_exclude_subquery = apply_list_filter_subquery(db, tenant, list_exclude_id)
+            exclude_subqueries_list.append(list_exclude_subquery)
+        except HTTPException:
+            # List not found - return empty result
+            return base_query, subqueries_list, exclude_subqueries_list, True
     
     # Apply rating filter if provided (including is_null for unrated)
     if rating is not None or rating_operator == "is_null":
@@ -838,5 +853,7 @@ def build_image_query_with_subqueries(
     # Combine all subqueries with intersection logic
     for subquery in subqueries_list:
         base_query = base_query.filter(ImageMetadata.id.in_(select(subquery.c.id)))
-
-    return base_query, subqueries_list, False
+    for subquery in exclude_subqueries_list:
+        base_query = base_query.filter(~ImageMetadata.id.in_(select(subquery.c.id)))
+    
+    return base_query, subqueries_list, exclude_subqueries_list, False
