@@ -100,7 +100,7 @@ class PermatagEditor extends LitElement {
     }
     try {
       const [keywords, permatags, imageDetails] = await Promise.all([
-        getKeywords(this.tenant),
+        getKeywords(this.tenant, { source: 'permatags' }),
         getPermatags(this.tenant, this.imageId), // This is the new function
         getImageDetails(this.tenant, this.imageId),
       ]);

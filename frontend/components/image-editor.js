@@ -753,7 +753,7 @@ class ImageEditor extends LitElement {
   async fetchKeywords() {
     if (!this.tenant) return;
     try {
-      this.keywordsByCategory = await getKeywords(this.tenant);
+      this.keywordsByCategory = await getKeywords(this.tenant, { source: 'permatags' });
     } catch (error) {
       console.error('ImageEditor: fetchKeywords failed', error);
       this.keywordsByCategory = {};

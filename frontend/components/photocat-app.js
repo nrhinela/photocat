@@ -4219,7 +4219,7 @@ class PhotoCatApp extends LitElement {
   async fetchKeywords() {
       if (!this.tenant) return;
       try {
-          const keywordsByCategory = await getKeywords(this.tenant);
+          const keywordsByCategory = await getKeywords(this.tenant, { source: 'permatags' });
           const flat = [];
           Object.entries(keywordsByCategory || {}).forEach(([category, list]) => {
               list.forEach((kw) => {
