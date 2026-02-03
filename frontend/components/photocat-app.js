@@ -54,6 +54,7 @@ import {
 import './home-tab.js';
 import './curate-home-tab.js';
 import './curate-explore-tab.js';
+import './curate-browse-folder-tab.js';
 import './curate-audit-tab.js';
 import './search-tab.js';
 
@@ -2069,7 +2070,11 @@ class PhotoCatApp extends LitElement {
   }
 
   // Explore rating drag handlers - now using factory to eliminate duplication
-  _handleCurateExploreRatingToggle() {
+  _handleCurateExploreRatingToggle(event) {
+      if (event && typeof event.target?.checked === 'boolean') {
+          this.curateExploreRatingEnabled = event.target.checked;
+          return;
+      }
       return this._exploreRatingHandlers.handleToggle();
   }
 
@@ -3169,7 +3174,7 @@ class PhotoCatApp extends LitElement {
       if (this.curateDragSelecting || this.curateAuditDragSelecting) {
           return;
       }
-      if (event.defaultPrevented) {
+      if (event && event.defaultPrevented) {
           return;
       }
       if (this._curateSuppressClick || this.curateDragSelection.length) {
@@ -3701,9 +3706,12 @@ class PhotoCatApp extends LitElement {
     const auditDropLabel = this.curateAuditKeyword
       ? `Drag here to ${auditActionVerb} tag: ${auditKeywordLabel}`
       : 'Select a keyword to start';
+    const browseFolderTab = this.renderRoot?.querySelector('curate-browse-folder-tab');
     const curateRefreshBusy = this.curateSubTab === 'home'
       ? (this.curateHomeRefreshing || this.curateStatsLoading)
-      : (this.curateSubTab === 'tag-audit' ? this.curateAuditLoading : this.curateLoading);
+      : (this.curateSubTab === 'tag-audit'
+        ? this.curateAuditLoading
+        : (this.curateSubTab === 'browse-folder' ? !!browseFolderTab?.browseByFolderLoading : this.curateLoading));
 
     return html`
         ${this._curateRatingModalActive ? html`
@@ -3804,6 +3812,12 @@ class PhotoCatApp extends LitElement {
                         >
                           Explore
                         </button>
+                        <button
+                          class="curate-subtab ${this.curateSubTab === 'browse-folder' ? 'active' : ''}"
+                          @click=${() => this._handleCurateSubTabChange('browse-folder')}
+                        >
+                          Browse by Folder
+                        </button>
                     <button
                       class="curate-subtab ${this.curateSubTab === 'tag-audit' ? 'active' : ''}"
                       @click=${() => this._handleCurateSubTabChange('tag-audit')}
@@ -3844,6 +3858,9 @@ class PhotoCatApp extends LitElement {
                       this._refreshCurateAudit();
                     } else if (this.curateSubTab === 'home') {
                       this._refreshCurateHome();
+                    } else if (this.curateSubTab === 'browse-folder') {
+                      const panel = this.renderRoot?.querySelector('curate-browse-folder-tab');
+                      panel?.refresh?.();
                     } else {
                       const curateFilters = buildCurateFilterObject(this);
                       this.curateHomeFilterPanel.updateFilters(curateFilters);
@@ -3925,6 +3942,27 @@ class PhotoCatApp extends LitElement {
                     @rating-drop=${(e) => this._handleCurateExploreRatingDrop(e.detail.event, e.detail.rating)}
                     @curate-filters-changed=${this._handleCurateChipFiltersChanged}
                   ></curate-explore-tab>
+                </div>
+                ` : html``}
+                ${this.curateSubTab === 'browse-folder' ? html`
+                <div>
+                  <curate-browse-folder-tab
+                    .tenant=${this.tenant}
+                    .thumbSize=${this.curateThumbSize}
+                    .curateOrderBy=${this.curateOrderBy}
+                    .curateDateOrder=${this.curateOrderDirection}
+                    .renderCurateRatingWidget=${this._renderCurateRatingWidget.bind(this)}
+                    .renderCurateRatingStatic=${this._renderCurateRatingStatic.bind(this)}
+                    .formatCurateDate=${formatCurateDate}
+                    .tagStatsBySource=${this.tagStatsBySource}
+                    .activeCurateTagSource=${this.activeCurateTagSource}
+                    .keywords=${this.keywords}
+                    @sort-changed=${(e) => {
+                      this.curateOrderBy = e.detail.orderBy;
+                      this.curateOrderDirection = e.detail.dateOrder;
+                    }}
+                    @image-clicked=${(e) => this._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
+                  ></curate-browse-folder-tab>
                 </div>
                 ` : html``}
                 ${this.curateSubTab === 'tag-audit' ? html`
@@ -4037,7 +4075,10 @@ class PhotoCatApp extends LitElement {
             ` : ''}
             ${this.activeTab === 'lists' ? html`
             <div slot="lists" class="container p-4">
-                <list-editor .tenant=${this.tenant}></list-editor>
+                <list-editor
+                  .tenant=${this.tenant}
+                  @image-selected=${(e) => this._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
+                ></list-editor>
             </div>
             ` : ''}
             ${this.activeTab === 'admin' ? html`

@@ -122,8 +122,11 @@ export class SearchTab extends LitElement {
     searchHotspotRatingEnabled: { type: Boolean },
     searchHotspotRatingCount: { type: Number },
     searchRatingTargets: { type: Array },
+    searchRatingPromptEnabled: { type: Boolean },
     _searchHotspotDragTarget: { type: String, state: true },
     _searchRatingDragTarget: { type: String, state: true },
+    _searchRatingModalActive: { type: Boolean, state: true },
+    _searchRatingModalImageIds: { type: Array, state: true },
     _listTargets: { type: Array, state: true },
     _listTargetCounter: { type: Number, state: true },
     _listDragTargetId: { type: String, state: true },
@@ -178,12 +181,15 @@ export class SearchTab extends LitElement {
     this.searchDragStartIndex = null;
     this.searchDragEndIndex = null;
     this.searchSavedDragTarget = false;
-    this.rightPanelTool = 'tags';
+    this.rightPanelTool = 'lists';
     this.searchHotspotTargets = [{ id: 1, type: 'keyword', count: 0 }];
     this.searchHotspotRatingEnabled = false;
     this.searchHotspotRatingCount = 0;
     this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+    this.searchRatingPromptEnabled = false;
     this._searchRatingNextId = 2;
+    this._searchRatingModalActive = false;
+    this._searchRatingModalImageIds = [];
     this._searchHotspotDragTarget = null;
     this._searchRatingDragTarget = null;
     this._searchHotspotNextId = 2;
@@ -215,8 +221,10 @@ export class SearchTab extends LitElement {
     });
     try {
       const storedTool = localStorage.getItem('rightPanelTool:search');
-      if (storedTool) {
-        this.rightPanelTool = storedTool === 'hotspots' ? 'tags' : storedTool;
+      if (storedTool && storedTool === 'lists') {
+        this.rightPanelTool = storedTool;
+      } else {
+        this.rightPanelTool = 'lists';
       }
     } catch {
       // ignore storage errors
@@ -384,8 +392,11 @@ export class SearchTab extends LitElement {
       this.searchHotspotRatingCount = 0;
       this._searchHotspotDragTarget = null;
       this.searchRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+      this.searchRatingPromptEnabled = false;
       this._searchRatingDragTarget = null;
       this._searchRatingNextId = 2;
+      this._searchRatingModalActive = false;
+      this._searchRatingModalImageIds = [];
       this._searchHotspotNextId = 2;
       this._listTargets = [{
         id: 'list-target-1',
@@ -571,6 +582,25 @@ export class SearchTab extends LitElement {
     }
   }
 
+  _handleSearchRatingPromptToggle(event) {
+    this.searchRatingPromptEnabled = event.target.checked;
+    this._syncSearchRatingPromptTarget();
+  }
+
+  _syncSearchRatingPromptTarget() {
+    const promptId = 'rating-prompt';
+    const targets = Array.isArray(this.searchRatingTargets) ? this.searchRatingTargets : [];
+    const hasPrompt = targets.some((entry) => entry?.id === promptId || entry?.prompt);
+    if (this.searchRatingPromptEnabled) {
+      if (!hasPrompt || (targets[0] && !targets[0].prompt && targets[0].id !== promptId)) {
+        const rest = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
+        this.searchRatingTargets = [{ id: promptId, rating: '', count: 0, prompt: true }, ...rest];
+      }
+    } else if (hasPrompt) {
+      this.searchRatingTargets = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
+    }
+  }
+
   _handleSearchRatingChange(targetId, value) {
     this.searchRatingTargets = (this.searchRatingTargets || []).map((entry) => (
       entry.id === targetId ? { ...entry, rating: value, count: entry.count || 0 } : entry
@@ -603,19 +633,43 @@ export class SearchTab extends LitElement {
     event.preventDefault();
     this._searchRatingDragTarget = null;
     const target = (this.searchRatingTargets || []).find((entry) => entry.id === targetId);
-    const rating = Number.parseInt(target?.rating ?? '', 10);
-    if (!Number.isFinite(rating)) {
-      return;
-    }
+    let rating = Number.parseInt(target?.rating ?? '', 10);
     const raw = event.dataTransfer?.getData('text/plain') || '';
     const ids = raw
       .split(',')
       .map((value) => Number.parseInt(value.trim(), 10))
       .filter((value) => Number.isFinite(value) && value > 0);
     if (!ids.length) return;
+    if (!Number.isFinite(rating)) {
+      this._openSearchRatingModal(ids);
+      this.searchRatingTargets = (this.searchRatingTargets || []).map((entry) => (
+        entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+      ));
+      return;
+    }
     this.searchRatingTargets = (this.searchRatingTargets || []).map((entry) => (
       entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
     ));
+    this._applySearchHotspotRating(ids, rating);
+  }
+
+  _openSearchRatingModal(imageIds) {
+    this._searchRatingModalImageIds = imageIds;
+    this._searchRatingModalActive = true;
+  }
+
+  _closeSearchRatingModal() {
+    this._searchRatingModalActive = false;
+    this._searchRatingModalImageIds = [];
+  }
+
+  _handleSearchRatingModalClick(rating) {
+    const ids = this._searchRatingModalImageIds || [];
+    if (!ids.length) {
+      this._closeSearchRatingModal();
+      return;
+    }
+    this._closeSearchRatingModal();
     this._applySearchHotspotRating(ids, rating);
   }
 
@@ -1931,30 +1985,44 @@ export class SearchTab extends LitElement {
     const browseByFolderBlurStyle = this.browseByFolderLoading
       ? 'filter: blur(2px); opacity: 0.6; pointer-events: none;'
       : '';
+    const ratingModal = this._searchRatingModalActive ? html`
+      <div class="curate-rating-modal-overlay" @click=${this._closeSearchRatingModal}>
+        <div class="curate-rating-modal-content" @click=${(e) => e.stopPropagation()}>
+          <div class="curate-rating-modal-title">Rate images</div>
+          <div class="curate-rating-modal-subtitle">${this._searchRatingModalImageIds?.length || 0} image(s)</div>
+          <div class="curate-rating-modal-options">
+            <div class="curate-rating-option" @click=${() => this._handleSearchRatingModalClick(0)}>
+              <div class="curate-rating-option-icon">🗑️</div>
+              <div class="curate-rating-option-label">Garbage</div>
+            </div>
+            <div class="curate-rating-option" @click=${() => this._handleSearchRatingModalClick(1)}>
+              <div class="curate-rating-option-icon">⭐</div>
+              <div class="curate-rating-option-label">1</div>
+            </div>
+            <div class="curate-rating-option" @click=${() => this._handleSearchRatingModalClick(2)}>
+              <div class="curate-rating-option-icon">⭐</div>
+              <div class="curate-rating-option-label">2</div>
+            </div>
+            <div class="curate-rating-option" @click=${() => this._handleSearchRatingModalClick(3)}>
+              <div class="curate-rating-option-icon">⭐</div>
+              <div class="curate-rating-option-label">3</div>
+            </div>
+          </div>
+          <div class="curate-rating-modal-buttons">
+            <button class="curate-rating-modal-cancel" @click=${this._closeSearchRatingModal}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    ` : html``;
+
     const savedPane = html`
       <right-panel
         .tools=${[
-          { id: 'tags', label: 'Tags' },
           { id: 'lists', label: 'Lists' },
-          { id: 'ratings', label: 'Ratings' },
         ]}
         .activeTool=${this.rightPanelTool}
         @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
       >
-        <hotspot-targets-panel
-          slot="tool-tags"
-          mode="tags"
-          .targets=${this.searchHotspotTargets}
-          .keywordsByCategory=${this._getSearchKeywordsByCategory()}
-          .dragTargetId=${this._searchHotspotDragTarget}
-          @hotspot-keyword-change=${(event) => this._searchHotspotHandlers.handleKeywordChange({ target: { value: event.detail.value } }, event.detail.targetId)}
-          @hotspot-action-change=${(event) => this._searchHotspotHandlers.handleActionChange({ target: { value: event.detail.value } }, event.detail.targetId)}
-          @hotspot-add=${() => this._searchHotspotHandlers.handleAddTarget()}
-          @hotspot-remove=${(event) => this._searchHotspotHandlers.handleRemoveTarget(event.detail.targetId)}
-          @hotspot-dragover=${(event) => this._searchHotspotHandlers.handleDragOver(event.detail.event, event.detail.targetId)}
-          @hotspot-dragleave=${() => this._searchHotspotHandlers.handleDragLeave()}
-          @hotspot-drop=${(event) => this._searchHotspotHandlers.handleDrop(event.detail.event, event.detail.targetId)}
-        ></hotspot-targets-panel>
         <list-targets-panel
           slot="tool-lists"
           .listsLoading=${this._listsLoading}
@@ -1973,21 +2041,11 @@ export class SearchTab extends LitElement {
           @list-target-item-click=${(event) => this._handleListTargetItemClick(event.detail.event, event.detail.targetId, event.detail.index)}
           @list-target-add=${this._handleAddListTarget}
         ></list-targets-panel>
-        <rating-target-panel
-          slot="tool-ratings"
-          .targets=${this.searchRatingTargets}
-          .dragTargetId=${this._searchRatingDragTarget}
-          @rating-change=${(event) => this._handleSearchRatingChange(event.detail.targetId, event.detail.value)}
-          @rating-add=${this._handleSearchRatingAddTarget}
-          @rating-remove=${(event) => this._handleSearchRatingRemoveTarget(event.detail.targetId)}
-          @rating-dragover=${(event) => this._handleSearchRatingDragOver(event.detail.event, event.detail.targetId)}
-          @rating-dragleave=${(event) => this._handleSearchRatingDragLeave(event.detail.event)}
-          @rating-drop=${(event) => this._handleSearchRatingDrop(event.detail.event, event.detail.targetId)}
-        ></rating-target-panel>
       </right-panel>
     `;
 
     return html`
+      ${ratingModal}
       <div class="container">
         <!-- Search Tab Header -->
         <div class="flex items-center justify-between mb-4">

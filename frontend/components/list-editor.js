@@ -1,7 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
 import { getLists, createList, updateList, deleteList, getListItems, deleteListItem, fetchWithAuth } from '../services/api.js';
-import './shared/widgets/image-card.js';
 
 class ListEditor extends LitElement {
   static styles = [tailwind, css`
@@ -45,6 +44,19 @@ class ListEditor extends LitElement {
     .skeleton-row {
       height: 2.5rem;
       margin-bottom: 0.5rem;
+    }
+    .list-items-grid {
+      --curate-thumb-size: 160px;
+      gap: 12px;
+    }
+    .list-items-grid .curate-thumb {
+      cursor: pointer;
+    }
+    .list-item-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
     }
   `];
 
@@ -167,6 +179,12 @@ class ListEditor extends LitElement {
     }
   }
 
+  _closeListView() {
+    this.selectedList = null;
+    this.listItems = [];
+    this.editingSelectedList = false;
+  }
+
   async _removeListItem(itemId) {
     try {
       await deleteListItem(this.tenant, itemId);
@@ -177,6 +195,20 @@ class ListEditor extends LitElement {
     } catch (error) {
       console.error('Error deleting list item:', error);
     }
+  }
+
+  _handleListItemImageSelected(event, image) {
+    event.stopPropagation();
+    const selectedImage = event?.detail?.image || image;
+    if (!selectedImage) return;
+    const imageSet = (this.listItems || [])
+      .map((item) => item?.image)
+      .filter(Boolean);
+    this.dispatchEvent(new CustomEvent('image-selected', {
+      detail: { image: selectedImage, imageSet },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   async _deleteList(list) {
@@ -400,7 +432,86 @@ class ListEditor extends LitElement {
               </button>
             </div>
         </div>
-        ${this.lists.length === 0
+        ${this.selectedList ? html`
+          <div class="mb-6">
+            <button @click=${this._closeListView} class="text-xs text-blue-600 hover:underline mb-4">← Back to lists</button>
+            ${this.isLoadingItems ? html`
+              <div class="flex justify-between items-start mb-6">
+                <div class="flex-1">
+                  <div class="skeleton skeleton-title w-1/3 mb-2"></div>
+                  <div class="skeleton skeleton-text w-1/2 mb-2"></div>
+                  <div class="flex gap-4 mb-4">
+                    <div class="skeleton skeleton-text w-32"></div>
+                    <div class="skeleton skeleton-text w-32"></div>
+                  </div>
+                </div>
+                <div class="flex gap-2">
+                  <div class="skeleton skeleton-text w-20"></div>
+                  <div class="skeleton skeleton-text w-16"></div>
+                </div>
+              </div>
+            ` : html`
+              <div class="flex justify-between items-start mb-6">
+                <div class="flex-1">
+                  <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
+                  <div class="flex gap-4 text-xs text-gray-600 mb-2">
+                    <div>
+                      <span class="font-semibold">Author:</span> ${this.selectedList.created_by_name || 'Unknown'}
+                    </div>
+                    <div>
+                      <span class="font-semibold">Created:</span> ${new Date(this.selectedList.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  ${this.selectedList.notebox ? html`
+                    <p class="text-sm text-gray-600">${this.selectedList.notebox}</p>
+                  ` : html``}
+                </div>
+                <div class="flex gap-2">
+                  <button @click=${this._downloadListImages} ?disabled=${this.isDownloading} class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
+                    ${this.isDownloading ? html`<span class="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>` : ''}
+                    Download
+                  </button>
+                  <button @click=${this._startEditingSelectedList} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Edit</button>
+                </div>
+              </div>
+
+              <div class="text-xs font-semibold text-gray-700 mb-3">List Items (${this.listItems.length})</div>
+              ${this.listItems.length === 0 ? html`
+                <p class="text-base text-gray-500">No items in this list yet.</p>
+              ` : html`
+                <div class="curate-grid list-items-grid">
+                  ${this.listItems.map((item) => {
+                    const photo = item.image || item.photo || {};
+                    const imageId = photo.id ?? item.photo_id ?? item.id;
+                    const addedAt = item.added_at ? new Date(item.added_at).toLocaleString() : '';
+                    return html`
+                      <div class="flex flex-col gap-2">
+                        <div
+                          class="curate-thumb-wrapper"
+                          data-image-id=${imageId || ''}
+                          @click=${(event) => this._handleListItemImageSelected(event, photo)}
+                        >
+                          <img
+                            src="${photo.thumbnail_url || `/api/v1/images/${imageId}/thumbnail`}"
+                            alt="${photo.filename || ''}"
+                            class="curate-thumb"
+                            loading="lazy"
+                            @click=${(event) => this._handleListItemImageSelected(event, photo)}
+                          >
+                        </div>
+                        <div class="text-xs font-semibold text-gray-900 truncate">${photo.filename || `#${imageId}`}</div>
+                        <div class="list-item-meta">
+                          <div class="text-[11px] text-gray-500">${addedAt ? `Added: ${addedAt}` : ''}</div>
+                          <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50">Remove</button>
+                        </div>
+                      </div>
+                    `;
+                  })}
+                </div>
+              `}
+            `}
+          </div>
+        ` : (this.lists.length === 0
           ? html`<p class="text-base text-gray-600">No lists found.</p>`
           : html`
             <table class="min-w-full bg-white border border-gray-300">
@@ -423,100 +534,15 @@ class ListEditor extends LitElement {
                     <td class="py-2 px-4 text-xs text-gray-600">${list.created_by_name || '—'}</td>
                     <td class="py-2 px-4 text-xs text-gray-600">${list.notebox || '—'}</td>
                     <td class="py-2 px-4 text-left">
-                      <button @click=${() => this._selectList(list)} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 mr-2">Edit</button>
+                      <button @click=${() => this._selectList(list)} class="bg-slate-900 text-white px-3 py-1 rounded text-xs hover:bg-slate-800 mr-2">View</button>
                       <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700">Delete</button>
                     </td>
                   </tr>
                 `)}
               </tbody>
             </table>
-          `}
+          `)}
       </div>
-
-      ${this.selectedList ? html`
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl mx-4 max-h-90vh overflow-auto p-6">
-            ${this.isLoadingItems ? html`
-              <!-- Skeleton Loading State -->
-              <div class="flex justify-between items-start mb-6">
-                <div class="flex-1">
-                  <div class="skeleton skeleton-title w-1/3 mb-2"></div>
-                  <div class="skeleton skeleton-text w-1/2 mb-2"></div>
-                  <div class="flex gap-4 mb-4">
-                    <div class="skeleton skeleton-text w-32"></div>
-                    <div class="skeleton skeleton-text w-32"></div>
-                  </div>
-                </div>
-                <div class="flex gap-2">
-                  <div class="skeleton skeleton-text w-20"></div>
-                  <div class="skeleton skeleton-text w-16"></div>
-                  <div class="skeleton skeleton-text w-8"></div>
-                </div>
-              </div>
-
-              <div class="skeleton skeleton-text w-32 mb-4"></div>
-
-              <div class="border border-gray-300 rounded overflow-hidden">
-                <div class="bg-gray-50 border-b border-gray-300 px-4 py-2 flex gap-4">
-                  <div class="skeleton skeleton-text w-1/2"></div>
-                  <div class="skeleton skeleton-text w-1/4"></div>
-                </div>
-                ${[...Array(5)].map(() => html`
-                  <div class="border-b border-gray-200 px-4 py-3 flex gap-4">
-                    <div class="skeleton skeleton-text w-1/2"></div>
-                    <div class="skeleton skeleton-text w-1/4"></div>
-                  </div>
-                `)}
-              </div>
-            ` : html`
-              <!-- Loaded Content -->
-              <div class="flex justify-between items-start mb-6">
-                <div class="flex-1">
-                  <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
-                  <p class="text-base text-gray-600 mb-2">${this.selectedList.notebox || 'No notes.'}</p>
-                  <div class="flex gap-4 text-xs text-gray-600 mb-4">
-                    <div>
-                      <span class="font-semibold">Author:</span> ${this.selectedList.created_by_name || 'Unknown'}
-                    </div>
-                    <div>
-                      <span class="font-semibold">Created:</span> ${new Date(this.selectedList.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-                </div>
-                <div class="flex gap-2">
-                  <button @click=${this._downloadListImages} ?disabled=${this.isDownloading} class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
-                    ${this.isDownloading ? html`<span class="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>` : ''}
-                    Download
-                  </button>
-                  <button @click=${this._startEditingSelectedList} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Edit</button>
-                  <button @click=${() => { this.selectedList = null; this.listItems = []; this.editingSelectedList = false; }} class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
-                </div>
-              </div>
-
-              <h4 class="text-sm font-semibold text-gray-900 mb-4">List Items (${this.listItems.length})</h4>
-
-              ${this.listItems.length === 0 ? html`
-                <p class="text-base text-gray-500">No items in this list yet.</p>
-              ` : html`
-                <div class="border border-gray-300 rounded overflow-hidden">
-                  <div class="divide-y divide-gray-300 overflow-x-auto">
-                    ${this.listItems.map(item => {
-                      const encodedPath = item.image.dropbox_path.split('/').map(part => encodeURIComponent(part)).join('/');
-                      const dropboxUrl = `https://www.dropbox.com/home${encodedPath}`;
-                      return html`
-                        <div class="px-4 py-3 hover:bg-gray-50 whitespace-nowrap">
-                          <a href="${dropboxUrl}" target="dropbox" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 underline text-xs">${dropboxUrl}</a>
-                        </div>
-                      `;
-                    })}
-                  </div>
-                </div>
-              `}
-            `}
-
-          </div>
-        </div>
-      ` : ''}
 
       ${this.editingSelectedList && this.selectedList ? html`
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

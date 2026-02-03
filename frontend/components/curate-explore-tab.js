@@ -474,9 +474,13 @@ export class CurateExploreTab extends LitElement {
       this.curateExploreRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
       this._curateExploreRatingNextId = 2;
       this._curateExploreRatingDragTarget = null;
+      this._syncRatingPromptTarget();
       if (this.rightPanelTool === 'lists') {
         this._ensureListsLoaded({ force: true });
       }
+    }
+    if (changedProperties.has('curateExploreRatingEnabled')) {
+      this._syncRatingPromptTarget();
     }
     if (changedProperties.has('rightPanelTool') && this.rightPanelTool === 'lists') {
       this._ensureListsLoaded();
@@ -941,6 +945,20 @@ export class CurateExploreTab extends LitElement {
     }));
   }
 
+  _syncRatingPromptTarget() {
+    const promptId = 'rating-prompt';
+    const targets = Array.isArray(this.curateExploreRatingTargets) ? this.curateExploreRatingTargets : [];
+    const hasPrompt = targets.some((entry) => entry?.id === promptId || entry?.prompt);
+    if (this.curateExploreRatingEnabled) {
+      if (!hasPrompt || (targets[0] && !targets[0].prompt && targets[0].id !== promptId)) {
+        const rest = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
+        this.curateExploreRatingTargets = [{ id: promptId, rating: '', count: 0, prompt: true }, ...rest];
+      }
+    } else if (hasPrompt) {
+      this.curateExploreRatingTargets = targets.filter((entry) => entry?.id !== promptId && !entry?.prompt);
+    }
+  }
+
   _handleCurateExploreRatingDragOver(event, targetId) {
     event.preventDefault();
     this._curateExploreRatingDragTarget = targetId;
@@ -961,7 +979,7 @@ export class CurateExploreTab extends LitElement {
       .split(',')
       .map((value) => Number.parseInt(value.trim(), 10))
       .filter((value) => Number.isFinite(value) && value > 0);
-    if (ids.length && rating !== '') {
+    if (ids.length && (rating !== '' || target?.prompt)) {
       this.curateExploreRatingTargets = (this.curateExploreRatingTargets || []).map((entry) => (
         entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
       ));
@@ -1214,6 +1232,17 @@ export class CurateExploreTab extends LitElement {
             .activeTool=${this.rightPanelTool}
             @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
           >
+            ${this.rightPanelTool === 'ratings' ? html`
+              <div slot="header-right" class="curate-rating-checkbox" style="margin-left: auto;">
+                <input
+                  type="checkbox"
+                  id="rating-checkbox-explore"
+                  .checked=${this.curateExploreRatingEnabled}
+                  @change=${this._handleCurateExploreRatingToggle}
+                />
+                <label for="rating-checkbox-explore">Prompt</label>
+              </div>
+            ` : html``}
             <hotspot-targets-panel
               slot="tool-tags"
               mode="tags"

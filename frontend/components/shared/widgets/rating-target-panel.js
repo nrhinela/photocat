@@ -57,13 +57,18 @@ export class RatingTargetPanel extends LitElement {
                 <select
                   class="curate-utility-select ${target.rating ? 'selected' : ''}"
                   .value=${target.rating || ''}
+                  ?disabled=${!!target.prompt}
                   @change=${(event) => this._emit('rating-change', { targetId: target.id, value: event.target.value })}
                 >
-                  <option value="">Select rating…</option>
-                  <option value="0">🗑️ Garbage</option>
-                  <option value="1">⭐ 1 Star</option>
-                  <option value="2">⭐⭐ 2 Stars</option>
-                  <option value="3">⭐⭐⭐ 3 Stars</option>
+                  ${target.prompt ? html`
+                    <option value="">Prompt on drop…</option>
+                  ` : html`
+                    <option value="">Select rating…</option>
+                    <option value="0">🗑️ Garbage</option>
+                    <option value="1">⭐ 1 Star</option>
+                    <option value="2">⭐⭐ 2 Stars</option>
+                    <option value="3">⭐⭐⭐ 3 Stars</option>
+                  `}
                 </select>
               </div>
               ${!isFirstTarget ? html`
