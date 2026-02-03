@@ -107,6 +107,9 @@ async function executeCommand(command) {
     case 'retag':
       return retagImage(command.tenantId, command.imageId);
     case 'add-to-list':
+      if (command.listId) {
+        return addToList(command.tenantId, command.listId, command.imageId);
+      }
       return addToRecentList(command.tenantId, command.imageId);
     case 'add-negative-permatag':
       return addPermatag(

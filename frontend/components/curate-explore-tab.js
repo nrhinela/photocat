@@ -1,6 +1,6 @@
 import { LitElement, html } from 'lit';
 import { enqueueCommand } from '../services/command-queue.js';
-import { getDropboxFolders } from '../services/api.js';
+import { getDropboxFolders, getLists, createList, getListItems } from '../services/api.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import { renderImageGrid } from './shared/image-grid.js';
@@ -11,6 +11,10 @@ import {
   getCategoryCountFromList,
 } from './shared/keyword-utils.js';
 import './shared/widgets/filter-chips.js';
+import './shared/widgets/right-panel.js';
+import './shared/widgets/list-targets-panel.js';
+import './shared/widgets/hotspot-targets-panel.js';
+import './shared/widgets/rating-target-panel.js';
 
 /**
  * Curate Explore Tab Component
@@ -99,6 +103,12 @@ export class CurateExploreTab extends LitElement {
     curateExploreTargets: { type: Array },
     curateExploreRatingEnabled: { type: Boolean },
     curateExploreRatingCount: { type: Number },
+    curateExploreRatingTargets: { type: Array },
+    rightPanelTool: { type: String },
+    _listTargets: { type: Array, state: true },
+    _lists: { type: Array, state: true },
+    _listsLoading: { type: Boolean, state: true },
+    _listDragTargetId: { type: String, state: true },
 
     // Internal state properties
     _curatePressActive: { type: Boolean, state: true },
@@ -109,7 +119,7 @@ export class CurateExploreTab extends LitElement {
     _curateLongPressTriggered: { type: Boolean, state: true },
     _curateFlashSelectionIds: { type: Object, state: true },
     _curateExploreHotspotDragTarget: { type: String, state: true },
-    _curateExploreRatingDragTarget: { type: Boolean, state: true },
+    _curateExploreRatingDragTarget: { type: String, state: true },
     _curateReorderDraggedId: { type: Number, state: true },
     _curateLeftOrder: { type: Array, state: true },
     _curateSuppressClick: { type: Boolean, state: true },
@@ -147,8 +157,35 @@ export class CurateExploreTab extends LitElement {
     this.curateExploreTargets = [{ id: '1', type: 'keyword', count: 0 }];
     this.curateExploreRatingEnabled = false;
     this.curateExploreRatingCount = 0;
+    this.curateExploreRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+    this._curateExploreRatingNextId = 2;
+    this.rightPanelTool = 'tags';
+    this._listTargets = [{
+      id: 'list-target-1',
+      listId: '',
+      status: '',
+      mode: 'add',
+      addedCount: 0,
+      items: [],
+      itemsLoading: false,
+      itemsError: '',
+      itemsListId: '',
+    }];
+    this._lists = [];
+    this._listsLoading = false;
+    this._listDragTargetId = null;
+    this._listTargetCounter = 1;
     this._curateDropboxFetchTimer = null;
     this._curateDropboxQuery = '';
+
+    try {
+      const storedTool = localStorage.getItem('rightPanelTool:curate-explore');
+      if (storedTool) {
+        this.rightPanelTool = storedTool === 'hotspots' ? 'tags' : storedTool;
+      }
+    } catch {
+      // ignore storage errors
+    }
 
     // Internal state
     this._curatePressActive = false;
@@ -159,7 +196,7 @@ export class CurateExploreTab extends LitElement {
     this._curateLongPressTriggered = false;
     this._curateFlashSelectionIds = new Set();
     this._curateExploreHotspotDragTarget = null;
-    this._curateExploreRatingDragTarget = false;
+    this._curateExploreRatingDragTarget = null;
     this._curateReorderDraggedId = null;
     this._curateLeftOrder = [];
     this._curateSuppressClick = false;
@@ -406,6 +443,46 @@ export class CurateExploreTab extends LitElement {
     }, 500);
   }
 
+  _handleRightPanelToolChange(tool) {
+    this.rightPanelTool = tool;
+    try {
+      localStorage.setItem('rightPanelTool:curate-explore', tool);
+    } catch {
+      // ignore storage errors
+    }
+    if (tool === 'lists') {
+      this._ensureListsLoaded();
+    }
+  }
+
+  updated(changedProperties) {
+    if (changedProperties.has('tenant')) {
+      this._lists = [];
+      this._listsLoading = false;
+      this._listTargets = [{
+        id: 'list-target-1',
+        listId: '',
+        status: '',
+        mode: 'add',
+        addedCount: 0,
+        items: [],
+        itemsLoading: false,
+        itemsError: '',
+        itemsListId: '',
+      }];
+      this._listTargetCounter = 1;
+      this.curateExploreRatingTargets = [{ id: 'rating-1', rating: '', count: 0 }];
+      this._curateExploreRatingNextId = 2;
+      this._curateExploreRatingDragTarget = null;
+      if (this.rightPanelTool === 'lists') {
+        this._ensureListsLoaded({ force: true });
+      }
+    }
+    if (changedProperties.has('rightPanelTool') && this.rightPanelTool === 'lists') {
+      this._ensureListsLoaded();
+    }
+  }
+
   async _fetchDropboxFolders(query) {
     if (!this.tenant) return;
     try {
@@ -415,6 +492,349 @@ export class CurateExploreTab extends LitElement {
       console.error('Error fetching Dropbox folders:', error);
       this.dropboxFolders = [];
     }
+  }
+
+  async _ensureListsLoaded({ force = false } = {}) {
+    if (!this.tenant) return;
+    if (this._listsLoading) return;
+    if (!force && this._lists.length) return;
+    this._listsLoading = true;
+    try {
+      this._lists = await getLists(this.tenant, { force });
+    } catch (error) {
+      console.error('Error fetching lists:', error);
+      this._lists = [];
+    } finally {
+      this._listsLoading = false;
+    }
+  }
+
+  _handleListTargetSelect(targetId, selectedValue) {
+    if (selectedValue === '__new__') {
+      this._startInlineListCreate(targetId);
+      return;
+    }
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? {
+            ...target,
+            listId: String(selectedValue),
+            status: '',
+            isCreating: false,
+            draftTitle: '',
+            error: '',
+            addedCount: 0,
+            items: [],
+            itemsError: '',
+            itemsListId: '',
+          }
+        : target
+    ));
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (target?.mode === 'view' && target.listId) {
+      this._fetchListTargetItems(targetId, target.listId, { force: true });
+    }
+  }
+
+  _buildNewListTitle() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+      `:${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    return `${stamp} new list`;
+  }
+
+  _isDuplicateListTitle(title) {
+    if (!title) return false;
+    const normalized = title.trim().toLowerCase();
+    return (this._lists || []).some(
+      (list) => (list.title || '').trim().toLowerCase() === normalized
+    );
+  }
+
+  _startInlineListCreate(targetId) {
+    const defaultTitle = this._buildNewListTitle();
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? {
+            ...target,
+            listId: '',
+            status: '',
+            isCreating: true,
+            draftTitle: defaultTitle,
+            error: '',
+            addedCount: 0,
+          }
+        : target
+    ));
+  }
+
+  _handleListTargetDraftChange(targetId, nextValue) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId ? { ...target, draftTitle: nextValue, error: '' } : target
+    ));
+  }
+
+  _handleListTargetCreateCancel(targetId) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId
+        ? { ...target, isCreating: false, draftTitle: '', error: '', status: '' }
+        : target
+    ));
+  }
+
+  _handleListTargetModeChange(targetId, mode) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const nextMode = target?.mode === mode ? 'add' : mode;
+    this._listTargets = this._listTargets.map((entry) => (
+      entry.id === targetId ? { ...entry, mode: nextMode } : entry
+    ));
+    if (nextMode === 'view' && target?.listId) {
+      this._fetchListTargetItems(targetId, target.listId);
+    }
+  }
+
+  _handleListTargetItemClick(event, targetId, index) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const items = target?.items || [];
+    if (!items.length) return;
+    const imageSet = items.map((item) => {
+      const photo = item?.photo || {};
+      const id = photo.id ?? item.photo_id ?? item.id;
+      return {
+        ...photo,
+        id,
+        thumbnail_url: photo.thumbnail_url || (id ? `/api/v1/images/${id}/thumbnail` : undefined),
+        filename: photo.filename || item?.filename || '',
+      };
+    }).filter((image) => image?.id);
+    const image = imageSet[index];
+    if (!image) return;
+    this.dispatchEvent(new CustomEvent('image-clicked', {
+      detail: { event, image, imageSet },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  async _handleListTargetCreateSave(targetId) {
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    const trimmedTitle = (target?.draftTitle || '').trim();
+    if (!trimmedTitle) {
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'List name cannot be empty.' } : entry
+      ));
+      return;
+    }
+    if (this._isDuplicateListTitle(trimmedTitle)) {
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'List name already exists.' } : entry
+      ));
+      return;
+    }
+    try {
+      const newList = await createList(this.tenant, { title: trimmedTitle, notebox: '' });
+      let resolvedId = newList?.id ?? newList?.list_id ?? newList?.listId ?? null;
+      if (newList && resolvedId !== null && resolvedId !== undefined) {
+        this._lists = [...(this._lists || []), newList];
+      } else {
+        await this._ensureListsLoaded({ force: true });
+      }
+      if (resolvedId === null || resolvedId === undefined) {
+        const match = (this._lists || []).find((list) => {
+          const title = (list.title || '').trim().toLowerCase();
+          return title === trimmedTitle.toLowerCase();
+        });
+        resolvedId = match?.id ?? match?.list_id ?? match?.listId ?? null;
+      }
+      if (resolvedId === null || resolvedId === undefined) {
+        this._listTargets = this._listTargets.map((entry) => (
+          entry.id === targetId
+            ? { ...entry, error: 'List created but could not select it.' }
+            : entry
+        ));
+        return;
+      }
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? {
+              ...entry,
+              listId: String(resolvedId),
+              status: '',
+              isCreating: false,
+              draftTitle: '',
+              error: '',
+              addedCount: 0,
+              items: [],
+              itemsError: '',
+              itemsListId: String(resolvedId),
+            }
+          : entry
+      ));
+      const updated = this._listTargets.find((entry) => entry.id === targetId);
+      if (updated?.mode === 'view') {
+        this._fetchListTargetItems(targetId, String(resolvedId), { force: true });
+      }
+    } catch (error) {
+      console.error('Error creating list:', error);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId ? { ...entry, error: 'Failed to create list.' } : entry
+      ));
+    }
+  }
+
+  _handleListTargetDragOver(targetId) {
+    this._listDragTargetId = targetId;
+  }
+
+  _handleListTargetDragLeave(targetId) {
+    if (this._listDragTargetId === targetId) {
+      this._listDragTargetId = null;
+    }
+  }
+
+  _handleListTargetDrop(event, targetId) {
+    if (this._listDragTargetId === targetId) {
+      this._listDragTargetId = null;
+    }
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (!target?.listId) {
+      this._updateListTargetStatus(targetId, 'Select a list first.');
+      return;
+    }
+    const ids = this._parseCurateDragIds(event);
+    if (!ids.length) {
+      this._updateListTargetStatus(targetId, 'No images found to add.');
+      return;
+    }
+    this._addImagesToListTarget(targetId, target.listId, ids);
+  }
+
+  _handleAddListTarget() {
+    const nextId = `list-target-${this._listTargetCounter + 1}`;
+    this._listTargetCounter += 1;
+    this._listTargets = [
+      ...this._listTargets,
+      {
+        id: nextId,
+        listId: '',
+        status: '',
+        mode: 'add',
+        addedCount: 0,
+        items: [],
+        itemsLoading: false,
+        itemsError: '',
+        itemsListId: '',
+      },
+    ];
+  }
+
+  _handleRemoveListTarget(targetId) {
+    if (this._listTargets.length <= 1) return;
+    this._listTargets = this._listTargets.filter((target) => target.id !== targetId);
+  }
+
+  _updateListTargetStatus(targetId, status) {
+    this._listTargets = this._listTargets.map((target) => (
+      target.id === targetId ? { ...target, status } : target
+    ));
+  }
+
+  async _fetchListTargetItems(targetId, listId, { force = false } = {}) {
+    if (!this.tenant || !listId) return;
+    const target = this._listTargets.find((entry) => entry.id === targetId);
+    if (!target || target.itemsLoading) return;
+    if (!force && target.itemsListId === String(listId) && (target.items || []).length) {
+      return;
+    }
+    this._listTargets = this._listTargets.map((entry) => (
+      entry.id === targetId
+        ? { ...entry, itemsLoading: true, itemsError: '' }
+        : entry
+    ));
+    try {
+      const items = await getListItems(this.tenant, listId);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? {
+              ...entry,
+              items: items || [],
+              itemsLoading: false,
+              itemsError: '',
+              itemsListId: String(listId),
+            }
+          : entry
+      ));
+    } catch (error) {
+      console.error('Error fetching list items:', error);
+      this._listTargets = this._listTargets.map((entry) => (
+        entry.id === targetId
+          ? { ...entry, itemsLoading: false, itemsError: 'Failed to load list items.' }
+          : entry
+      ));
+    }
+  }
+
+  async _addImagesToListTarget(targetId, listId, ids) {
+    const uniqueIds = [...new Set(ids)].filter((id) => Number.isFinite(Number(id)));
+    if (!uniqueIds.length) return;
+    this._updateListTargetStatus(
+      targetId,
+      `Queued ${uniqueIds.length} image${uniqueIds.length === 1 ? '' : 's'}.`
+    );
+    uniqueIds.forEach((id) => {
+      enqueueCommand({
+        type: 'add-to-list',
+        tenantId: this.tenant,
+        imageId: id,
+        listId,
+        description: `list · ${id} → ${listId}`,
+      });
+    });
+    this._lists = (this._lists || []).map((list) => {
+      if (String(list.id) !== String(listId)) return list;
+      const nextCount = Number.isFinite(list.item_count)
+        ? list.item_count + uniqueIds.length
+        : undefined;
+      return nextCount !== undefined ? { ...list, item_count: nextCount } : list;
+    });
+    this._listTargets = this._listTargets.map((entry) => {
+      if (entry.id !== targetId) return entry;
+      const nextItems = entry.itemsListId && String(entry.itemsListId) === String(listId)
+        ? [
+            ...(entry.items || []),
+            ...uniqueIds.map((id) => ({
+              photo_id: id,
+              photo: {
+                id,
+                thumbnail_url: `/api/v1/images/${id}/thumbnail`,
+              },
+            })),
+          ]
+        : entry.items;
+      return {
+        ...entry,
+        addedCount: (entry.addedCount || 0) + uniqueIds.length,
+        items: nextItems,
+      };
+    });
+  }
+
+  _parseCurateDragIds(event) {
+    const jsonData = event.dataTransfer?.getData('image-ids');
+    if (jsonData) {
+      try {
+        return JSON.parse(jsonData).map((value) => Number(value)).filter(Number.isFinite);
+      } catch {
+        return [];
+      }
+    }
+    const textData = event.dataTransfer?.getData('text/plain');
+    if (!textData) return [];
+    return textData
+      .split(',')
+      .map((value) => Number(value.trim()))
+      .filter(Number.isFinite);
   }
 
   _buildActiveFiltersFromSelection() {
@@ -512,33 +932,55 @@ export class CurateExploreTab extends LitElement {
   // Hotspot Handlers
   // ========================================
 
-  _handleCurateExploreRatingToggle(event) {
-    const enabled = event.target.checked;
-    this.dispatchEvent(new CustomEvent('hotspot-changed', {
-      detail: { type: 'rating-toggle', enabled },
-      bubbles: true,
-      composed: true
-    }));
-  }
-
-  _handleCurateExploreRatingDragOver(event) {
+  _handleCurateExploreRatingDragOver(event, targetId) {
     event.preventDefault();
-    this._curateExploreRatingDragTarget = true;
+    this._curateExploreRatingDragTarget = targetId;
   }
 
   _handleCurateExploreRatingDragLeave(event) {
-    this._curateExploreRatingDragTarget = false;
+    if (event && event.currentTarget !== event.target) return;
+    this._curateExploreRatingDragTarget = null;
   }
 
-  _handleCurateExploreRatingDrop(event) {
+  _handleCurateExploreRatingDrop(event, targetId) {
     event.preventDefault();
-    this._curateExploreRatingDragTarget = false;
+    this._curateExploreRatingDragTarget = null;
+    const target = (this.curateExploreRatingTargets || []).find((entry) => entry.id === targetId);
+    const rating = target?.rating ?? '';
+    const raw = event.dataTransfer?.getData('text/plain') || '';
+    const ids = raw
+      .split(',')
+      .map((value) => Number.parseInt(value.trim(), 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    if (ids.length && (rating !== '' || rating === 'prompt')) {
+      this.curateExploreRatingTargets = (this.curateExploreRatingTargets || []).map((entry) => (
+        entry.id === targetId ? { ...entry, count: (entry.count || 0) + ids.length } : entry
+      ));
+    }
 
     this.dispatchEvent(new CustomEvent('rating-drop', {
-      detail: { event },
+      detail: { event, rating },
       bubbles: true,
       composed: true
     }));
+  }
+
+  _handleCurateExploreRatingChange(event, targetId) {
+    this.curateExploreRatingTargets = (this.curateExploreRatingTargets || []).map((entry) => (
+      entry.id === targetId ? { ...entry, rating: event.detail.value, count: entry.count || 0 } : entry
+    ));
+  }
+
+  _handleCurateExploreRatingAddTarget() {
+    const nextId = `rating-${this._curateExploreRatingNextId++}`;
+    this.curateExploreRatingTargets = [
+      ...(this.curateExploreRatingTargets || []),
+      { id: nextId, rating: '', count: 0 },
+    ];
+  }
+
+  _handleCurateExploreRatingRemoveTarget(targetId) {
+    this.curateExploreRatingTargets = (this.curateExploreRatingTargets || []).filter((entry) => entry.id !== targetId);
   }
 
   _handleCurateExploreHotspotDragOver(event, targetId) {
@@ -647,13 +1089,12 @@ export class CurateExploreTab extends LitElement {
     const curateHasPrev = offset > 0;
     const curateHasMore = offset + limit < total;
     const activeFilters = this._buildActiveFiltersFromSelection();
-
     // Update left order for selection
     this._curateLeftOrder = leftImages.map(img => img.id);
 
     return html`
       <div>
-        <div class="curate-header-layout mb-4">
+        <div class="curate-header-layout search-header-layout">
           <div class="w-full">
             <filter-chips
               .tenant=${this.tenant}
@@ -695,7 +1136,7 @@ export class CurateExploreTab extends LitElement {
           <div></div>
         </div>
 
-        <div class="curate-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
+        <div class="curate-layout mt-4" style="--curate-thumb-size: ${this.thumbSize}px;">
           <div class="curate-pane">
               <div class="curate-pane-header" style="padding: 4px;">
                   ${renderResultsPagination({
@@ -755,120 +1196,59 @@ export class CurateExploreTab extends LitElement {
                   })}
               </div>
           </div>
-          <div class="curate-pane utility-targets">
-              <div class="curate-pane-header">
-                  <div class="curate-pane-header-row">
-                      <span>Hotspots</span>
-                      <div class="curate-rating-checkbox" style="margin-left: auto;">
-                          <input
-                              type="checkbox"
-                              id="rating-checkbox-explore"
-                              .checked=${this.curateExploreRatingEnabled}
-                              @change=${this._handleCurateExploreRatingToggle}
-                          />
-                          <label for="rating-checkbox-explore">Rating</label>
-                      </div>
-                  </div>
-              </div>
-              <div class="curate-pane-body">
-                ${this.curateExploreRatingEnabled ? html`
-                  <div
-                    class="curate-rating-drop-zone ${this._curateExploreRatingDragTarget ? 'active' : ''}"
-                    @dragover=${(event) => this._handleCurateExploreRatingDragOver(event)}
-                    @dragleave=${this._handleCurateExploreRatingDragLeave}
-                    @drop=${(event) => this._handleCurateExploreRatingDrop(event)}
-                  >
-                    <div class="curate-rating-drop-zone-star">⭐</div>
-                    <div class="curate-rating-drop-zone-content">
-                      <div class="curate-rating-drop-hint">Drop to rate</div>
-                      <div class="curate-rating-count">${this.curateExploreRatingCount || 0} rated</div>
-                    </div>
-                  </div>
-                ` : html``}
-                <div class="curate-utility-panel">
-                  ${(this.curateExploreTargets || []).map((target) => {
-                    const isFirstTarget = (this.curateExploreTargets?.[0]?.id === target.id);
-                    const isRating = target.type === 'rating';
-                    const selectedValue = target.keyword
-                      ? `${encodeURIComponent(target.category || 'Uncategorized')}::${encodeURIComponent(target.keyword)}`
-                      : '';
-                    return html`
-                      <div
-                        class="curate-utility-box ${this._curateExploreHotspotDragTarget === target.id ? 'active' : ''}"
-                        @dragover=${(event) => this._handleCurateExploreHotspotDragOver(event, target.id)}
-                        @dragleave=${this._handleCurateExploreHotspotDragLeave}
-                        @drop=${(event) => this._handleCurateExploreHotspotDrop(event, target.id)}
-                      >
-                        <div class="curate-utility-controls">
-                          <select
-                            class="curate-utility-type-select"
-                            .value=${target.type || 'keyword'}
-                            @change=${(event) => this._handleCurateExploreHotspotTypeChange(event, target.id)}
-                          >
-                            <option value="keyword">Keyword</option>
-                            <option value="rating">Rating</option>
-                          </select>
-                          ${isRating ? html`
-                            <select
-                              class="curate-utility-select"
-                              .value=${target.rating ?? ''}
-                              @change=${(event) => this._handleCurateExploreHotspotRatingChange(event, target.id)}
-                            >
-                              <option value="">Select rating…</option>
-                              <option value="0">🗑️ Garbage</option>
-                              <option value="1">⭐ 1 Star</option>
-                              <option value="2">⭐⭐ 2 Stars</option>
-                              <option value="3">⭐⭐⭐ 3 Stars</option>
-                            </select>
-                          ` : html`
-                            <select
-                              class="curate-utility-select ${selectedValue ? 'selected' : ''}"
-                              .value=${selectedValue}
-                              @change=${(event) => this._handleCurateExploreHotspotKeywordChange(event, target.id)}
-                            >
-                              <option value="">Select keyword…</option>
-                              ${this._getKeywordsByCategory().map(([category, keywords]) => html`
-                                <optgroup label="${category}">
-                                  ${keywords.map((kw) => html`
-                                    <option value=${`${encodeURIComponent(category)}::${encodeURIComponent(kw.keyword)}`}>
-                                      ${kw.keyword}
-                                    </option>
-                                  `)}
-                                </optgroup>
-                              `)}
-                            </select>
-                            <select
-                              class="curate-utility-action"
-                              .value=${target.action || 'add'}
-                              @change=${(event) => this._handleCurateExploreHotspotActionChange(event, target.id)}
-                            >
-                              <option value="add">Add</option>
-                              <option value="remove">Remove</option>
-                            </select>
-                          `}
-                        </div>
-                        ${!isFirstTarget ? html`
-                          <button
-                            type="button"
-                            class="curate-utility-remove"
-                            title="Remove box"
-                            @click=${() => this._handleCurateExploreHotspotRemoveTarget(target.id)}
-                          >
-                            ×
-                          </button>
-                        ` : html``}
-                        <div class="curate-utility-count">${target.count || 0}</div>
-                        <div class="curate-utility-drop-hint">Drop images here</div>
-                      </div>
-                    `;
-                  })}
-                  <button class="curate-utility-add" @click=${this._handleCurateExploreHotspotAddTarget}>
-                    +
-                  </button>
-                </div>
-                </div>
-              </div>
-          </div>
+          <right-panel
+            .tools=${[
+              { id: 'tags', label: 'Tags' },
+              { id: 'lists', label: 'Lists' },
+              { id: 'ratings', label: 'Ratings' },
+            ]}
+            .activeTool=${this.rightPanelTool}
+            @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
+          >
+            <hotspot-targets-panel
+              slot="tool-tags"
+              mode="tags"
+              .targets=${this.curateExploreTargets}
+              .keywordsByCategory=${this._getKeywordsByCategory()}
+              .dragTargetId=${this._curateExploreHotspotDragTarget}
+              @hotspot-keyword-change=${(event) => this._handleCurateExploreHotspotKeywordChange({ target: { value: event.detail.value } }, event.detail.targetId)}
+              @hotspot-action-change=${(event) => this._handleCurateExploreHotspotActionChange({ target: { value: event.detail.value } }, event.detail.targetId)}
+              @hotspot-add=${this._handleCurateExploreHotspotAddTarget}
+              @hotspot-remove=${(event) => this._handleCurateExploreHotspotRemoveTarget(event.detail.targetId)}
+              @hotspot-dragover=${(event) => this._handleCurateExploreHotspotDragOver(event.detail.event, event.detail.targetId)}
+              @hotspot-dragleave=${this._handleCurateExploreHotspotDragLeave}
+              @hotspot-drop=${(event) => this._handleCurateExploreHotspotDrop(event.detail.event, event.detail.targetId)}
+            ></hotspot-targets-panel>
+            <list-targets-panel
+              slot="tool-lists"
+              .listsLoading=${this._listsLoading}
+              .listTargets=${this._listTargets}
+              .lists=${this._lists}
+              .listDragTargetId=${this._listDragTargetId}
+              @list-target-select=${(event) => this._handleListTargetSelect(event.detail.targetId, event.detail.value)}
+              @list-target-remove=${(event) => this._handleRemoveListTarget(event.detail.targetId)}
+              @list-target-mode=${(event) => this._handleListTargetModeChange(event.detail.targetId, event.detail.mode)}
+              @list-target-draft-change=${(event) => this._handleListTargetDraftChange(event.detail.targetId, event.detail.value)}
+              @list-target-create-save=${(event) => this._handleListTargetCreateSave(event.detail.targetId)}
+              @list-target-create-cancel=${(event) => this._handleListTargetCreateCancel(event.detail.targetId)}
+              @list-target-dragover=${(event) => this._handleListTargetDragOver(event.detail.targetId)}
+              @list-target-dragleave=${(event) => this._handleListTargetDragLeave(event.detail.targetId)}
+              @list-target-drop=${(event) => this._handleListTargetDrop(event.detail.event, event.detail.targetId)}
+              @list-target-item-click=${(event) => this._handleListTargetItemClick(event.detail.event, event.detail.targetId, event.detail.index)}
+              @list-target-add=${this._handleAddListTarget}
+            ></list-targets-panel>
+            <rating-target-panel
+              slot="tool-ratings"
+              .targets=${this.curateExploreRatingTargets}
+              .dragTargetId=${this._curateExploreRatingDragTarget}
+              @rating-change=${(event) => this._handleCurateExploreRatingChange(event, event.detail.targetId)}
+              @rating-add=${this._handleCurateExploreRatingAddTarget}
+              @rating-remove=${(event) => this._handleCurateExploreRatingRemoveTarget(event.detail.targetId)}
+              @rating-dragover=${(event) => this._handleCurateExploreRatingDragOver(event.detail.event, event.detail.targetId)}
+              @rating-dragleave=${(event) => this._handleCurateExploreRatingDragLeave(event.detail.event)}
+              @rating-drop=${(event) => this._handleCurateExploreRatingDrop(event.detail.event, event.detail.targetId)}
+            ></rating-target-panel>
+          </right-panel>
         </div>
       </div>
     `;

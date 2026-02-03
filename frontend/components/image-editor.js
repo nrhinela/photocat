@@ -633,6 +633,12 @@ class ImageEditor extends LitElement {
     this.fullImageUrl = '';
     this.fullImageLoading = false;
     this.fullImageError = '';
+    this._fullImageAbortController = null;
+    this._fullImageLoadTimer = null;
+    this._fullImageLoadDelayMs = 0;
+    this._fullImageRapidDelayMs = 120;
+    this._fullImageRapidThresholdMs = 200;
+    this._fullImageLastNavTs = 0;
     this.ratingSaving = false;
     this.ratingError = '';
     this.metadataRefreshing = false;
@@ -710,7 +716,7 @@ class ImageEditor extends LitElement {
     }
     if (changedProperties.has('details')) {
       this._syncTagSubTab();
-      this._loadFullImage();
+      this._scheduleFullImageLoad();
     }
     if (changedProperties.has('open') && !this.open && !this.embedded) {
       this._resetFullImage();
@@ -804,6 +810,7 @@ class ImageEditor extends LitElement {
   }
 
   _resetFullImage() {
+    this._cancelFullImageLoad();
     if (this.fullImageUrl) {
       URL.revokeObjectURL(this.fullImageUrl);
     }
@@ -812,18 +819,63 @@ class ImageEditor extends LitElement {
     this.fullImageError = '';
   }
 
+  _cancelFullImageLoad() {
+    if (this._fullImageLoadTimer) {
+      clearTimeout(this._fullImageLoadTimer);
+      this._fullImageLoadTimer = null;
+    }
+    if (this._fullImageAbortController) {
+      this._fullImageAbortController.abort();
+      this._fullImageAbortController = null;
+    }
+  }
+
+  _scheduleFullImageLoad() {
+    if (!this.details || !this.tenant) return;
+    if (!this.open && !this.embedded) return;
+    if (this.fullImageUrl || this.fullImageLoading) return;
+    this._cancelFullImageLoad();
+    const now = Date.now();
+    const delta = now - (this._fullImageLastNavTs || 0);
+    this._fullImageLastNavTs = now;
+    const delay = delta < this._fullImageRapidThresholdMs
+      ? this._fullImageRapidDelayMs
+      : this._fullImageLoadDelayMs;
+    if (!delay) {
+      this._loadFullImage();
+      return;
+    }
+    this._fullImageLoadTimer = setTimeout(() => {
+      this._fullImageLoadTimer = null;
+      this._loadFullImage();
+    }, delay);
+  }
+
   async _loadFullImage() {
     if (!this.details || !this.tenant) return;
     if (this.fullImageUrl || this.fullImageLoading) return;
+    this._cancelFullImageLoad();
     this.fullImageLoading = true;
     this.fullImageError = '';
+    const imageId = this.details.id;
+    const controller = new AbortController();
+    this._fullImageAbortController = controller;
     try {
-      const blob = await getFullImage(this.tenant, this.details.id);
+      const blob = await getFullImage(this.tenant, imageId, { signal: controller.signal });
+      if (controller.signal.aborted || this.details?.id !== imageId) {
+        return;
+      }
       this.fullImageUrl = URL.createObjectURL(blob);
     } catch (error) {
+      if (error?.name === 'AbortError') {
+        return;
+      }
       this.fullImageError = 'Failed to load full-size image.';
       console.error('ImageEditor: full image load failed', error);
     } finally {
+      if (this._fullImageAbortController === controller) {
+        this._fullImageAbortController = null;
+      }
       this.fullImageLoading = false;
     }
   }

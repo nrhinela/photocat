@@ -1,7 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
 import { getLists, createList, updateList, deleteList, getListItems, deleteListItem, fetchWithAuth } from '../services/api.js';
-import './shared/widgets/image-card.js';
 
 class ListEditor extends LitElement {
   static styles = [tailwind, css`
@@ -46,6 +45,19 @@ class ListEditor extends LitElement {
       height: 2.5rem;
       margin-bottom: 0.5rem;
     }
+    .list-items-grid {
+      --curate-thumb-size: 160px;
+      gap: 12px;
+    }
+    .list-items-grid .curate-thumb {
+      cursor: pointer;
+    }
+    .list-item-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
   `];
 
   static properties = {
@@ -58,6 +70,8 @@ class ListEditor extends LitElement {
     isDownloading: { type: Boolean },
     isLoadingItems: { type: Boolean },
     isLoadingLists: { type: Boolean },
+    listSortKey: { type: String },
+    listSortDir: { type: String },
   };
 
   constructor() {
@@ -70,6 +84,8 @@ class ListEditor extends LitElement {
     this.isDownloading = false;
     this.isLoadingItems = false;
     this.isLoadingLists = false;
+    this.listSortKey = 'id';
+    this.listSortDir = 'asc';
     this._isVisible = false;
     this._hasRefreshedOnce = false;
   }
@@ -167,6 +183,12 @@ class ListEditor extends LitElement {
     }
   }
 
+  _closeListView() {
+    this.selectedList = null;
+    this.listItems = [];
+    this.editingSelectedList = false;
+  }
+
   async _removeListItem(itemId) {
     try {
       await deleteListItem(this.tenant, itemId);
@@ -177,6 +199,20 @@ class ListEditor extends LitElement {
     } catch (error) {
       console.error('Error deleting list item:', error);
     }
+  }
+
+  _handleListItemImageSelected(event, image) {
+    event.stopPropagation();
+    const selectedImage = event?.detail?.image || image;
+    if (!selectedImage) return;
+    const imageSet = (this.listItems || [])
+      .map((item) => item?.image)
+      .filter(Boolean);
+    this.dispatchEvent(new CustomEvent('image-selected', {
+      detail: { image: selectedImage, imageSet },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   async _deleteList(list) {
@@ -372,9 +408,63 @@ class ListEditor extends LitElement {
     }
   }
 
+  _handleListSort(key) {
+    if (!key) return;
+    if (this.listSortKey === key) {
+      this.listSortDir = this.listSortDir === 'asc' ? 'desc' : 'asc';
+      return;
+    }
+    this.listSortKey = key;
+    this.listSortDir = 'asc';
+  }
+
+  _getSortedLists() {
+    const lists = Array.isArray(this.lists) ? [...this.lists] : [];
+    const key = this.listSortKey || 'id';
+    const dir = this.listSortDir === 'desc' ? -1 : 1;
+    const normalize = (value) => {
+      if (value === null || value === undefined) return '';
+      return String(value).toLowerCase();
+    };
+    lists.sort((a, b) => {
+      let left = '';
+      let right = '';
+      if (key === 'id') {
+        left = Number(a.id) || 0;
+        right = Number(b.id) || 0;
+      } else if (key === 'item_count') {
+        left = Number(a.item_count) || 0;
+        right = Number(b.item_count) || 0;
+      } else if (key === 'created_at') {
+        left = new Date(a.created_at).getTime() || 0;
+        right = new Date(b.created_at).getTime() || 0;
+      } else if (key === 'title') {
+        left = normalize(a.title);
+        right = normalize(b.title);
+      } else if (key === 'created_by_name') {
+        left = normalize(a.created_by_name);
+        right = normalize(b.created_by_name);
+      } else if (key === 'notebox') {
+        left = normalize(a.notebox);
+        right = normalize(b.notebox);
+      }
+      if (left < right) return -1 * dir;
+      if (left > right) return 1 * dir;
+      return 0;
+    });
+    return lists;
+  }
+
+  _renderSortLabel(label, key) {
+    const isActive = this.listSortKey === key;
+    const arrow = isActive ? (this.listSortDir === 'asc' ? '↑' : '↓') : '';
+    return html`${label} ${arrow}`;
+  }
+
   render() {
     // Check visibility on each render to detect when tab becomes active
     this._checkVisibility();
+    const sortedLists = this._getSortedLists();
 
     return html`
       <div class="p-4">
@@ -400,44 +490,10 @@ class ListEditor extends LitElement {
               </button>
             </div>
         </div>
-        ${this.lists.length === 0
-          ? html`<p class="text-base text-gray-600">No lists found.</p>`
-          : html`
-            <table class="min-w-full bg-white border border-gray-300">
-              <thead>
-                <tr class="bg-gray-50">
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Title</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Item Count</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Created At</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Author</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Notes</th>
-                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${this.lists.map(list => html`
-                  <tr class="hover:bg-gray-50 border-b">
-                    <td class="py-2 px-4 text-xs text-gray-900">${list.title}</td>
-                    <td class="py-2 px-4 text-center text-xs text-gray-700">${list.item_count}</td>
-                    <td class="py-2 px-4 text-xs text-gray-700">${new Date(list.created_at).toLocaleDateString()}</td>
-                    <td class="py-2 px-4 text-xs text-gray-600">${list.created_by_name || '—'}</td>
-                    <td class="py-2 px-4 text-xs text-gray-600">${list.notebox || '—'}</td>
-                    <td class="py-2 px-4 text-left">
-                      <button @click=${() => this._selectList(list)} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 mr-2">Edit</button>
-                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700">Delete</button>
-                    </td>
-                  </tr>
-                `)}
-              </tbody>
-            </table>
-          `}
-      </div>
-
-      ${this.selectedList ? html`
-        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg shadow-lg w-full max-w-4xl mx-4 max-h-90vh overflow-auto p-6">
+        ${this.selectedList ? html`
+          <div class="mb-6">
+            <button @click=${this._closeListView} class="text-xs text-blue-600 hover:underline mb-4">← Back to lists</button>
             ${this.isLoadingItems ? html`
-              <!-- Skeleton Loading State -->
               <div class="flex justify-between items-start mb-6">
                 <div class="flex-1">
                   <div class="skeleton skeleton-title w-1/3 mb-2"></div>
@@ -450,31 +506,13 @@ class ListEditor extends LitElement {
                 <div class="flex gap-2">
                   <div class="skeleton skeleton-text w-20"></div>
                   <div class="skeleton skeleton-text w-16"></div>
-                  <div class="skeleton skeleton-text w-8"></div>
                 </div>
-              </div>
-
-              <div class="skeleton skeleton-text w-32 mb-4"></div>
-
-              <div class="border border-gray-300 rounded overflow-hidden">
-                <div class="bg-gray-50 border-b border-gray-300 px-4 py-2 flex gap-4">
-                  <div class="skeleton skeleton-text w-1/2"></div>
-                  <div class="skeleton skeleton-text w-1/4"></div>
-                </div>
-                ${[...Array(5)].map(() => html`
-                  <div class="border-b border-gray-200 px-4 py-3 flex gap-4">
-                    <div class="skeleton skeleton-text w-1/2"></div>
-                    <div class="skeleton skeleton-text w-1/4"></div>
-                  </div>
-                `)}
               </div>
             ` : html`
-              <!-- Loaded Content -->
               <div class="flex justify-between items-start mb-6">
                 <div class="flex-1">
                   <h3 class="text-2xl font-bold text-gray-900 mb-1">${this.selectedList.title}</h3>
-                  <p class="text-base text-gray-600 mb-2">${this.selectedList.notebox || 'No notes.'}</p>
-                  <div class="flex gap-4 text-xs text-gray-600 mb-4">
+                  <div class="flex gap-4 text-xs text-gray-600 mb-2">
                     <div>
                       <span class="font-semibold">Author:</span> ${this.selectedList.created_by_name || 'Unknown'}
                     </div>
@@ -482,6 +520,9 @@ class ListEditor extends LitElement {
                       <span class="font-semibold">Created:</span> ${new Date(this.selectedList.created_at).toLocaleDateString()}
                     </div>
                   </div>
+                  ${this.selectedList.notebox ? html`
+                    <p class="text-sm text-gray-600">${this.selectedList.notebox}</p>
+                  ` : html``}
                 </div>
                 <div class="flex gap-2">
                   <button @click=${this._downloadListImages} ?disabled=${this.isDownloading} class="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
@@ -489,34 +530,103 @@ class ListEditor extends LitElement {
                     Download
                   </button>
                   <button @click=${this._startEditingSelectedList} class="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700">Edit</button>
-                  <button @click=${() => { this.selectedList = null; this.listItems = []; this.editingSelectedList = false; }} class="text-gray-500 hover:text-gray-700 text-2xl">×</button>
                 </div>
               </div>
 
-              <h4 class="text-sm font-semibold text-gray-900 mb-4">List Items (${this.listItems.length})</h4>
-
+              <div class="text-xs font-semibold text-gray-700 mb-3">List Items (${this.listItems.length})</div>
               ${this.listItems.length === 0 ? html`
                 <p class="text-base text-gray-500">No items in this list yet.</p>
               ` : html`
-                <div class="border border-gray-300 rounded overflow-hidden">
-                  <div class="divide-y divide-gray-300 overflow-x-auto">
-                    ${this.listItems.map(item => {
-                      const encodedPath = item.image.dropbox_path.split('/').map(part => encodeURIComponent(part)).join('/');
-                      const dropboxUrl = `https://www.dropbox.com/home${encodedPath}`;
-                      return html`
-                        <div class="px-4 py-3 hover:bg-gray-50 whitespace-nowrap">
-                          <a href="${dropboxUrl}" target="dropbox" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-700 underline text-xs">${dropboxUrl}</a>
+                <div class="curate-grid list-items-grid">
+                  ${this.listItems.map((item) => {
+                    const photo = item.image || item.photo || {};
+                    const imageId = photo.id ?? item.photo_id ?? item.id;
+                    const addedAt = item.added_at ? new Date(item.added_at).toLocaleString() : '';
+                    return html`
+                      <div class="flex flex-col gap-2">
+                        <div
+                          class="curate-thumb-wrapper"
+                          data-image-id=${imageId || ''}
+                          @click=${(event) => this._handleListItemImageSelected(event, photo)}
+                        >
+                          <img
+                            src="${photo.thumbnail_url || `/api/v1/images/${imageId}/thumbnail`}"
+                            alt="${photo.filename || ''}"
+                            class="curate-thumb"
+                            loading="lazy"
+                            @click=${(event) => this._handleListItemImageSelected(event, photo)}
+                          >
                         </div>
-                      `;
-                    })}
-                  </div>
+                        <div class="text-xs font-semibold text-gray-900 truncate">${photo.filename || `#${imageId}`}</div>
+                        <div class="list-item-meta">
+                          <div class="text-[11px] text-gray-500">${addedAt ? `Added: ${addedAt}` : ''}</div>
+                          <button @click=${() => this._removeListItem(item.id)} class="text-xs text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50">Remove</button>
+                        </div>
+                      </div>
+                    `;
+                  })}
                 </div>
               `}
             `}
-
           </div>
-        </div>
-      ` : ''}
+        ` : (this.lists.length === 0
+          ? html`<p class="text-base text-gray-600">No lists found.</p>`
+          : html`
+            <table class="min-w-full bg-white border border-gray-300">
+              <thead>
+                <tr class="bg-gray-50">
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('id')}>
+                      ${this._renderSortLabel('ID', 'id')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('title')}>
+                      ${this._renderSortLabel('Title', 'title')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('item_count')}>
+                      ${this._renderSortLabel('Item Count', 'item_count')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('created_at')}>
+                      ${this._renderSortLabel('Created At', 'created_at')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('created_by_name')}>
+                      ${this._renderSortLabel('Author', 'created_by_name')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">
+                    <button class="hover:underline" @click=${() => this._handleListSort('notebox')}>
+                      ${this._renderSortLabel('Notes', 'notebox')}
+                    </button>
+                  </th>
+                  <th class="py-2 px-4 border-b left-justified-header text-xs font-semibold text-gray-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedLists.map(list => html`
+                  <tr class="hover:bg-gray-50 border-b">
+                    <td class="py-2 px-4 text-xs text-gray-700">${list.id}</td>
+                    <td class="py-2 px-4 text-xs text-gray-900">${list.title}</td>
+                    <td class="py-2 px-4 text-center text-xs text-gray-700">${list.item_count}</td>
+                    <td class="py-2 px-4 text-xs text-gray-700">${new Date(list.created_at).toLocaleDateString()}</td>
+                    <td class="py-2 px-4 text-xs text-gray-600">${list.created_by_name || '—'}</td>
+                    <td class="py-2 px-4 text-xs text-gray-600">${list.notebox || '—'}</td>
+                    <td class="py-2 px-4 text-left">
+                      <button @click=${() => this._selectList(list)} class="bg-slate-900 text-white px-3 py-1 rounded text-xs hover:bg-slate-800 mr-2">View</button>
+                      <button @click=${() => this._deleteList(list)} class="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700">Delete</button>
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          `)}
+      </div>
 
       ${this.editingSelectedList && this.selectedList ? html`
         <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

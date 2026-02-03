@@ -643,7 +643,11 @@ export class CurateAuditTab extends LitElement {
     const limit = this.limit ?? 100;
     const total = this.total ?? 0;
     const paginationTotal = this.loadAll ? leftImages.length : total;
-    const leftLabel = this.keyword ? `Images with "${this.keyword}"` : 'Select a keyword';
+    const leftLabel = this.keyword
+      ? (this.mode === 'missing'
+        ? `Possible matches for "${this.keyword}"`
+        : `Images with "${this.keyword}"`)
+      : 'Select a keyword';
     const activeFilters = this._buildActiveFilters();
 
     // Update left order for selection
@@ -651,7 +655,7 @@ export class CurateAuditTab extends LitElement {
 
     return html`
       <div>
-        <div class="curate-header-layout mb-4">
+        <div class="curate-header-layout search-header-layout mb-4">
           <div class="w-full">
             <filter-chips
               .tenant=${this.tenant}
@@ -664,7 +668,6 @@ export class CurateAuditTab extends LitElement {
               @folder-search=${this._handleAuditDropboxInput}
             ></filter-chips>
           </div>
-          <div></div>
         </div>
 
         ${this.keyword ? html`
@@ -675,9 +678,8 @@ export class CurateAuditTab extends LitElement {
 
         ${this.keyword ? html`
           <div class="bg-white rounded-lg shadow p-4 mb-4">
-            <div class="flex flex-wrap items-start gap-4">
+            <div class="flex flex-wrap items-center gap-4">
               <div>
-                <div class="text-xs font-semibold text-gray-600 mb-1">Audit mode</div>
                 <div class="curate-audit-toggle">
                   <button
                     class=${this.mode === 'existing' ? 'active' : ''}
@@ -695,8 +697,7 @@ export class CurateAuditTab extends LitElement {
               </div>
               ${this.mode === 'missing' ? html`
                 <div>
-                  <div class="text-xs font-semibold text-gray-600 mb-1">Find with AI</div>
-                  <div class="curate-ai-toggle text-xs text-gray-600">
+                  <div class="curate-ai-toggle text-xs text-gray-600 flex items-center">
                     <label class="inline-flex items-center gap-2">
                       <input
                         type="checkbox"
@@ -704,7 +705,7 @@ export class CurateAuditTab extends LitElement {
                         .checked=${this.aiEnabled}
                         @change=${this._handleAiEnabledChange}
                       >
-                      <span>Enable</span>
+                      <span>Find with AI</span>
                     </label>
                     ${this.aiEnabled ? html`
                       <div class="flex items-center gap-2">
