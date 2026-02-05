@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, ForeignKey, Index
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY, UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.compiler import compiles
@@ -187,7 +187,7 @@ class Permatag(Base):
     signum = Column(Integer, nullable=False)  # -1 = rejected, 1 = approved
 
     created_at = Column(DateTime, default=datetime.utcnow)
-    created_by = Column(String(255))  # Optional: track who approved/rejected
+    created_by = Column(UUID(as_uuid=True), ForeignKey("user_profiles.supabase_uid", ondelete="SET NULL"), nullable=True)
 
     # Relationships
     image = relationship("ImageMetadata", back_populates="permatags")
@@ -199,6 +199,7 @@ class Permatag(Base):
         Index("idx_permatag_keyword_id", "keyword_id"),
         Index("idx_permatag_image_keyword_signum", "image_id", "keyword_id", "signum"),
         Index("idx_permatag_tenant_keyword_signum_image", "tenant_id", "keyword_id", "signum", "image_id"),
+        Index("idx_permatag_created_by", "created_by"),
     )
 
 

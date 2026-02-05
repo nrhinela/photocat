@@ -13,6 +13,8 @@ from photocat.models.config import Keyword, KeywordCategory
 from photocat.tagging import calculate_tags
 from photocat.config.db_config import ConfigManager
 from photocat.config.db_utils import load_keywords_map
+from photocat.auth.dependencies import get_optional_user
+from photocat.auth.models import UserProfile
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
@@ -78,7 +80,8 @@ async def add_permatag(
     image_id: int,
     request: Request,
     tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserProfile | None = Depends(get_optional_user)
 ):
     """Add or update a permatag for an image."""
     body = await request.json()
@@ -119,6 +122,8 @@ async def add_permatag(
         # Update existing permatag
         existing.signum = signum
         existing.created_at = datetime.utcnow()
+        if current_user:
+            existing.created_by = current_user.supabase_uid
         permatag = existing
     else:
         # Create new permatag
@@ -127,7 +132,7 @@ async def add_permatag(
             tenant_id=tenant.id,
             keyword_id=keyword.id,
             signum=signum,
-            created_by=None  # Could be set from auth header if available
+            created_by=current_user.supabase_uid if current_user else None
         )
         db.add(permatag)
 
@@ -150,7 +155,8 @@ async def add_permatag(
 async def bulk_permatags(
     payload: dict = Body(...),
     tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserProfile | None = Depends(get_optional_user)
 ):
     """Bulk add/update permatags for multiple images."""
     operations = payload.get("operations") if isinstance(payload, dict) else None
@@ -237,6 +243,8 @@ async def bulk_permatags(
         if existing:
             existing.signum = op["signum"]
             existing.created_at = now
+            if current_user:
+                existing.created_by = current_user.supabase_uid
             updated += 1
         else:
             permatag = Permatag(
@@ -244,7 +252,7 @@ async def bulk_permatags(
                 tenant_id=tenant.id,
                 keyword_id=keyword_id,
                 signum=op["signum"],
-                created_by=None
+                created_by=current_user.supabase_uid if current_user else None
             )
             db.add(permatag)
             created += 1
@@ -295,7 +303,8 @@ async def delete_permatag(
 async def accept_all_tags(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserProfile | None = Depends(get_optional_user)
 ):
     """Accept all current tags as positive permatags and create negative permatags for all other keywords."""
     image = db.query(ImageMetadata).filter_by(
@@ -339,7 +348,8 @@ async def accept_all_tags(
             image_id=image_id,
             tenant_id=tenant.id,
             keyword_id=tag.keyword_id,
-            signum=1
+            signum=1,
+            created_by=current_user.supabase_uid if current_user else None
         )
         db.add(permatag)
 
@@ -350,7 +360,8 @@ async def accept_all_tags(
                 image_id=image_id,
                 tenant_id=tenant.id,
                 keyword_id=keyword_id,
-                signum=-1
+                signum=-1,
+                created_by=current_user.supabase_uid if current_user else None
             )
             db.add(permatag)
 
@@ -371,7 +382,8 @@ async def accept_all_tags(
 async def freeze_permatags(
     image_id: int,
     tenant: Tenant = Depends(get_tenant),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserProfile | None = Depends(get_optional_user)
 ):
     """Create permatags for all keywords without existing permatags."""
     image = db.query(ImageMetadata).filter_by(
@@ -413,7 +425,7 @@ async def freeze_permatags(
             tenant_id=tenant.id,
             keyword_id=keyword_id,
             signum=signum,
-            created_by=None
+            created_by=current_user.supabase_uid if current_user else None
         )
         db.add(permatag)
         if signum == 1:
