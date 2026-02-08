@@ -11,6 +11,9 @@ Optional behavior:
 - --copy-sources: copy local/gcp source objects to:
   tenants/{tenant_id}/assets/{asset_id}/{filename}
   and update assets.source_key.
+- --only-missing-thumbnails: process only missing/legacy thumbnail keys.
+- --generate-missing-thumbnails: generate thumbnails from local/gcp source objects
+  when no legacy thumbnail object is available.
 """
 
 from __future__ import annotations
@@ -21,11 +24,13 @@ from typing import Dict, Iterable, Optional, Tuple
 
 from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import storage
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import photocat.auth.models  # noqa: F401  # Ensure user_profiles table is registered
 from photocat.database import SessionLocal
-from photocat.metadata import Asset, ImageMetadata, Tenant as TenantModel
+from photocat.image import ImageProcessor
+from photocat.metadata import Asset, Tenant as TenantModel
 from photocat.settings import settings
 from photocat.tenant import Tenant as TenantCtx
 
@@ -34,10 +39,13 @@ from photocat.tenant import Tenant as TenantCtx
 class CopyStats:
     processed: int = 0
     already_canonical: int = 0
+    canonical_exists_adopted: int = 0
     copied: int = 0
+    generated: int = 0
     destination_exists: int = 0
     source_missing: int = 0
     skipped_no_source: int = 0
+    skipped_unsupported_provider: int = 0
     skipped_no_asset: int = 0
     updated_rows: int = 0
     errors: int = 0
@@ -73,6 +81,16 @@ def parse_args() -> argparse.Namespace:
         help="Optional source bucket for legacy thumbnails (defaults to tenant thumbnail bucket).",
     )
     parser.add_argument(
+        "--only-missing-thumbnails",
+        action="store_true",
+        help="Only process assets with missing/legacy thumbnail_key values.",
+    )
+    parser.add_argument(
+        "--generate-missing-thumbnails",
+        action="store_true",
+        help="Generate thumbnails from source objects for missing/legacy thumbnail keys (local/gcp only).",
+    )
+    parser.add_argument(
         "--storage-source-bucket",
         help="Optional source bucket for legacy source objects (defaults to tenant storage bucket).",
     )
@@ -97,6 +115,11 @@ def choose_thumbnail_source_key(asset: Asset, dest_key: str) -> Optional[str]:
         if candidate and candidate != dest_key and not candidate.startswith("legacy:"):
             return candidate
     return None
+
+
+def has_missing_or_legacy_thumbnail_key(key: Optional[str]) -> bool:
+    key_norm = (key or "").strip()
+    return (not key_norm) or key_norm.startswith("legacy:")
 
 
 def copy_object(
@@ -138,6 +161,45 @@ def copy_object(
         return "error", str(exc)
 
 
+def object_exists(bucket: storage.Bucket, key: str) -> bool:
+    try:
+        return bucket.blob(key).exists()
+    except Exception:
+        return False
+
+
+def generate_thumbnail_from_source_object(
+    *,
+    source_bucket: storage.Bucket,
+    destination_bucket: storage.Bucket,
+    source_key: str,
+    destination_key: str,
+    dry_run: bool,
+) -> Tuple[str, Optional[str]]:
+    """Return status in {'generated','source_missing','error'}."""
+    try:
+        source_blob = source_bucket.blob(source_key)
+        if not source_blob.exists():
+            return "source_missing", None
+
+        if dry_run:
+            return "generated", None
+
+        image_bytes = source_blob.download_as_bytes()
+        processor = ImageProcessor(thumbnail_size=(settings.thumbnail_size, settings.thumbnail_size))
+        image = processor.load_image(image_bytes)
+        thumbnail_bytes = processor.create_thumbnail(image)
+
+        destination_blob = destination_bucket.blob(destination_key)
+        destination_blob.cache_control = "public, max-age=31536000, immutable"
+        destination_blob.upload_from_string(thumbnail_bytes, content_type="image/jpeg")
+        return "generated", None
+    except NotFound:
+        return "source_missing", None
+    except Exception as exc:  # pragma: no cover - remote API behavior
+        return "error", str(exc)
+
+
 def load_tenant_ctx(session: Session, tenant_id: str) -> TenantCtx:
     row = session.query(TenantModel).filter(TenantModel.id == tenant_id).first()
     if not row:
@@ -151,9 +213,15 @@ def load_tenant_ctx(session: Session, tenant_id: str) -> TenantCtx:
     )
 
 
-def iter_thumbnail_rows(session: Session, tenant_id: Optional[str], batch_size: int, limit: Optional[int]):
+def iter_thumbnail_assets(
+    session: Session,
+    tenant_id: Optional[str],
+    batch_size: int,
+    limit: Optional[int],
+    only_missing_thumbnails: bool,
+):
     processed = 0
-    last_id: Optional[int] = None
+    last_id: Optional[str] = None
     while True:
         remaining = None
         if limit is not None:
@@ -162,20 +230,25 @@ def iter_thumbnail_rows(session: Session, tenant_id: Optional[str], batch_size: 
                 return
         current_limit = batch_size if remaining is None else min(batch_size, remaining)
 
-        query = (
-            session.query(ImageMetadata, Asset)
-            .join(Asset, Asset.id == ImageMetadata.asset_id)
-        )
+        query = session.query(Asset)
+        if only_missing_thumbnails:
+            query = query.filter(
+                or_(
+                    Asset.thumbnail_key.is_(None),
+                    Asset.thumbnail_key == "",
+                    Asset.thumbnail_key.like("legacy:%"),
+                )
+            )
         if tenant_id:
-            query = query.filter(ImageMetadata.tenant_id == tenant_id)
+            query = query.filter(Asset.tenant_id == tenant_id)
         if last_id is not None:
-            query = query.filter(ImageMetadata.id > last_id)
+            query = query.filter(Asset.id > last_id)
 
-        batch = query.order_by(ImageMetadata.id.asc()).limit(current_limit).all()
+        batch = query.order_by(Asset.id.asc()).limit(current_limit).all()
         if not batch:
             return
         # Capture pagination cursor before yielding; caller commits/expunges ORM rows.
-        next_last_id = batch[-1][0].id
+        next_last_id = str(batch[-1].id)
         yield batch
         processed += len(batch)
         last_id = next_last_id
@@ -213,14 +286,17 @@ def run_thumbnail_copy(session: Session, args: argparse.Namespace, storage_clien
     tenant_cache: Dict[str, TenantCtx] = {}
     update_db = not args.no_update_db
 
-    for batch in iter_thumbnail_rows(session, args.tenant_id, args.batch_size, args.limit):
-        for image, asset in batch:
+    for batch in iter_thumbnail_assets(
+        session,
+        args.tenant_id,
+        args.batch_size,
+        args.limit,
+        args.only_missing_thumbnails,
+    ):
+        for asset in batch:
             stats.processed += 1
-            if image.asset_id is None:
-                stats.skipped_no_asset += 1
-                continue
 
-            tenant_id = image.tenant_id
+            tenant_id = asset.tenant_id
             tenant_ctx = tenant_cache.get(tenant_id)
             if tenant_ctx is None:
                 tenant_ctx = load_tenant_ctx(session, tenant_id)
@@ -237,29 +313,74 @@ def run_thumbnail_copy(session: Session, args: argparse.Namespace, storage_clien
                 stats.already_canonical += 1
                 continue
 
-            source_key = choose_thumbnail_source_key(asset, destination_key)
-            if not source_key:
-                stats.skipped_no_source += 1
-                continue
+            if has_missing_or_legacy_thumbnail_key(asset.thumbnail_key):
+                if object_exists(destination_bucket, destination_key):
+                    stats.canonical_exists_adopted += 1
+                    if update_db:
+                        asset.thumbnail_key = destination_key
+                        stats.updated_rows += 1
+                    continue
 
-            status, err = copy_object(
-                source_bucket=source_bucket,
-                destination_bucket=destination_bucket,
-                source_key=source_key,
-                destination_key=destination_key,
-                dry_run=args.dry_run,
-                overwrite_destination=args.overwrite_destination,
-            )
-            if status == "copied":
-                stats.copied += 1
-            elif status == "destination_exists":
-                stats.destination_exists += 1
-            elif status == "source_missing":
-                stats.source_missing += 1
-                continue
+            source_key = choose_thumbnail_source_key(asset, destination_key)
+            if source_key:
+                status, err = copy_object(
+                    source_bucket=source_bucket,
+                    destination_bucket=destination_bucket,
+                    source_key=source_key,
+                    destination_key=destination_key,
+                    dry_run=args.dry_run,
+                    overwrite_destination=args.overwrite_destination,
+                )
+                if status == "copied":
+                    stats.copied += 1
+                elif status == "destination_exists":
+                    stats.destination_exists += 1
+                elif status == "source_missing":
+                    stats.source_missing += 1
+                    continue
+                else:
+                    stats.errors += 1
+                    log(
+                        f"[thumb] ERROR tenant={tenant_id} asset_id={asset_id} "
+                        f"src={source_key} dst={destination_key}: {err}"
+                    )
+                    continue
+            elif args.generate_missing_thumbnails:
+                source_provider = (asset.source_provider or "").strip().lower()
+                source_object_key = (asset.source_key or "").strip()
+                if source_provider not in {"local", "gcp"}:
+                    if not source_provider and not source_object_key:
+                        stats.skipped_no_source += 1
+                    else:
+                        stats.skipped_unsupported_provider += 1
+                    continue
+                if not source_object_key or source_object_key.startswith("legacy:"):
+                    stats.skipped_no_source += 1
+                    continue
+
+                storage_bucket_name = args.storage_source_bucket or tenant_ctx.get_storage_bucket(settings)
+                storage_bucket = storage_client.bucket(storage_bucket_name)
+                status, err = generate_thumbnail_from_source_object(
+                    source_bucket=storage_bucket,
+                    destination_bucket=destination_bucket,
+                    source_key=source_object_key,
+                    destination_key=destination_key,
+                    dry_run=args.dry_run,
+                )
+                if status == "generated":
+                    stats.generated += 1
+                elif status == "source_missing":
+                    stats.source_missing += 1
+                    continue
+                else:
+                    stats.errors += 1
+                    log(
+                        f"[thumb] ERROR generating tenant={tenant_id} asset_id={asset_id} "
+                        f"src={source_object_key} dst={destination_key}: {err}"
+                    )
+                    continue
             else:
-                stats.errors += 1
-                log(f"[thumb] ERROR tenant={tenant_id} image_id={image.id} src={source_key} dst={destination_key}: {err}")
+                stats.skipped_no_source += 1
                 continue
 
             if update_db:
@@ -269,7 +390,8 @@ def run_thumbnail_copy(session: Session, args: argparse.Namespace, storage_clien
             if stats.processed % 25 == 0:
                 log(
                     f"[thumb] Progress processed={stats.processed} copied={stats.copied} "
-                    f"canonical={stats.already_canonical} source_missing={stats.source_missing} "
+                    f"generated={stats.generated} canonical={stats.already_canonical} "
+                    f"adopted={stats.canonical_exists_adopted} source_missing={stats.source_missing} "
                     f"errors={stats.errors}"
                 )
 
@@ -280,7 +402,8 @@ def run_thumbnail_copy(session: Session, args: argparse.Namespace, storage_clien
         session.expunge_all()
         log(
             f"[thumb] Processed={stats.processed} Canonical={stats.already_canonical} "
-            f"Copied={stats.copied} DestExists={stats.destination_exists} "
+            f"Adopted={stats.canonical_exists_adopted} Copied={stats.copied} "
+            f"Generated={stats.generated} DestExists={stats.destination_exists} "
             f"SourceMissing={stats.source_missing} Updated={stats.updated_rows} Errors={stats.errors}"
         )
 
@@ -366,7 +489,9 @@ def main() -> None:
     log(
         f"Starting copy_assets_to_new_key_conventions "
         f"(tenant_id={args.tenant_id or 'ALL'}, limit={args.limit}, batch_size={args.batch_size}, "
-        f"dry_run={args.dry_run}, copy_sources={args.copy_sources})"
+        f"dry_run={args.dry_run}, copy_sources={args.copy_sources}, "
+        f"only_missing_thumbnails={args.only_missing_thumbnails}, "
+        f"generate_missing_thumbnails={args.generate_missing_thumbnails})"
     )
     session = SessionLocal()
     log("Initialized database session")
@@ -381,8 +506,11 @@ def main() -> None:
         log("=== Summary ===")
         log(
             f"[thumb] Processed={thumb_stats.processed} Canonical={thumb_stats.already_canonical} "
-            f"Copied={thumb_stats.copied} DestExists={thumb_stats.destination_exists} "
-            f"SourceMissing={thumb_stats.source_missing} SkippedNoSource={thumb_stats.skipped_no_source} "
+            f"Adopted={thumb_stats.canonical_exists_adopted} Copied={thumb_stats.copied} "
+            f"Generated={thumb_stats.generated} DestExists={thumb_stats.destination_exists} "
+            f"SourceMissing={thumb_stats.source_missing} "
+            f"SkippedNoSource={thumb_stats.skipped_no_source} "
+            f"SkippedUnsupportedProvider={thumb_stats.skipped_unsupported_provider} "
             f"Updated={thumb_stats.updated_rows} Errors={thumb_stats.errors}"
         )
         if args.copy_sources:
