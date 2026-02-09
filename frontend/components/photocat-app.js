@@ -23,10 +23,10 @@ import { SearchStateController } from './state/search-state.js';
 import { AppShellStateController } from './state/app-shell-state.js';
 import { AppDataStateController } from './state/app-data-state.js';
 import { AppEventsStateController } from './state/app-events-state.js';
+import { initializeAppDefaultState } from './state/app-default-state.js';
 import { tailwind } from './tailwind-lit.js';
 import { retryFailedCommand } from '../services/command-queue.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
-import { createPaginationHandlers } from './shared/pagination-controls.js';
 import { createRatingDragHandlers } from './shared/rating-drag-handlers.js';
 import { createHotspotHandlers, parseUtilityKeywordValue } from './shared/hotspot-controls.js';
 import {
@@ -64,7 +64,6 @@ class PhotoCatApp extends LitElement {
       activeSystemSubTab: { type: String }, // Subtab for system section (pipeline or cli)
       keywords: { type: Array },
       queueState: { type: Object },
-      showQueuePanel: { type: Boolean },
       imageStats: { type: Object },
       mlTrainingStats: { type: Object },
       tagStatsBySource: { type: Object },
@@ -165,118 +164,7 @@ class PhotoCatApp extends LitElement {
 
       this._handleSearchSortChanged = (e) =>
         this._searchState.handleSortChanged(e.detail || {});
-
-      this.keywords = [];
-      this.queueState = { queuedCount: 0, inProgressCount: 0, failedCount: 0 };
-      this._unsubscribeQueue = null;
-      this.showQueuePanel = false;
-      this.imageStats = null;
-      this.mlTrainingStats = null;
-      this.tagStatsBySource = {};
-      this.curateLimit = 100;
-      this.curateOrderBy = 'photo_creation';
-      this.curateOrderDirection = 'desc';
-      this.curateHideDeleted = true;
-      this.curateMinRating = null;
-      this.curateKeywordFilters = {};
-      this.curateKeywordOperators = {};
-      this.curateCategoryFilterOperator = undefined;
-      this.curateDropboxPathPrefix = '';
-      this.curateListId = '';
-      this.curateListExcludeId = '';
-      this.curateFilters = buildCurateFilterObject(this);
-      this.curateImages = [];
-      this.curatePageOffset = 0;
-      this.curateTotal = null;
-      this.curateLoading = false;
-      this.curateDragSelection = [];
-      this.curateDragSelecting = false;
-      this.curateDragStartIndex = null;
-      this.curateDragEndIndex = null;
-      this.curateThumbSize = 190;
-      this.curateEditorImage = null;
-      this.curateEditorOpen = false;
-      this.curateEditorImageSet = [];
-      this.curateEditorImageIndex = -1;
-      this.curateSubTab = 'main';
-      this.curateAuditMode = 'existing';
-      this.curateAuditKeyword = '';
-      this.curateAuditCategory = '';
-      this.curateAuditImages = [];
-      this.curateAuditSelection = [];
-      this.curateAuditDragTarget = null;
-      this.curateAuditDragSelection = [];
-      this.curateAuditDragSelecting = false;
-      this.curateAuditDragStartIndex = null;
-      this.curateAuditDragEndIndex = null;
-      this.curateAuditLimit = 100;
-      this.curateAuditOffset = 0;
-      this.curateAuditTotal = null;
-      this.curateAuditLoading = false;
-      this.curateAuditLoadAll = false;
-      this.curateAuditPageOffset = 0;
-      this.curateAuditAiEnabled = false;
-      this.curateAuditAiModel = '';
-      this.curateAuditOrderBy = 'photo_creation';
-      this.curateAuditOrderDirection = 'desc';
-      this.curateAuditHideDeleted = true;
-      this.curateAuditMinRating = null;
-      this.curateAuditNoPositivePermatags = false;
-      this.curateAuditDropboxPathPrefix = '';
-      this.curateHomeRefreshing = false;
-      this.curateStatsLoading = false;
-      this.curateAdvancedOpen = false;
-      this.curateNoPositivePermatags = false;
-      this.activeCurateTagSource = 'permatags';
-      this.curateCategoryCards = [];
-      this.searchImages = [];
-      this.searchTotal = 0;
-      this.currentUser = null;
-      this.curateExploreTargets = [
-        { id: 1, category: '', keyword: '', action: 'add', count: 0 },
-      ];
-      this._curateExploreHotspotNextId = 2;
-      this.curateExploreRatingEnabled = false;
-      this.curateExploreRatingCount = 0;
-      this._curateExploreRatingPending = null;
-      this.curateAuditTargets = [
-        { id: 1, category: '', keyword: '', action: 'remove', count: 0 },
-      ];
-      this._curateAuditHotspotNextId = 2;
-      this.curateAuditRatingEnabled = false;
-      this.curateAuditRatingCount = 0;
-      this._curateAuditRatingPending = null;
-      this._curateRatingModalActive = false;
-      this._curateRatingModalImageIds = null;
-      this._curateRatingModalSource = null;
-      this._curateSubTabState = { main: null };
-      this._curateActiveWorkingTab = 'main';
-      this._curateSubTabState.main = this._snapshotCurateState();
-      this._statsRefreshTimer = null;
-      this._curateStatsLoadingCount = 0;
-      this._curatePressTimer = null;
-      this._curatePressActive = false;
-      this._curatePressStart = null;
-      this._curatePressIndex = null;
-      this._curatePressImageId = null;
-      this._curateSuppressClick = false;
-      this._curateLongPressTriggered = false;
-      this._curateAuditPressTimer = null;
-      this._curateAuditPressActive = false;
-      this._curateAuditPressStart = null;
-      this._curateAuditPressIndex = null;
-      this._curateAuditPressImageId = null;
-      this._curateAuditLongPressTriggered = false;
-      this._tabBootstrapped = new Set();
-      this._curateRatingBurstIds = new Set();
-      this._curateRatingBurstTimers = new Map();
-      this._curateStatsAutoRefreshDone = false;
-      this._curateFlashSelectionIds = new Set();
-      this._curateFlashSelectionTimers = new Map();
-      this._curateDragOrder = null;
-      this._curateExploreReorderId = null;
-      this._curateAuditHotspotDragTarget = null;
-      this._curateExploreHotspotDragTarget = null;
+      initializeAppDefaultState(this);
 
       // Initialize hotspot handlers using factory (eliminates 30+ duplicate methods)
       this._exploreHotspotHandlers = createHotspotHandlers(this, {
@@ -343,15 +231,6 @@ class PhotoCatApp extends LitElement {
         flashSelection: (imageId) => this._flashCurateSelection(imageId),
       });
 
-      // Initialize pagination handlers using factory (eliminates 6+ duplicate methods)
-      this._auditPaginationHandlers = createPaginationHandlers(this, {
-        loadingProperty: 'curateAuditLoading',
-        offsetProperty: 'curateAuditPageOffset',
-        limitProperty: 'curateAuditLimit',
-        loadAllProperty: 'curateAuditLoadAll',
-        fetchData: (options) => this._fetchCurateAuditImages(options),
-      });
-
       // Wire up filter panel event listeners
       this.searchFilterPanel.on('images-loaded', (detail) => {
         if (detail.tabId === 'search') {
@@ -377,9 +256,6 @@ class PhotoCatApp extends LitElement {
         this._appEventsState.handleQueueCommandComplete(event);
       this._handleQueueCommandFailed = (event) =>
         this._appEventsState.handleQueueCommandFailed(event);
-      this._handleQueueToggle = () => {
-        this.showQueuePanel = !this.showQueuePanel;
-      };
       this._handleCurateGlobalPointerDown = (event) =>
         this._appEventsState.handleCurateGlobalPointerDown(event);
       this._handleCurateSelectionEnd = () =>
@@ -398,35 +274,6 @@ class PhotoCatApp extends LitElement {
       this._curateHomeState.restoreState(state || this._getCurateDefaultState());
       this._curateDragOrder = null;
       this._cancelCuratePressState();
-  }
-
-  // Explore hotspot handlers - now using factory to eliminate duplication
-  _handleCurateExploreHotspotKeywordChange(event, targetId) {
-      return this._curateExploreState.handleHotspotKeywordChange(event, targetId);
-  }
-
-  _handleCurateExploreHotspotActionChange(event, targetId) {
-      return this._curateExploreState.handleHotspotActionChange(event, targetId);
-  }
-
-  _handleCurateExploreHotspotTypeChange(event, targetId) {
-      return this._curateExploreState.handleHotspotTypeChange(event, targetId);
-  }
-
-  _handleCurateExploreHotspotRatingChange(event, targetId) {
-      return this._curateExploreState.handleHotspotRatingChange(event, targetId);
-  }
-
-  _handleCurateExploreHotspotAddTarget() {
-      return this._curateExploreState.handleHotspotAddTarget();
-  }
-
-  _handleCurateExploreHotspotRemoveTarget(targetId) {
-      return this._curateExploreState.handleHotspotRemoveTarget(targetId);
-  }
-
-  _handleCurateExploreHotspotDrop(event, targetId) {
-      return this._curateExploreState.handleHotspotDrop(event, targetId);
   }
 
   _handleCurateHotspotChanged(event) {
@@ -475,10 +322,6 @@ class PhotoCatApp extends LitElement {
 
   async _loadCurrentUser() {
       return await this._appShellState.loadCurrentUser();
-  }
-
-  _getTenantRole() {
-      return this._appShellState.getTenantRole();
   }
 
   _canCurate() {
@@ -544,10 +387,6 @@ class PhotoCatApp extends LitElement {
       return this._auditSelectionHandlers.cancelPressState();
   }
 
-  _handleCuratePointerDown(event, index, imageId) {
-      return this._exploreSelectionHandlers.handlePointerDown(event, index, imageId);
-  }
-
   _handleCurateKeywordSelect(event, mode) {
       return this._curateHomeState.handleKeywordSelect(event, mode);
   }
@@ -558,10 +397,6 @@ class PhotoCatApp extends LitElement {
 
   async _fetchCurateHomeImages() {
       return await this._curateHomeState.fetchCurateHomeImages();
-  }
-
-  _resetSearchListDraft() {
-      return this._searchState.resetSearchListDraft();
   }
 
   async _refreshCurateHome() {
@@ -685,19 +520,6 @@ class PhotoCatApp extends LitElement {
   _handleImageNavigate(event) {
       return this._curateHomeState.handleImageNavigate(event);
   }
-
-  _handleCurateSelectHover(index) {
-      return this._exploreSelectionHandlers.handleSelectHover(index);
-  }
-
-  _handleExploreByTagPointerDown(event, index, imageId, keywordName, cachedImages) {
-      return this._curateExploreState.handleExploreByTagPointerDown(event, index, imageId, cachedImages);
-  }
-
-  _handleExploreByTagSelectHover(index, cachedImages) {
-      return this._curateExploreState.handleExploreByTagSelectHover(index, cachedImages);
-  }
-
 
   _flashCurateSelection(imageId) {
       return this._curateHomeState.flashSelection(imageId);
