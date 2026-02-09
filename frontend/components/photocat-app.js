@@ -14,21 +14,11 @@ import './people-tagger.js';
 import './shared/widgets/filter-chips.js';
 import './shared/widgets/keyword-dropdown.js';
 
-import ImageFilterPanel from './shared/state/image-filter-panel.js';
-import { CurateHomeStateController } from './state/curate-home-state.js';
-import { CurateAuditStateController } from './state/curate-audit-state.js';
-import { CurateExploreStateController } from './state/curate-explore-state.js';
-import { RatingModalStateController } from './state/rating-modal-state.js';
-import { SearchStateController } from './state/search-state.js';
-import { AppShellStateController } from './state/app-shell-state.js';
-import { AppDataStateController } from './state/app-data-state.js';
-import { AppEventsStateController } from './state/app-events-state.js';
+import { initializeAppCoreSetup } from './state/app-core-setup.js';
 import { initializeAppDefaultState } from './state/app-default-state.js';
+import { initializeAppConstructorWiring } from './state/app-constructor-wiring.js';
 import { tailwind } from './tailwind-lit.js';
 import { retryFailedCommand } from '../services/command-queue.js';
-import { createSelectionHandlers } from './shared/selection-handlers.js';
-import { createRatingDragHandlers } from './shared/rating-drag-handlers.js';
-import { createHotspotHandlers, parseUtilityKeywordValue } from './shared/hotspot-controls.js';
 import {
   buildCurateFilterObject,
   getCurateAuditFetchKey,
@@ -142,124 +132,9 @@ class PhotoCatApp extends LitElement {
       this.activeAdminSubTab = 'tagging'; // Default admin subtab
       this.activeSystemSubTab = 'ml-training'; // Default system subtab
 
-      // Initialize filter state containers for each tab
-      this.searchFilterPanel = new ImageFilterPanel('search');
-      this.searchFilterPanel.setTenant(this.tenant);
-      this.curateHomeFilterPanel = new ImageFilterPanel('curate-home');
-      this.curateHomeFilterPanel.setTenant(this.tenant);
-      this.curateAuditFilterPanel = new ImageFilterPanel('curate-audit');
-      this.curateAuditFilterPanel.setTenant(this.tenant);
-
-      // Initialize state controllers
-      // Milestone 1: Curate Home State (Complete)
-      this._curateHomeState = new CurateHomeStateController(this);
-      // Milestone 2: Curate Audit State (In Progress)
-      this._curateAuditState = new CurateAuditStateController(this);
-      this._curateExploreState = new CurateExploreStateController(this);
-      this._searchState = new SearchStateController(this);
-      this._ratingModalState = new RatingModalStateController(this);
-      this._appShellState = new AppShellStateController(this);
-      this._appDataState = new AppDataStateController(this);
-      this._appEventsState = new AppEventsStateController(this);
-
-      this._handleSearchSortChanged = (e) =>
-        this._searchState.handleSortChanged(e.detail || {});
+      initializeAppCoreSetup(this);
       initializeAppDefaultState(this);
-
-      // Initialize hotspot handlers using factory (eliminates 30+ duplicate methods)
-      this._exploreHotspotHandlers = createHotspotHandlers(this, {
-        targetsProperty: 'curateExploreTargets',
-        dragTargetProperty: '_curateExploreHotspotDragTarget',
-        nextIdProperty: '_curateExploreHotspotNextId',
-        parseKeywordValue: parseUtilityKeywordValue,
-        applyRating: (ids, rating) => this._applyExploreRating(ids, rating),
-        processTagDrop: (ids, target) => this._processExploreTagDrop(ids, target),
-        removeImages: (ids) => this._removeCurateImagesByIds(ids),
-      });
-
-      this._auditHotspotHandlers = createHotspotHandlers(this, {
-        targetsProperty: 'curateAuditTargets',
-        dragTargetProperty: '_curateAuditHotspotDragTarget',
-        nextIdProperty: '_curateAuditHotspotNextId',
-        parseKeywordValue: parseUtilityKeywordValue,
-        applyRating: (ids, rating) => this._applyAuditRating(ids, rating),
-        processTagDrop: (ids, target) => this._curateAuditState.processTagDrop(ids, target),
-        removeImages: (ids) => this._removeAuditImagesByIds(ids),
-      });
-
-      // Initialize rating drag handlers using factory (eliminates 8+ duplicate methods)
-      this._exploreRatingHandlers = createRatingDragHandlers(this, {
-        enabledProperty: 'curateExploreRatingEnabled',
-        dragTargetProperty: '_curateExploreRatingDragTarget',
-        showRatingDialog: (ids) => this._showExploreRatingDialog(ids),
-      });
-
-      this._auditRatingHandlers = createRatingDragHandlers(this, {
-        enabledProperty: 'curateAuditRatingEnabled',
-        dragTargetProperty: '_curateAuditRatingDragTarget',
-        showRatingDialog: (ids) => this._showAuditRatingDialog(ids),
-      });
-
-      // Initialize selection handlers using factory (eliminates 10+ duplicate methods)
-      this._exploreSelectionHandlers = createSelectionHandlers(this, {
-        selectionProperty: 'curateDragSelection',
-        selectingProperty: 'curateDragSelecting',
-        startIndexProperty: 'curateDragStartIndex',
-        endIndexProperty: 'curateDragEndIndex',
-        pressActiveProperty: '_curatePressActive',
-        pressStartProperty: '_curatePressStart',
-        pressIndexProperty: '_curatePressIndex',
-        pressImageIdProperty: '_curatePressImageId',
-        pressTimerProperty: '_curatePressTimer',
-        longPressTriggeredProperty: '_curateLongPressTriggered',
-        getOrder: () => this._curateDragOrder || this._curateLeftOrder,
-        flashSelection: (imageId) => this._flashCurateSelection(imageId),
-      });
-
-      this._auditSelectionHandlers = createSelectionHandlers(this, {
-        selectionProperty: 'curateAuditDragSelection',
-        selectingProperty: 'curateAuditDragSelecting',
-        startIndexProperty: 'curateAuditDragStartIndex',
-        endIndexProperty: 'curateAuditDragEndIndex',
-        pressActiveProperty: '_curateAuditPressActive',
-        pressStartProperty: '_curateAuditPressStart',
-        pressIndexProperty: '_curateAuditPressIndex',
-        pressImageIdProperty: '_curateAuditPressImageId',
-        pressTimerProperty: '_curateAuditPressTimer',
-        longPressTriggeredProperty: '_curateAuditLongPressTriggered',
-        getOrder: () => this._curateAuditLeftOrder,
-        flashSelection: (imageId) => this._flashCurateSelection(imageId),
-      });
-
-      // Wire up filter panel event listeners
-      this.searchFilterPanel.on('images-loaded', (detail) => {
-        if (detail.tabId === 'search') {
-          // Create new array reference so Lit detects the change
-          this.searchImages = [...detail.images];
-          this.searchTotal = detail.total || 0;
-        }
-      });
-      this.curateHomeFilterPanel.on('images-loaded', (detail) => {
-        if (detail.tabId === 'curate-home') {
-          this.curateImages = [...detail.images];
-          this.curateTotal = detail.total || 0;
-        }
-      });
-      this.curateAuditFilterPanel.on('images-loaded', (detail) => {
-        if (detail.tabId === 'curate-audit') {
-          this.curateAuditImages = [...detail.images];
-          this.curateAuditTotal = detail.total || 0;
-        }
-      });
-
-      this._handleQueueCommandComplete = (event) =>
-        this._appEventsState.handleQueueCommandComplete(event);
-      this._handleQueueCommandFailed = (event) =>
-        this._appEventsState.handleQueueCommandFailed(event);
-      this._handleCurateGlobalPointerDown = (event) =>
-        this._appEventsState.handleCurateGlobalPointerDown(event);
-      this._handleCurateSelectionEnd = () =>
-        this._appEventsState.handleCurateSelectionEnd();
+      initializeAppConstructorWiring(this);
   }
 
   _getCurateDefaultState() {
