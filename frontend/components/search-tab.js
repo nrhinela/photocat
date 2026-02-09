@@ -18,7 +18,6 @@ import {
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import './shared/widgets/filter-chips.js';
-import './shared/widgets/image-card.js';
 import './shared/widgets/right-panel.js';
 import './shared/widgets/list-targets-panel.js';
 import './shared/widgets/hotspot-targets-panel.js';

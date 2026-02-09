@@ -6,12 +6,42 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from photocat.metadata import ImageEmbedding, ImageMetadata, KeywordModel, Permatag, MachineTag
 from photocat.models.config import Keyword
 from photocat.settings import settings
 from photocat.tagging import get_image_embedding, get_tagger
+
+
+def _is_transient_disconnect(exc: OperationalError) -> bool:
+    text = str(exc).lower()
+    return (
+        getattr(exc, "connection_invalidated", False)
+        or "server closed the connection unexpectedly" in text
+        or "connection not open" in text
+    )
+
+
+def _load_embedding_with_retry(
+    db: Session,
+    tenant_id: str,
+    asset_id,
+    retries: int = 1,
+) -> Optional[ImageEmbedding]:
+    attempt = 0
+    while True:
+        try:
+            return db.query(ImageEmbedding).filter(
+                ImageEmbedding.tenant_id == tenant_id,
+                ImageEmbedding.asset_id == asset_id
+            ).first()
+        except OperationalError as exc:
+            db.rollback()
+            if attempt >= retries or not _is_transient_disconnect(exc):
+                raise
+            attempt += 1
 
 
 def ensure_image_embedding(
@@ -40,10 +70,7 @@ def ensure_image_embedding(
         )
 
     # Try to fetch existing embedding first
-    existing = db.query(ImageEmbedding).filter(
-        ImageEmbedding.tenant_id == tenant_id,
-        ImageEmbedding.asset_id == resolved_asset_id
-    ).first()
+    existing = _load_embedding_with_retry(db, tenant_id, resolved_asset_id, retries=1)
     if existing:
         if existing.asset_id is None and resolved_asset_id is not None:
             existing.asset_id = resolved_asset_id

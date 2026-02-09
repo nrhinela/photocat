@@ -4,6 +4,7 @@ import click
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from photocat.database import get_engine_kwargs
 from photocat.settings import settings
 from photocat.tenant import Tenant, TenantContext
 
@@ -19,7 +20,10 @@ class CliCommand:
 
     def setup_db(self):
         """Initialize database connection."""
-        self.engine = create_engine(settings.database_url)
+        self.engine = create_engine(
+            settings.database_url,
+            **get_engine_kwargs(),
+        )
         self.Session = sessionmaker(bind=self.engine)
         self.db = self.Session()
 

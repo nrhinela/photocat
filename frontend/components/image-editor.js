@@ -1,11 +1,26 @@
 import { LitElement, html, css } from 'lit';
-import { getImageDetails, getKeywords, addPermatag, getFullImage, setRating, refreshImageMetadata, propagateDropboxTags } from '../services/api.js';
+import {
+  getImageDetails,
+  getKeywords,
+  addPermatag,
+  getFullImage,
+  setRating,
+  refreshImageMetadata,
+  propagateDropboxTags,
+  listAssetVariants,
+  uploadAssetVariant,
+  updateAssetVariant,
+  deleteAssetVariant,
+  getAssetVariantContent,
+  inspectAssetVariant,
+} from '../services/api.js';
 import { tailwind } from './tailwind-lit.js';
+import { propertyGridStyles, renderPropertyRows, renderPropertySection } from './shared/widgets/property-grid.js';
 import './people-tagger.js';
 import './shared/widgets/keyword-dropdown.js';
 
 class ImageEditor extends LitElement {
-  static styles = [tailwind, css`
+  static styles = [tailwind, propertyGridStyles, css`
     :host {
       display: block;
     }
@@ -65,6 +80,19 @@ class ImageEditor extends LitElement {
       flex: 1;
       overflow: hidden;
       align-items: stretch;
+      min-height: 0;
+    }
+    .editor-tab-strip {
+      display: flex;
+      gap: 8px;
+      padding: 12px 18px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+    }
+    .variants-layout {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
       min-height: 0;
     }
     .panel-right {
@@ -253,7 +281,7 @@ class ImageEditor extends LitElement {
       display: flex;
       gap: 8px;
       margin-top: auto;
-      padding-top: 12px;
+      padding: 12px 18px 16px;
       border-top: 1px solid #e5e7eb;
       justify-content: center;
     }
@@ -305,6 +333,54 @@ class ImageEditor extends LitElement {
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
+    }
+    .tag-grid-table {
+      display: flex;
+      flex-direction: column;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .tag-grid-row {
+      display: grid;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: #111827;
+      border-top: 1px solid #f1f5f9;
+    }
+    .tag-grid-row:first-child {
+      border-top: 0;
+    }
+    .tag-grid-head {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #6b7280;
+      background: #f8fafc;
+    }
+    .tag-grid-row-negative {
+      background: #fff1f2;
+    }
+    .tag-sign-positive {
+      color: #047857;
+      font-weight: 600;
+    }
+    .tag-sign-negative {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+    .tag-grid-row-permatag {
+      grid-template-columns: minmax(120px, 1.4fr) minmax(110px, 1fr) 88px minmax(140px, 1.1fr);
+    }
+    .tag-grid-row-machine {
+      grid-template-columns: minmax(120px, 1.4fr) minmax(110px, 1fr) minmax(140px, 1.1fr) 88px;
+    }
+    .tag-grid-cell-muted {
+      color: #6b7280;
     }
     .detail-rating-widget {
       display: flex;
@@ -374,51 +450,274 @@ class ImageEditor extends LitElement {
       color: #ffffff;
       font-size: inherit;
     }
-    .metadata-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px 16px;
-      font-size: inherit;
-      color: inherit;
-    }
-    .metadata-label {
-      font-weight: 500;
-      color: inherit;
-    }
-    .tag-table {
-      display: grid;
-      gap: 6px;
-      font-size: inherit;
-      color: inherit;
-    }
-    .tag-row {
-      display: grid;
-      grid-template-columns: 2fr 1fr 2fr;
+    .variants-section {
+      display: flex;
+      flex-direction: column;
       gap: 10px;
+      font-size: inherit;
+    }
+    .variants-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .variants-list {
+      display: grid;
+      gap: 8px;
+    }
+    .variants-table {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+    .variants-table-header {
+      display: grid;
+      grid-template-columns: 92px minmax(170px, 1.1fr) minmax(170px, 1.1fr) minmax(240px, 1.2fr) minmax(120px, 0.9fr) minmax(200px, 1.2fr);
+      gap: 8px;
+      align-items: center;
+      padding: 7px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #6b7280;
+      background: #f8fafc;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .variants-row {
+      display: grid;
+      grid-template-columns: 92px minmax(170px, 1.1fr) minmax(170px, 1.1fr) minmax(240px, 1.2fr) minmax(120px, 0.9fr) minmax(200px, 1.2fr);
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-top: 1px solid #f1f5f9;
+      min-width: 0;
+    }
+    .variants-row:first-child {
+      border-top: 0;
+    }
+    .variants-cell {
+      min-width: 0;
+    }
+    .variants-cell-preview {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .variants-cell-meta {
+      font-size: 11px;
+      line-height: 1.35;
+      color: #6b7280;
+    }
+    .variants-meta-line {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px;
+      align-items: baseline;
+      min-width: 0;
+    }
+    .variants-meta-label {
+      font-weight: 600;
+      color: #4b5563;
+      text-transform: lowercase;
+    }
+    .variants-cell-inspect {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .variants-inspect-metrics {
+      font-size: 10px;
+      color: #6b7280;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .variants-cell-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .variant-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
       align-items: center;
     }
-    .tag-row.header {
-      font-weight: 600;
-      color: #6b7280;
-      border-bottom: 1px solid #e5e7eb;
-      padding-bottom: 4px;
+    .variant-inspect-link {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      color: #2563eb;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      font-size: 10px;
+      line-height: 1.2;
+      cursor: pointer;
     }
-    .tag-cell {
-      word-break: break-word;
+    .variant-inspect-link:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      text-decoration: none;
     }
-    .exif-block {
-      border-top: 1px solid #e5e7eb;
-      margin-top: 12px;
-      padding-top: 12px;
-    }
-    .exif-list {
+    .variants-detail-row {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px 12px;
-      font-size: inherit;
-      color: inherit;
-      max-height: 240px;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      align-items: baseline;
+      min-width: 0;
+      padding: 0 10px 10px 112px;
+      border-top: 1px dashed #e5e7eb;
+      margin-top: -1px;
+      background: #fafafa;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #6b7280;
+    }
+    .variants-detail-label {
+      font-weight: 600;
+      color: #4b5563;
+      text-transform: lowercase;
+      white-space: nowrap;
+    }
+    .variant-preview-url-input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 4px 6px;
+      font-size: 11px;
+      color: #374151;
+      background: #ffffff;
+    }
+    .variants-input {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      color: #374151;
+      min-width: 0;
+    }
+    .variants-filename-input {
+      width: 100%;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .variants-action {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: #f9fafb;
+      color: #374151;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .variants-action.primary {
+      border-color: #2563eb;
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+    .variants-action.danger {
+      border-color: #ef4444;
+      color: #b91c1c;
+      background: #fef2f2;
+    }
+    .variants-action:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .variants-upload {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) minmax(180px, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .variants-fullscreen {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 16px 18px;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .variants-list-scroll {
+      min-height: 0;
       overflow: auto;
+    }
+    .variant-preview-wrap {
+      width: 100%;
+      height: 72px;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      overflow: hidden;
+      background: #f9fafb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .variant-preview-link {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      color: inherit;
+      text-decoration: none;
+    }
+    .variant-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .variant-preview-fallback {
+      display: none;
+      width: 100%;
+      height: 100%;
+      align-items: center;
+      justify-content: center;
+      color: #9ca3af;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .variants-cell-key {
+      display: none;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #6b7280;
+      margin-bottom: 2px;
+    }
+    .edit-action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: #4b5563;
+    }
+    .tag-active-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: space-between;
+    }
+    .tag-active-meta {
+      color: #6b7280;
+      font-size: 11px;
+    }
+    .tag-remove-inline {
+      border: 1px solid #ef4444;
+      background: #fef2f2;
+      color: #b91c1c;
+      border-radius: 999px;
+      font-size: 10px;
+      line-height: 1;
+      padding: 3px 7px;
+      white-space: nowrap;
     }
     .empty-text {
       font-size: 12px;
@@ -568,11 +867,35 @@ class ImageEditor extends LitElement {
       border-color: rgba(255, 255, 255, 0.7);
       font-weight: 600;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 760px) {
       .panel-body {
         grid-template-columns: 1fr;
       }
       .tag-form {
+        grid-template-columns: 1fr;
+      }
+      .variants-table-header {
+        display: none;
+      }
+      .variants-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+      .variants-cell-key {
+        display: block;
+      }
+      .variants-cell-actions {
+        justify-content: flex-start;
+      }
+      .variants-detail-row {
+        grid-template-columns: 1fr;
+        padding: 0 10px 10px;
+      }
+      .variants-upload {
+        grid-template-columns: 1fr;
+      }
+      .tag-grid-row-permatag,
+      .tag-grid-row-machine {
         grid-template-columns: 1fr;
       }
       .zoom-controls {
@@ -602,6 +925,15 @@ class ImageEditor extends LitElement {
     ratingError: { type: String },
     metadataRefreshing: { type: Boolean },
     tagsPropagating: { type: Boolean },
+    assetVariants: { type: Array },
+    assetVariantsLoading: { type: Boolean },
+    assetVariantsError: { type: String },
+    variantUploadLabel: { type: String },
+    variantUploading: { type: Boolean },
+    variantRowBusy: { type: Object },
+    variantDrafts: { type: Object },
+    variantInspectBusy: { type: Object },
+    variantInspectData: { type: Object },
     isActualSize: { type: Boolean },
     fullscreenOpen: { type: Boolean },
     imageSet: { type: Array },
@@ -638,6 +970,18 @@ class ImageEditor extends LitElement {
     this.ratingError = '';
     this.metadataRefreshing = false;
     this.tagsPropagating = false;
+    this.assetVariants = [];
+    this.assetVariantsLoading = false;
+    this.assetVariantsError = '';
+    this.variantUploadLabel = '';
+    this.variantUploading = false;
+    this.variantRowBusy = {};
+    this.variantDrafts = {};
+    this.variantInspectBusy = {};
+    this.variantInspectData = {};
+    this._variantUploadFile = null;
+    this._variantPreviewUrls = {};
+    this._variantPreviewInflight = {};
     this.isActualSize = false;
     this.fullscreenOpen = false;
     this.imageSet = [];
@@ -679,6 +1023,7 @@ class ImageEditor extends LitElement {
 
   disconnectedCallback() {
     window.removeEventListener('permatags-changed', this._handlePermatagEvent);
+    this._revokeVariantPreviewUrls();
     this._resetFullImage();
     this._restoreBodyScroll();
     super.disconnectedCallback();
@@ -708,12 +1053,16 @@ class ImageEditor extends LitElement {
     const shouldLoad = this.embedded || this.open;
     if (shouldLoad && (changedProperties.has('image') || changedProperties.has('tenant'))) {
       this._resetFullImage();
+      this._resetVariantEditor();
       this.fetchDetails();
       this.fetchKeywords();
     }
     if (changedProperties.has('details')) {
       this._syncTagSubTab();
       this._scheduleFullImageLoad();
+      if (this.activeTab === 'variants') {
+        this._loadAssetVariants();
+      }
     }
     if (changedProperties.has('open') && !this.open && !this.embedded) {
       this._resetFullImage();
@@ -777,6 +1126,208 @@ class ImageEditor extends LitElement {
     this.activeTab = tab;
     if (tab === 'image') {
       this._loadFullImage();
+    } else if (tab === 'variants') {
+      this._loadAssetVariants();
+    }
+  }
+
+  _resetVariantEditor() {
+    this._revokeVariantPreviewUrls();
+    this.assetVariants = [];
+    this.assetVariantsLoading = false;
+    this.assetVariantsError = '';
+    this.variantUploadLabel = '';
+    this.variantUploading = false;
+    this.variantRowBusy = {};
+    this.variantDrafts = {};
+    this.variantInspectBusy = {};
+    this.variantInspectData = {};
+    this._variantUploadFile = null;
+  }
+
+  async _loadAssetVariants(force = false) {
+    if (!this.details?.id || !this.tenant) return;
+    if (!force && (this.assetVariantsLoading || this.assetVariants.length > 0)) return;
+    this.assetVariantsLoading = true;
+    this.assetVariantsError = '';
+    try {
+      const data = await listAssetVariants(this.tenant, this.details.id);
+      const rows = Array.isArray(data?.variants) ? data.variants : [];
+      this.assetVariants = rows;
+      this._revokeVariantPreviewUrls(rows.map((row) => row.id));
+      const drafts = {};
+      rows.forEach((row) => {
+        drafts[row.id] = {
+          variant: row.variant || '',
+          filename: row.filename || '',
+        };
+        this._ensureVariantPreviewUrl(row);
+      });
+      this.variantDrafts = drafts;
+      const keepIds = new Set(rows.map((item) => String(item.id)));
+      this.variantInspectData = Object.fromEntries(
+        Object.entries(this.variantInspectData || {}).filter(([variantId]) => keepIds.has(String(variantId)))
+      );
+      this.variantInspectBusy = Object.fromEntries(
+        Object.entries(this.variantInspectBusy || {}).filter(([variantId]) => keepIds.has(String(variantId)))
+      );
+    } catch (error) {
+      this.assetVariantsError = error?.message || 'Failed to load variants.';
+    } finally {
+      this.assetVariantsLoading = false;
+    }
+  }
+
+  _handleVariantFileChange(event) {
+    this._variantUploadFile = event?.target?.files?.[0] || null;
+  }
+
+  _handleVariantPreviewError(event) {
+    const imageEl = event?.target;
+    if (!imageEl) return;
+    imageEl.style.display = 'none';
+    const fallback = imageEl.nextElementSibling;
+    if (fallback) {
+      fallback.style.display = 'flex';
+    }
+  }
+
+  _revokeVariantPreviewUrls(keepIds = []) {
+    const keep = new Set((keepIds || []).map(String));
+    Object.entries(this._variantPreviewUrls || {}).forEach(([variantId, objectUrl]) => {
+      if (keep.has(String(variantId))) return;
+      try {
+        URL.revokeObjectURL(objectUrl);
+      } catch (_error) {
+        // no-op
+      }
+      delete this._variantPreviewUrls[variantId];
+      delete this._variantPreviewInflight[variantId];
+    });
+  }
+
+  async _ensureVariantPreviewUrl(row) {
+    const variantId = String(row?.id || '');
+    if (!variantId || !this.details?.id || !this.tenant) return;
+    if (this._variantPreviewUrls[variantId] || this._variantPreviewInflight[variantId]) return;
+
+    this._variantPreviewInflight[variantId] = true;
+    const imageId = this.details.id;
+    try {
+      const blob = await getAssetVariantContent(this.tenant, imageId, variantId);
+      const objectUrl = URL.createObjectURL(blob);
+      const stillPresent = (this.assetVariants || []).some((item) => String(item.id) === variantId);
+      if (!stillPresent) {
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      const existing = this._variantPreviewUrls[variantId];
+      if (existing && existing !== objectUrl) {
+        URL.revokeObjectURL(existing);
+      }
+      this._variantPreviewUrls[variantId] = objectUrl;
+      this.requestUpdate();
+    } catch (error) {
+      console.error('ImageEditor: failed to load variant preview', error);
+    } finally {
+      delete this._variantPreviewInflight[variantId];
+    }
+  }
+
+  async _handleOpenVariant(row) {
+    const variantId = String(row?.id || '');
+    if (!variantId) return;
+    if (!this._variantPreviewUrls[variantId]) {
+      await this._ensureVariantPreviewUrl(row);
+    }
+    const url = this._variantPreviewUrls[variantId];
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  _updateVariantDraft(variantId, field, value) {
+    this.variantDrafts = {
+      ...this.variantDrafts,
+      [variantId]: {
+        ...(this.variantDrafts[variantId] || {}),
+        [field]: value,
+      },
+    };
+  }
+
+  async _handleVariantUpload() {
+    if (!this.canEditTags || !this.details?.id || !this.tenant || !this._variantUploadFile) return;
+    this.variantUploading = true;
+    this.assetVariantsError = '';
+    try {
+      await uploadAssetVariant(this.tenant, this.details.id, {
+        file: this._variantUploadFile,
+        variant: this.variantUploadLabel,
+      });
+      this.variantUploadLabel = '';
+      this._variantUploadFile = null;
+      const input = this.renderRoot?.querySelector('.variant-upload-file');
+      if (input) {
+        input.value = '';
+      }
+      await this._loadAssetVariants(true);
+    } catch (error) {
+      this.assetVariantsError = error?.message || 'Failed to upload variant.';
+    } finally {
+      this.variantUploading = false;
+    }
+  }
+
+  async _handleVariantSave(variantId) {
+    if (!this.canEditTags || !this.details?.id || !this.tenant) return;
+    const draft = this.variantDrafts[variantId] || {};
+    const busyKey = `${variantId}:save`;
+    this.variantRowBusy = { ...this.variantRowBusy, [busyKey]: true };
+    this.assetVariantsError = '';
+    try {
+      await updateAssetVariant(this.tenant, this.details.id, variantId, {
+        variant: draft.variant ?? '',
+        filename: draft.filename ?? '',
+      });
+      await this._loadAssetVariants(true);
+    } catch (error) {
+      this.assetVariantsError = error?.message || 'Failed to update variant.';
+    } finally {
+      this.variantRowBusy = { ...this.variantRowBusy, [busyKey]: false };
+    }
+  }
+
+  async _handleVariantDelete(variantId) {
+    if (!this.canEditTags || !this.details?.id || !this.tenant) return;
+    const confirmed = window.confirm('Delete this asset variant?');
+    if (!confirmed) return;
+    const busyKey = `${variantId}:delete`;
+    this.variantRowBusy = { ...this.variantRowBusy, [busyKey]: true };
+    this.assetVariantsError = '';
+    try {
+      await deleteAssetVariant(this.tenant, this.details.id, variantId);
+      await this._loadAssetVariants(true);
+    } catch (error) {
+      this.assetVariantsError = error?.message || 'Failed to delete variant.';
+    } finally {
+      this.variantRowBusy = { ...this.variantRowBusy, [busyKey]: false };
+    }
+  }
+
+  async _handleVariantInspect(variantId) {
+    const rowId = String(variantId || '');
+    if (!rowId || !this.details?.id || !this.tenant) return;
+    if (this.variantInspectBusy[rowId]) return;
+    this.variantInspectBusy = { ...this.variantInspectBusy, [rowId]: true };
+    this.assetVariantsError = '';
+    try {
+      const data = await inspectAssetVariant(this.tenant, this.details.id, rowId);
+      this.variantInspectData = { ...this.variantInspectData, [rowId]: data || {} };
+    } catch (error) {
+      this.assetVariantsError = error?.message || 'Failed to inspect variant.';
+    } finally {
+      this.variantInspectBusy = { ...this.variantInspectBusy, [rowId]: false };
     }
   }
 
@@ -1060,6 +1611,33 @@ class ImageEditor extends LitElement {
     return date.toLocaleString();
   }
 
+  _formatVariantMetaDate(value) {
+    if (!value) return '--';
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  _formatVariantFileSize(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) return '--';
+    if (bytes < 1024) return `${bytes} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let size = bytes / 1024;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+    return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+  }
+
   _buildDropboxHref(path) {
     if (!path) return '';
     const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
@@ -1086,59 +1664,42 @@ class ImageEditor extends LitElement {
         }))
     ));
     return html`
-      <div class="tag-section">
-        <div class="space-y-1 text-xs text-gray-600">
-          <div>
-            <span class="font-semibold text-gray-700">ID:</span>
-            <span class="ml-1">${this.details?.id ?? 'Unknown'}</span>
-            ${this.details?.id ? html`
-              <button
-                type="button"
-                class="ml-2 text-blue-600 hover:text-blue-700 underline underline-offset-2"
-                @click=${this._handleZoomToPhoto}
-              >
-                [time travel]
-              </button>
-            ` : html``}
-          </div>
-          <div>
-            <span class="font-semibold text-gray-700">Dropbox:</span>
-            ${dropboxHref
-              ? html`<a class="ml-1 text-blue-600 hover:text-blue-700 break-all" href=${dropboxHref} target="dropbox" rel="noopener noreferrer">${dropboxPath}</a>`
-              : html`<span class="ml-1 text-gray-400">Unknown</span>`}
-          </div>
-        </div>
-        ${this._renderRatingControl()}
-        <div class="right-pane">
-          <div class="text-xs font-semibold text-gray-600 uppercase mb-2">Active Tags</div>
-          ${permatags.length ? html`
-            <div class="tag-list">
-              ${permatags.map((tag) => html`
-                <span class="tag-chip">
-                  <span>${tag.keyword}</span>
-                  ${this.canEditTags ? html`
-                    <button class="tag-remove" title="Remove tag" @click=${() => this._handleRemoveTag(tag)}>❌</button>
-                  ` : html``}
-                </span>
-              `)}
-            </div>
-          ` : html`<div class="empty-text">No active tags.</div>`}
-          ${this.canEditTags ? html`
-            <div class="mt-2">
-              <button
-                class="text-xs text-blue-600 hover:text-blue-700"
-                ?disabled=${this.tagsPropagating}
-                @click=${this._handlePropagateDropboxTags}
-                title="Write GMM tags to Dropbox for this image"
-              >
-                ${this.tagsPropagating ? 'Propagating...' : 'Propagate tags'}
-              </button>
-            </div>
-          ` : html``}
-        </div>
-        ${this.canEditTags ? html`
-          <div class="right-pane">
-            <div class="text-xs font-semibold text-gray-600 uppercase mb-2">Add Tag</div>
+      <div class="prop-panel">
+        ${renderPropertySection({
+          title: 'Image',
+          rows: [
+            {
+              label: 'ID',
+              value: html`
+                <span>${this.details?.id ?? 'Unknown'}</span>
+                ${this.details?.id ? html`
+                  <button
+                    type="button"
+                    class="ml-2 text-blue-600 hover:text-blue-700 underline underline-offset-2"
+                    @click=${this._handleZoomToPhoto}
+                  >
+                    [time travel]
+                  </button>
+                ` : html``}
+              `,
+            },
+            {
+              label: 'Dropbox',
+              value: dropboxHref
+                ? html`<a class="prop-link" href=${dropboxHref} target="dropbox" rel="noopener noreferrer">${dropboxPath}</a>`
+                : 'Unknown',
+            },
+          ],
+        })}
+
+        ${renderPropertySection({
+          title: 'Rating',
+          body: this._renderRatingControl({ showHeading: false }),
+        })}
+
+        ${this.canEditTags ? renderPropertySection({
+          title: 'Add Tags',
+          body: html`
             <div class="tag-form">
               <keyword-dropdown
                 class="tag-dropdown"
@@ -1151,8 +1712,51 @@ class ImageEditor extends LitElement {
               ></keyword-dropdown>
               <button class="tag-add" @click=${this._handleAddTag}>Add Tag</button>
             </div>
-          </div>
-        ` : html``}
+          `,
+        }) : html``}
+
+        ${renderPropertySection({
+          title: 'Active Tags',
+          body: permatags.length
+            ? renderPropertyRows(
+              permatags.map((tag) => ({
+                label: tag.keyword || '--',
+                value: html`
+                  <div class="tag-active-row">
+                    <span class="tag-active-meta">${tag.category || 'Uncategorized'}</span>
+                    ${this.canEditTags ? html`
+                      <button
+                        type="button"
+                        class="tag-remove-inline"
+                        @click=${() => this._handleRemoveTag(tag)}
+                      >
+                        Remove
+                      </button>
+                    ` : html``}
+                  </div>
+                `,
+              })),
+              { scroll: true },
+            )
+            : html`<div class="empty-text">No active tags.</div>`,
+        })}
+
+        ${this.canEditTags ? renderPropertySection({
+          title: 'Tag Actions',
+          body: html`
+            <div class="edit-action-row">
+              <span>Write tags to Dropbox</span>
+              <button
+                class="text-xs text-blue-600 hover:text-blue-700"
+                ?disabled=${this.tagsPropagating}
+                @click=${this._handlePropagateDropboxTags}
+                title="Write GMM tags to Dropbox for this image"
+              >
+                ${this.tagsPropagating ? 'Propagating...' : 'Propagate tags'}
+              </button>
+            </div>
+          `,
+        }) : html``}
       </div>
     `;
   }
@@ -1177,25 +1781,31 @@ class ImageEditor extends LitElement {
     const tabs = ['permatags', ...machineTypes];
     const activeTab = this.tagSubTab;
     return html`
-      <div>
-        <div class="tab-row">
-          ${tabs.map((tab) => {
-            const label = tab === 'permatags' ? 'Permatags' : tab.replace(/_/g, ' ');
-            return html`
-              <button
-                class="tab-button ${activeTab === tab ? 'active' : ''}"
-                @click=${() => this._setTagSubTab(tab)}
-              >
-                ${label}
-              </button>
-            `;
-          })}
-        </div>
-        <div class="mt-3 space-y-2 text-sm text-gray-600">
-          ${activeTab === 'permatags'
+      <div class="prop-panel">
+        ${renderPropertySection({
+          title: 'Tag Source',
+          body: html`
+            <div class="tab-row">
+              ${tabs.map((tab) => {
+                const label = tab === 'permatags' ? 'Permatags' : this._machineTagTypeLabel(tab);
+                return html`
+                  <button
+                    class="tab-button ${activeTab === tab ? 'active' : ''}"
+                    @click=${() => this._setTagSubTab(tab)}
+                  >
+                    ${label}
+                  </button>
+                `;
+              })}
+            </div>
+          `,
+        })}
+        ${renderPropertySection({
+          title: activeTab === 'permatags' ? 'Permatags' : `Machine Tags: ${this._machineTagTypeLabel(activeTab)}`,
+          body: activeTab === 'permatags'
             ? this._renderPermatagList(details.permatags || [])
-            : this._renderMachineTagList(machineTags[activeTab] || [])}
-        </div>
+            : this._renderMachineTagList(machineTags[activeTab] || [], activeTab),
+        })}
       </div>
     `;
   }
@@ -1211,44 +1821,62 @@ class ImageEditor extends LitElement {
       return String(a.keyword || '').localeCompare(String(b.keyword || ''));
     });
     return html`
-      <div class="tag-table">
-        <div class="tag-row header">
-          <div class="tag-cell">Keyword</div>
-          <div class="tag-cell">Sign</div>
-          <div class="tag-cell">Created</div>
+      <div class="tag-grid-table">
+        <div class="tag-grid-row tag-grid-head tag-grid-row-permatag">
+          <div>Keyword</div>
+          <div>Category</div>
+          <div>Sign</div>
+          <div>Date</div>
+        </div>
+        ${sorted.map((tag) => {
+          const isNegative = tag.signum !== 1;
+          return html`
+          <div class="tag-grid-row tag-grid-row-permatag ${isNegative ? 'tag-grid-row-negative' : ''}">
+            <div>${tag.keyword || '--'}</div>
+            <div class="tag-grid-cell-muted">${tag.category || 'Uncategorized'}</div>
+            <div class="${tag.signum === 1 ? 'tag-sign-positive' : 'tag-sign-negative'}">${tag.signum === 1 ? 'positive' : 'negative'}</div>
+            <div class="tag-grid-cell-muted">${this._formatDateTime(tag.created_at)}</div>
+          </div>
+        `;})}
+      </div>
+    `;
+  }
+
+  _renderMachineTagList(tags, tagType = '') {
+    if (!tags.length) {
+      return html`<div class="empty-text">No tags for this model.</div>`;
+    }
+    const sorted = [...tags].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    const categoryLabel = tagType ? this._machineTagTypeLabel(tagType) : 'Machine';
+    return html`
+      <div class="tag-grid-table">
+        <div class="tag-grid-row tag-grid-head tag-grid-row-machine">
+          <div>Keyword</div>
+          <div>Category</div>
+          <div>Date</div>
+          <div>Conf</div>
         </div>
         ${sorted.map((tag) => html`
-          <div class="tag-row">
-            <div class="tag-cell">${tag.keyword}</div>
-            <div class="tag-cell">${tag.signum === 1 ? '＋ positive' : '− negative'}</div>
-            <div class="tag-cell">${this._formatDateTime(tag.created_at)}</div>
+          <div class="tag-grid-row tag-grid-row-machine">
+            <div>${tag.keyword || '--'}</div>
+            <div class="tag-grid-cell-muted">${categoryLabel}</div>
+            <div class="tag-grid-cell-muted">${this._formatDateTime(tag.created_at)}</div>
+            <div class="tag-grid-cell-muted">${tag.confidence ?? '--'}</div>
           </div>
         `)}
       </div>
     `;
   }
 
-  _renderMachineTagList(tags) {
-    if (!tags.length) {
-      return html`<div class="empty-text">No tags for this model.</div>`;
+  _machineTagTypeLabel(tagType = '') {
+    const normalized = String(tagType || '').trim().toLowerCase();
+    if (normalized === 'siglip' || normalized === 'zero_shot' || normalized === 'zero-shot') {
+      return 'Zero-shot';
     }
-    const sorted = [...tags].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-    return html`
-      <div class="tag-table">
-        <div class="tag-row header">
-          <div class="tag-cell">Keyword</div>
-          <div class="tag-cell">Conf</div>
-          <div class="tag-cell">Created</div>
-        </div>
-        ${sorted.map((tag) => html`
-          <div class="tag-row">
-            <div class="tag-cell">${tag.keyword}</div>
-            <div class="tag-cell">${tag.confidence ?? ''}</div>
-            <div class="tag-cell">${this._formatDateTime(tag.created_at)}</div>
-          </div>
-        `)}
-      </div>
-    `;
+    if (normalized === 'keyword_model' || normalized === 'trained') {
+      return 'Trained';
+    }
+    return String(tagType || '').replace(/_/g, ' ') || 'Machine';
   }
 
   _renderMetadataTab() {
@@ -1258,53 +1886,74 @@ class ImageEditor extends LitElement {
     const gps = (details.gps_latitude !== null && details.gps_longitude !== null)
       ? `${details.gps_latitude}, ${details.gps_longitude}`
       : 'Unknown';
+    const width = Number(details.width);
+    const height = Number(details.height);
+    const dimensions = (Number.isFinite(width) && Number.isFinite(height))
+      ? `${width} x ${height}`
+      : 'Unknown';
+    const fileSizeBytes = Number(details.file_size);
+    const fileSize = (Number.isFinite(fileSizeBytes) && fileSizeBytes >= 0)
+      ? `${this._formatVariantFileSize(fileSizeBytes)} (${fileSizeBytes.toLocaleString()} bytes)`
+      : 'Unknown';
     const exifEntries = Object.entries(details.exif_data || {})
       .map(([key, value]) => ({ key, value }))
       .sort((a, b) => a.key.localeCompare(b.key));
+    const exifRows = exifEntries.length
+      ? exifEntries.map((entry) => ({ label: entry.key, value: String(entry.value) }))
+      : [{ label: 'Status', value: 'No EXIF data.' }];
 
     return html`
-      <div>
-        <div class="metadata-grid">
-          <div class="metadata-label">Filename</div>
-          <div>${details.filename || 'Unknown'}</div>
-          <div class="metadata-label">Dropbox path</div>
-          <div>
-            ${details.dropbox_path
-              ? html`<a class="text-blue-600 hover:text-blue-700 break-all" href=${this._buildDropboxHref(details.dropbox_path)} target="dropbox" rel="noopener noreferrer">${details.dropbox_path}</a>`
-              : html`Unknown`}
-          </div>
-          <div class="metadata-label">Photo taken</div>
-          <div>${this._formatDateTime(details.capture_timestamp)}</div>
-          <div class="metadata-label">Dropbox modified</div>
-          <div>${this._formatDateTime(details.modified_time)}</div>
-          <div class="metadata-label">Ingested</div>
-          <div>${this._formatDateTime(details.created_at)}</div>
-          <div class="metadata-label">Last review</div>
-          <div>${this._formatDateTime(details.reviewed_at)}</div>
-          <div class="metadata-label">Dimensions</div>
-          <div>${details.width} × ${details.height}</div>
-          <div class="metadata-label">Format</div>
-          <div>${details.format || 'Unknown'}</div>
-          <div class="metadata-label">File size</div>
-          <div>${details.file_size || 'Unknown'}</div>
-          <div class="metadata-label">Rating</div>
-          <div>${details.rating ?? 'Unrated'}</div>
-          <div class="metadata-label">Camera</div>
-          <div>${camera || 'Unknown'}</div>
-          <div class="metadata-label">Lens</div>
-          <div>${details.lens_model || 'Unknown'}</div>
-          <div class="metadata-label">ISO</div>
-          <div>${details.iso || 'Unknown'}</div>
-          <div class="metadata-label">Aperture</div>
-          <div>${details.aperture ? `f/${details.aperture}` : 'Unknown'}</div>
-          <div class="metadata-label">Shutter</div>
-          <div>${details.shutter_speed || 'Unknown'}</div>
-          <div class="metadata-label">Focal length</div>
-          <div>${details.focal_length ? `${details.focal_length}mm` : 'Unknown'}</div>
-          <div class="metadata-label">GPS</div>
-          <div>${gps}</div>
-        </div>
-        <div class="mt-3 flex items-center justify-between text-xs text-gray-500">
+      <div class="prop-panel">
+        ${renderPropertySection({
+          title: 'Core',
+          rows: [
+            { label: 'Filename', value: details.filename || 'Unknown' },
+            { label: 'Asset ID', value: details.asset_id || 'Unknown' },
+            { label: 'Dropbox ID', value: details.dropbox_id || 'Unknown' },
+            {
+              label: 'Dropbox path',
+              value: details.dropbox_path
+                ? html`<a class="prop-link" href=${this._buildDropboxHref(details.dropbox_path)} target="dropbox" rel="noopener noreferrer">${details.dropbox_path}</a>`
+                : 'Unknown',
+            },
+          ],
+        })}
+
+        ${renderPropertySection({
+          title: 'Timeline',
+          rows: [
+            { label: 'Photo taken', value: this._formatDateTime(details.capture_timestamp) },
+            { label: 'Dropbox modified', value: this._formatDateTime(details.modified_time) },
+            { label: 'Ingested', value: this._formatDateTime(details.created_at) },
+            { label: 'Last review', value: this._formatDateTime(details.reviewed_at) },
+          ],
+        })}
+
+        ${renderPropertySection({
+          title: 'File',
+          rows: [
+            { label: 'Dimensions', value: dimensions },
+            { label: 'Format', value: details.format || 'Unknown' },
+            { label: 'MIME type', value: details.mime_type || 'Unknown' },
+            { label: 'File size', value: fileSize },
+            { label: 'Rating', value: details.rating ?? 'Unrated' },
+          ],
+        })}
+
+        ${renderPropertySection({
+          title: 'Camera + EXIF',
+          rows: [
+            { label: 'Camera', value: camera || 'Unknown' },
+            { label: 'Lens', value: details.lens_model || 'Unknown' },
+            { label: 'ISO', value: details.iso || 'Unknown' },
+            { label: 'Aperture', value: details.aperture ? `f/${details.aperture}` : 'Unknown' },
+            { label: 'Shutter', value: details.shutter_speed || 'Unknown' },
+            { label: 'Focal length', value: details.focal_length ? `${details.focal_length}mm` : 'Unknown' },
+            { label: 'GPS', value: gps },
+          ],
+        })}
+
+        <div class="prop-toolbar">
           <span>Re-download the file and refresh metadata.</span>
           <div class="flex items-center gap-2">
             <button
@@ -1316,26 +1965,21 @@ class ImageEditor extends LitElement {
             </button>
           </div>
         </div>
-        <div class="exif-block">
-          <div class="text-xs font-semibold text-gray-600 uppercase mb-2">EXIF Data</div>
-          ${exifEntries.length ? html`
-            <div class="exif-list">
-              ${exifEntries.map((entry) => html`
-                <div>${entry.key}</div>
-                <div>${String(entry.value)}</div>
-              `)}
-            </div>
-          ` : html`<div class="empty-text">No EXIF data.</div>`}
-        </div>
+
+        ${renderPropertySection({
+          title: 'EXIF Data',
+          rows: exifRows,
+          scroll: exifEntries.length > 0,
+        })}
       </div>
     `;
   }
 
-  _renderRatingControl() {
+  _renderRatingControl({ showHeading = true } = {}) {
     if (!this.details) return html``;
     return html`
       <div class="space-y-2">
-        <div class="text-xs font-semibold text-gray-600 uppercase">Rating</div>
+        ${showHeading ? html`<div class="text-xs font-semibold text-gray-600 uppercase">Rating</div>` : html``}
         <div class="flex flex-wrap items-center gap-2">
           <div class="detail-rating-widget">
             ${this._ratingBurstActive ? html`
@@ -1427,6 +2071,272 @@ class ImageEditor extends LitElement {
     `;
   }
 
+  _renderTopTabs() {
+    return html`
+      <div class="editor-tab-strip">
+        <button class="tab-button ${this.activeTab === 'edit' ? 'active' : ''}" @click=${() => this._setTab('edit')}>
+          Edit
+        </button>
+        <button class="tab-button ${this.activeTab === 'metadata' ? 'active' : ''}" @click=${() => this._setTab('metadata')}>
+          Metadata
+        </button>
+        <button class="tab-button ${this.activeTab === 'tags' ? 'active' : ''}" @click=${() => this._setTab('tags')}>
+          Tags
+        </button>
+        <button class="tab-button ${this.activeTab === 'people' ? 'active' : ''}" @click=${() => this._setTab('people')}>
+          People
+        </button>
+        <button class="tab-button ${this.activeTab === 'variants' ? 'active' : ''}" @click=${() => this._setTab('variants')}>
+          Variants
+        </button>
+      </div>
+    `;
+  }
+
+  _renderImageNavigation() {
+    return html`
+      <div class="image-navigation">
+        <button
+          class="nav-button"
+          @click=${() => this._goToPreviousImage()}
+          ?disabled=${this.currentImageIndex <= 0}
+          title="Previous image"
+        >
+          ← Previous
+        </button>
+        <span style="display: flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280;">
+          ${this.currentImageIndex >= 0 && this.imageSet?.length ? `${this.currentImageIndex + 1} / ${this.imageSet.length}` : ''}
+        </span>
+        <button
+          class="nav-button"
+          @click=${() => this._goToNextImage()}
+          ?disabled=${this.currentImageIndex >= (this.imageSet?.length || 1) - 1}
+          title="Next image"
+        >
+          Next →
+        </button>
+      </div>
+    `;
+  }
+
+  _renderVariantsTab() {
+    const variants = this.assetVariants || [];
+    return html`
+      <div class="variants-fullscreen">
+        ${renderPropertySection({
+          title: 'Add New Variant',
+          body: html`
+            <div class="variants-section">
+              <div class="variants-header">
+                <div class="text-xs text-gray-500">Upload a manually edited export for this image.</div>
+                <button
+                  type="button"
+                  class="variants-action"
+                  @click=${() => this._loadAssetVariants(true)}
+                  ?disabled=${this.assetVariantsLoading}
+                >
+                  ${this.assetVariantsLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              </div>
+              ${this.canEditTags ? html`
+                <div class="variants-upload">
+                  <input
+                    class="variants-input"
+                    type="text"
+                    .value=${this.variantUploadLabel}
+                    placeholder="Variant label (e.g., ig-square)"
+                    @input=${(event) => {
+                      this.variantUploadLabel = event.target.value;
+                    }}
+                  />
+                  <input
+                    class="variants-input variant-upload-file"
+                    type="file"
+                    @change=${this._handleVariantFileChange}
+                  />
+                  <button
+                    type="button"
+                    class="variants-action primary"
+                    ?disabled=${this.variantUploading || !this._variantUploadFile}
+                    @click=${this._handleVariantUpload}
+                  >
+                    ${this.variantUploading ? 'Uploading...' : 'Upload'}
+                  </button>
+                </div>
+              ` : html``}
+              ${this.assetVariantsError ? html`
+                <div class="text-xs text-red-600">${this.assetVariantsError}</div>
+              ` : html``}
+            </div>
+          `,
+        })}
+
+        ${renderPropertySection({
+          title: 'Uploaded Variants',
+          body: variants.length ? html`
+            <div class="variants-list-scroll">
+              <div class="variants-table">
+                <div class="variants-table-header">
+                  <div>Preview</div>
+                  <div>Label</div>
+                  <div>Filename</div>
+                  <div>Metadata</div>
+                  <div>Inspect</div>
+                  <div>Actions</div>
+                </div>
+                ${variants.map((row) => {
+                  const draft = this.variantDrafts[row.id] || { variant: row.variant || '', filename: row.filename || '' };
+                  const saveBusy = !!this.variantRowBusy[`${row.id}:save`];
+                  const deleteBusy = !!this.variantRowBusy[`${row.id}:delete`];
+                  const previewUrl = this._variantPreviewUrls[String(row.id)] || '';
+                  const publicUrl = row.public_url || previewUrl || '';
+                  const createdBy = row.created_by_name || '--';
+                  const createdDate = this._formatVariantMetaDate(row.created_at);
+                  const updatedDate = this._formatVariantMetaDate(row.updated_at);
+                  const inspectState = this.variantInspectData[String(row.id)] || null;
+                  const inspectBusy = !!this.variantInspectBusy[String(row.id)];
+                  const fileSize = this._formatVariantFileSize(
+                    inspectState?.file_size_bytes ?? row.file_size_bytes
+                  );
+                  const inspectedWidth = inspectState?.width;
+                  const inspectedHeight = inspectState?.height;
+                  const inspectDetails = inspectState
+                    ? `${fileSize}${Number.isFinite(inspectedWidth) && Number.isFinite(inspectedHeight) ? ` · ${inspectedWidth} x ${inspectedHeight}` : ''}`
+                    : '';
+                  return html`
+                    <div class="variants-row">
+                      <div class="variants-cell variants-cell-preview">
+                        <span class="variants-cell-key">Preview</span>
+                        <div class="variant-preview-wrap">
+                          <a
+                            class="variant-preview-link"
+                            href=${publicUrl || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            @click=${(event) => {
+                              if (publicUrl) return;
+                              event.preventDefault();
+                            }}
+                          >
+                            <img
+                              class="variant-preview"
+                              style=${previewUrl ? '' : 'display:none;'}
+                              src=${previewUrl || ''}
+                              alt=${row.filename || 'variant preview'}
+                              loading="lazy"
+                              @error=${this._handleVariantPreviewError}
+                            />
+                            <div class="variant-preview-fallback" style=${previewUrl ? 'display:none;' : 'display:flex;'}>...</div>
+                          </a>
+                        </div>
+                      </div>
+
+                      <div class="variants-cell">
+                        <span class="variants-cell-key">Label</span>
+                        <input
+                          class="variants-input variant-label-input"
+                          .value=${draft.variant}
+                          placeholder="Variant label"
+                          @input=${(event) => this._updateVariantDraft(row.id, 'variant', event.target.value)}
+                        />
+                      </div>
+
+                      <div class="variants-cell">
+                        <span class="variants-cell-key">Filename</span>
+                        <input
+                          class="variants-input variants-filename-input"
+                          .value=${draft.filename}
+                          title=${draft.filename || ''}
+                          placeholder="Filename"
+                          @input=${(event) => this._updateVariantDraft(row.id, 'filename', event.target.value)}
+                        />
+                      </div>
+
+                      <div class="variants-cell variants-cell-meta">
+                        <span class="variants-cell-key">Metadata</span>
+                        <div class="variants-meta-line">
+                          <span class="variants-meta-label">created:</span>
+                          <span>${createdDate}</span>
+                        </div>
+                        <div class="variants-meta-line">
+                          <span class="variants-meta-label">updated:</span>
+                          <span>${updatedDate}</span>
+                        </div>
+                        <div class="variants-meta-line">
+                          <span class="variants-meta-label">created by:</span>
+                          <span>${createdBy}</span>
+                        </div>
+                      </div>
+
+                      <div class="variants-cell variants-cell-inspect">
+                        <span class="variants-cell-key">Inspect</span>
+                        <button
+                          type="button"
+                          class="variant-inspect-link"
+                          ?disabled=${inspectBusy}
+                          @click=${() => this._handleVariantInspect(row.id)}
+                        >
+                          ${inspectBusy ? 'Inspecting...' : inspectState ? 'Reinspect' : 'Inspect'}
+                        </button>
+                        ${inspectDetails ? html`<div class="variants-inspect-metrics">${inspectDetails}</div>` : html``}
+                      </div>
+
+                      <div class="variants-cell variants-cell-actions">
+                        <span class="variants-cell-key">Actions</span>
+                        <div class="variant-actions">
+                          <button
+                            type="button"
+                            class="variants-action"
+                            @click=${() => this._handleOpenVariant(row)}
+                          >
+                            Open
+                          </button>
+                          ${this.canEditTags ? html`
+                            <button
+                              type="button"
+                              class="variants-action primary"
+                              ?disabled=${saveBusy}
+                              @click=${() => this._handleVariantSave(row.id)}
+                            >
+                              ${saveBusy ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              type="button"
+                              class="variants-action danger"
+                              ?disabled=${deleteBusy}
+                              @click=${() => this._handleVariantDelete(row.id)}
+                            >
+                              ${deleteBusy ? 'Deleting...' : 'Delete'}
+                            </button>
+                          ` : html``}
+                        </div>
+                      </div>
+                    </div>
+                    ${publicUrl ? html`
+                      <div class="variants-detail-row">
+                        <span class="variants-detail-label">preview_url:</span>
+                        <input
+                          class="variant-preview-url-input"
+                          type="text"
+                          .value=${publicUrl}
+                          readonly
+                          @focus=${(event) => event.target.select()}
+                          @click=${(event) => event.target.select()}
+                        />
+                      </div>
+                    ` : html``}
+                  `;
+                })}
+              </div>
+            </div>
+          ` : html`
+            <div class="empty-text">${this.assetVariantsLoading ? 'Loading variants...' : 'No variants yet.'}</div>
+          `,
+        })}
+      </div>
+    `;
+  }
+
   _renderContent() {
     if (this.loading) {
       return html`
@@ -1459,7 +2369,26 @@ class ImageEditor extends LitElement {
       : (this.details.thumbnail_url || `/api/v1/images/${this.details.id}/thumbnail`);
     const showHighResButton = !this.fullImageUrl && !this.fullImageLoading;
     const imageContainerClasses = `image-container ${this.isActualSize ? 'zoomed' : ''}`;
+    const rightPaneContent = this.activeTab === 'metadata'
+      ? this._renderMetadataTab()
+      : this.activeTab === 'tags'
+        ? this._renderTagsReadOnly()
+        : this.activeTab === 'people'
+          ? this._renderPeopleTab()
+          : this._renderEditTab();
+
+    if (this.activeTab === 'variants') {
+      return html`
+        <div class="variants-layout">
+          ${this._renderTopTabs()}
+          ${this._renderVariantsTab()}
+          ${this._renderImageNavigation()}
+        </div>
+      `;
+    }
+
     return html`
+      ${this._renderTopTabs()}
       <div class="panel-body">
         <div class="image-wrap image-full">
           <div class="${imageContainerClasses}">
@@ -1477,52 +2406,12 @@ class ImageEditor extends LitElement {
           </div>
         </div>
         <div class="panel-right">
-          <div class="tab-row">
-            <button class="tab-button ${this.activeTab === 'edit' ? 'active' : ''}" @click=${() => this._setTab('edit')}>
-              Edit
-            </button>
-            <button class="tab-button ${this.activeTab === 'metadata' ? 'active' : ''}" @click=${() => this._setTab('metadata')}>
-              Metadata
-            </button>
-            <button class="tab-button ${this.activeTab === 'tags' ? 'active' : ''}" @click=${() => this._setTab('tags')}>
-              Tags
-            </button>
-            <button class="tab-button ${this.activeTab === 'people' ? 'active' : ''}" @click=${() => this._setTab('people')}>
-              People
-            </button>
-          </div>
           <div class="mt-3" style="flex: 1; min-height: 0; overflow: auto;">
-            ${this.activeTab === 'metadata'
-              ? this._renderMetadataTab()
-              : this.activeTab === 'tags'
-                ? this._renderTagsReadOnly()
-                : this.activeTab === 'people'
-                  ? this._renderPeopleTab()
-                  : this._renderEditTab()}
-          </div>
-          <div class="image-navigation">
-            <button
-              class="nav-button"
-              @click=${() => this._goToPreviousImage()}
-              ?disabled=${this.currentImageIndex <= 0}
-              title="Previous image"
-            >
-              ← Previous
-            </button>
-            <span style="display: flex; align-items: center; gap: 4px; font-size: 12px; color: #6b7280;">
-              ${this.currentImageIndex >= 0 && this.imageSet?.length ? `${this.currentImageIndex + 1} / ${this.imageSet.length}` : ''}
-            </span>
-            <button
-              class="nav-button"
-              @click=${() => this._goToNextImage()}
-              ?disabled=${this.currentImageIndex >= (this.imageSet?.length || 1) - 1}
-              title="Next image"
-            >
-              Next →
-            </button>
+            ${rightPaneContent}
           </div>
         </div>
       </div>
+      ${this._renderImageNavigation()}
     `;
   }
 

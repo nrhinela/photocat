@@ -7,6 +7,7 @@ to reduce duplication across CLI commands.
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from photocat.database import get_engine_kwargs
 from photocat.settings import settings
 from photocat.tenant import Tenant, TenantContext
 
@@ -29,7 +30,7 @@ def setup_database_and_tenant(tenant_id: str):
         ValueError: If tenant is not found in database
     """
     # Setup database
-    engine = create_engine(settings.database_url)
+    engine = create_engine(settings.database_url, **get_engine_kwargs())
     SessionLocal = sessionmaker(bind=engine)
     session = SessionLocal()
 

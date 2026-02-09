@@ -278,6 +278,55 @@ export async function getImageDetails(tenantId, imageId) {
     return fetchWithAuth(`/images/${imageId}`, { tenantId });
 }
 
+export async function listAssetVariants(tenantId, imageId) {
+  return fetchWithAuth(`/images/${imageId}/asset-variants`, { tenantId });
+}
+
+export async function uploadAssetVariant(tenantId, imageId, { file, variant } = {}) {
+  const formData = new FormData();
+  if (file) {
+    formData.append('file', file);
+  }
+  if (variant !== undefined && variant !== null && String(variant).trim()) {
+    formData.append('variant', String(variant).trim());
+  }
+  return fetchWithAuth(`/images/${imageId}/asset-variants`, {
+    method: 'POST',
+    tenantId,
+    body: formData,
+    headers: {},
+  });
+}
+
+export async function updateAssetVariant(tenantId, imageId, variantId, payload = {}) {
+  return fetchWithAuth(`/images/${imageId}/asset-variants/${variantId}`, {
+    method: 'PATCH',
+    tenantId,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAssetVariant(tenantId, imageId, variantId) {
+  return fetchWithAuth(`/images/${imageId}/asset-variants/${variantId}`, {
+    method: 'DELETE',
+    tenantId,
+  });
+}
+
+export async function getAssetVariantContent(tenantId, imageId, variantId, { signal } = {}) {
+  return fetchWithAuth(`/images/${imageId}/asset-variants/${variantId}/content`, {
+    tenantId,
+    responseType: 'blob',
+    signal,
+  });
+}
+
+export async function inspectAssetVariant(tenantId, imageId, variantId) {
+  return fetchWithAuth(`/images/${imageId}/asset-variants/${variantId}/inspect`, {
+    tenantId,
+  });
+}
+
 export async function refreshImageMetadata(tenantId, imageId) {
     return fetchWithAuth(`/images/${imageId}/refresh-metadata`, {
         method: 'POST',

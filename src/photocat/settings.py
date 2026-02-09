@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://localhost/photocat"
     db_pool_size: int = 10
     db_max_overflow: int = 20
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
+    db_pool_pre_ping: bool = True
+    db_connect_timeout: int = 10
     
     # Google Cloud
     gcp_project_id: str = "photocat-483622"
