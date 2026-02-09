@@ -13,10 +13,6 @@ The PhotoCat codebase has two critical files that violate the project's "small f
 
 This plan outlines a systematic refactoring to reduce these files to manageable sizes (~400-800 lines each) while maintaining functionality and test coverage.
 
-> **Review Note**: Strong framing. Add one guardrail: modularization PRs should be behavior-preserving by default (move/wire only), unless a behavior change is explicitly scoped and tested.
-
-**Response**: ✅ Agreed. Added to **Refactoring Principles** section below:
-
 ## Refactoring Principles
 
 1. **Behavior-Preserving by Default**: All modularization PRs are move-and-wire operations only. No functional changes unless explicitly scoped, documented, and tested separately.
@@ -91,10 +87,6 @@ frontend/components/
         └── image-filter-panel.js (existing - no changes)
 ```
 
-> **Review Note**: Define a strict rule for `components/state` vs `shared/state` ownership. Without this, state logic tends to drift across both trees.
-
-**Response**: ✅ Added ownership rules:
-
 **State Directory Ownership Rules**:
 - **`components/state/`**: Tab-specific state controllers that are tightly coupled to `photocat-app.js`. These manage the lifecycle and behavior of individual tabs (curate, audit, explore, search). One-to-one relationship with tabs.
 - **`shared/state/`**: Reusable state utilities used by MULTIPLE tabs or components (e.g., `image-filter-panel.js` used by search, curate, and audit). Must have 2+ consumers before moving to shared.
@@ -140,9 +132,7 @@ export class BaseStateController {
 }
 ```
 
-> **Review Note**: Consider Lit `ReactiveController` for these managers. It provides lifecycle integration and reduces custom conventions you'll need to maintain.
-
-**Response**: ✅ Excellent point. **Updated approach**: Use Lit's `ReactiveController` pattern instead of custom manager base classes. This provides:
+Use Lit's `ReactiveController` pattern instead of custom manager base classes. Benefits:
 - Automatic lifecycle integration (`hostConnected`, `hostDisconnected`)
 - Built-in `requestUpdate()` via `host.requestUpdate()`
 - Less custom code to maintain
@@ -242,10 +232,6 @@ export class CurateHomeStateController extends BaseStateController {
    ```
 5. Replace method calls: `this._handleCurateKeywordSelect()` → `this._curateHomeState.handleKeywordSelect()`
 6. Update event handlers in template to use state controller
-
-> **Review Note**: Avoid migration by line-number chunks only; migrate by behavior slices (filters, selection, pagination) with tests per slice to lower regression risk.
-
-**Response**: ✅ Agreed. **Updated migration strategy** - extract by functional slices, not line ranges:
 
 **Revised Step 1.2 Migration Path** (behavior-based):
 1. **Slice 1: Filter State** (~150 lines)
@@ -385,10 +371,6 @@ constructor() {
 ></curate-home-tab>
 ```
 
-> **Review Note**: Prefer stable handler methods over inline lambdas for hot-path events to reduce render allocations and simplify debugging.
-
-**Response**: ✅ Good catch. **Revised approach** - bind stable handler methods in constructor instead of inline lambdas:
-
 **Updated Constructor Pattern**:
 ```javascript
 constructor() {
@@ -430,10 +412,6 @@ This avoids allocating new lambdas on every render while still delegating to sta
 2. Verify event handlers still work
 3. Check state persistence across tab switches
 4. Test selection, drag-and-drop, and rating features
-
-> **Review Note**: Add a required "golden workflows" checklist (3-5 end-to-end user flows) and run it after each extraction step.
-
-**Response**: ✅ Added **Golden Workflows Checklist** (run after each state controller extraction):
 
 **Golden Workflows** (E2E validation):
 1. **Curate Home → Tag Images → View in Editor**
@@ -478,10 +456,6 @@ This avoids allocating new lambdas on every render while still delegating to sta
 ### Rollout Plan
 
 > Superseded by the milestone-based rollout plan below (source of truth).
-
-> **Review Note**: Timeline looks aggressive for this amount of frontend movement. Add stop/go checkpoints after each tab migration rather than strict week boundaries.
-
-**Response**: ✅ **Revised to milestone-based approach** instead of strict weeks:
 
 **Updated Rollout Plan** (stop/go checkpoints):
 
@@ -611,10 +585,6 @@ src/photocat/routers/images/
 └── query_builder.py (existing - may need updates for list_images)
 ```
 
-> **Review Note**: Add a `routers/images/_shared.py` module for cross-router helpers to prevent utility duplication and import-cycle pressure as files split.
-
-**Response**: ✅ Excellent suggestion. **Added to architecture**:
-
 ```
 src/photocat/routers/images/
 ├── _shared.py (NEW - cross-router utilities)
@@ -650,10 +620,6 @@ src/photocat/routers/images/
 3. Import required helpers from `_shared.py`
 4. Update imports in `api.py`
 5. Remove from `core.py`
-
-> **Review Note**: Keep thin compatibility shims (or import re-exports) for one release cycle if internal imports depend on `core.py`. It makes rollback and staged migration safer.
-
-**Response**: ✅ Smart safety mechanism. **Added deprecation strategy**:
 
 **Compatibility Shim Pattern** (for one release cycle):
 ```python
@@ -748,10 +714,6 @@ def list_asset_variants(*args, **kwargs):
 - Move complex query building to `query_builder.py`
 - Reduce `list_images` from 550 → ~200 lines
 
-> **Review Note**: Make `list_images` simplification the last backend step. It has the highest regression risk (query correctness + tenant/filter semantics).
-
-**Response**: ✅ Absolutely. **Reordered backend rollout plan**:
-
 **Revised Backend Migration Order** (safest → riskiest):
 1. **Week 1**: Extract low-risk routers (no query logic)
    - `_shared.py` (utilities)
@@ -803,10 +765,6 @@ app.include_router(dropbox_sync.router)
 app.include_router(rating.router)
 # ... existing routers
 ```
-
-> **Review Note**: Preserve endpoint paths and `operation_id` values exactly during extraction to avoid OpenAPI/client breakage.
-
-**Response**: ✅ Critical for API stability. **Added verification checklist**:
 
 **API Contract Preservation Checklist** (for each router extraction):
 1. ✅ Endpoint paths unchanged: `/api/v1/images/{id}/variants` → same path in new router
@@ -897,10 +855,6 @@ diff <(jq 'del(.tags)' openapi_before.json) \
 - ✅ Improved code navigation (smaller, focused files)
 - ✅ Better LLM comprehension (per CLAUDE.md principle)
 
-> **Review Note**: Add outcome metrics beyond line counts: p95 latency for key endpoints, regression defect rate post-merge, and PR cycle time.
-
-**Response**: ✅ Great point - need operational metrics, not just code metrics. **Added**:
-
 ### Operational Metrics (tracked for 2 weeks post-merge)
 
 **Performance Metrics** (baseline vs post-refactor):
@@ -969,10 +923,6 @@ diff <(jq 'del(.tags)' openapi_before.json) \
 3. **Schedule**: Use milestone checkpoints (Phase 1 target: 4-6 weeks, Phase 2 target: 4 weeks)
 4. **Execute**: Follow rollout plan with milestone checkpoints
 5. **Document**: Update CLAUDE.md with new architectural patterns
-
-> **Review Note**: Add a per-phase definition of done: moved code has tests updated, ownership clarified, and no temporary adapters left untracked.
-
-**Response**: ✅ Added **Definition of Done** for each phase:
 
 ## Definition of Done (per milestone)
 
@@ -1051,6 +1001,22 @@ Utilities:            16 methods (shared/moved)
 
 ---
 
-**Document Version**: 1.1
+## Appendix C: Decision Log
+
+1. Behavior-preserving modularization is the default; behavior changes require explicit scope and tests.
+2. Ownership boundaries were set for `components/state/` vs `shared/state/` to prevent state drift.
+3. Frontend state modules were standardized on Lit `ReactiveController`.
+4. Curate Home extraction was switched from line-range migration to behavior-slice migration.
+5. Template event wiring now uses stable handler references (no hot-path inline lambdas).
+6. A required golden-workflows checklist was added as a stop/go gate after each extraction.
+7. Frontend rollout moved from week-based to milestone checkpoints.
+8. Backend shared helpers were centralized in `routers/images/_shared.py` before router splitting.
+9. Backend extraction added one-release compatibility shims with explicit deprecation path.
+10. Backend rollout order was adjusted to run `list_images` simplification last.
+11. API-contract parity checks, operational metrics, and per-milestone definition-of-done were added.
+
+---
+
+**Document Version**: 1.2
 **Last Updated**: 2026-02-09
 **Owner**: Development Team
