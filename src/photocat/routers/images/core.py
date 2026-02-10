@@ -30,6 +30,7 @@ from photocat.tenant import Tenant
 from photocat.metadata import Asset, AssetDerivative, ImageMetadata, MachineTag, Permatag, Tenant as TenantModel
 from photocat.models.config import Keyword
 from photocat.settings import settings
+from photocat.storage import create_storage_provider
 from photocat.tagging import calculate_tags
 from photocat.config.db_utils import load_keywords_map
 from photocat.image import ImageProcessor
@@ -193,6 +194,20 @@ def _resolve_dropbox_ref(storage_info, image: ImageMetadata) -> Optional[str]:
     if legacy_dropbox_id.startswith("local_"):
         return None
     return dropbox_ref
+
+
+def _resolve_provider_ref(storage_info, image: ImageMetadata) -> tuple[str, Optional[str]]:
+    """Resolve source reference for the active provider with legacy Dropbox fallback."""
+    provider_name = (storage_info.source_provider or "dropbox").strip().lower()
+    source_key = (storage_info.source_key or "").strip()
+
+    if provider_name == "dropbox":
+        return provider_name, _resolve_dropbox_ref(storage_info, image)
+
+    if source_key and not source_key.startswith("/local/"):
+        return provider_name, source_key
+
+    return provider_name, None
 
 
 def _extract_dropbox_tag_text(tag_obj) -> Optional[str]:
@@ -885,8 +900,9 @@ async def get_image_stats(
         ImageMetadata.tenant_id == tenant.id
     ).scalar()
 
-    asset_newest = db.query(func.max(Asset.created_at)).filter(
-        Asset.tenant_id == tenant.id
+    # Keep legacy response field name but align calculation to image metadata timeline.
+    asset_newest = db.query(func.max(photo_date_expr)).filter(
+        ImageMetadata.tenant_id == tenant.id
     ).scalar()
 
     age_bin_counts = db.query(
@@ -1669,7 +1685,7 @@ async def get_full_image(
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
-    """Stream full-size image from Dropbox without persisting it."""
+    """Stream full-size image from configured storage provider without persisting it."""
     image = db.query(ImageMetadata).filter_by(
         id=image_id,
         tenant_id=tenant.id
@@ -1684,79 +1700,50 @@ async def get_full_image(
         db=db,
         require_source=True,
     )
-    dropbox_ref = _resolve_dropbox_ref(storage_info, image)
-    if not dropbox_ref:
-        raise HTTPException(status_code=404, detail="Image not available in Dropbox")
-
-    if not tenant.dropbox_app_key:
-        raise HTTPException(status_code=400, detail="Dropbox app key not configured for tenant")
-    if not tenant.dropbox_token_secret or not tenant.dropbox_app_secret:
-        raise HTTPException(status_code=400, detail="Dropbox secrets not configured for tenant")
+    provider_name, source_ref = _resolve_provider_ref(storage_info, image)
+    if not source_ref:
+        if provider_name == "dropbox":
+            raise HTTPException(status_code=404, detail="Image not available in Dropbox")
+        raise HTTPException(status_code=404, detail=f"Image not available in {provider_name}")
 
     try:
-        refresh_token = get_secret(tenant.dropbox_token_secret)
-        app_secret = get_secret(tenant.dropbox_app_secret)
+        provider = create_storage_provider(provider_name, tenant=tenant, get_secret=get_secret)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Dropbox secrets missing: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize {provider_name} provider: {exc}")
 
     try:
-        dbx = Dropbox(
-            oauth2_refresh_token=refresh_token,
-            app_key=tenant.dropbox_app_key,
-            app_secret=app_secret
-        )
-        metadata, response = dbx.files_download(dropbox_ref)
-        content_type = response.headers.get("Content-Type") or response.headers.get("content-type")
-        if not content_type:
-            content_type, _ = mimetypes.guess_type(image.filename or dropbox_ref)
-            content_type = content_type or "application/octet-stream"
-        filename = getattr(metadata, "name", None) or image.filename or "image"
-
-        # Convert HEIC to JPEG for browser compatibility
-        if filename.lower().endswith((".heic", ".heif")):
-            try:
-                from photocat.image import ImageProcessor
-                image_data = response.content
-                processor = ImageProcessor()
-                pil_image = processor.load_image(image_data)
-                # Convert to JPEG (create_thumbnail uses JPEG but we want full size)
-                pil_image_rgb = pil_image.convert("RGB") if pil_image.mode != "RGB" else pil_image
-                import io
-                buffer = io.BytesIO()
-                pil_image_rgb.save(buffer, format="JPEG", quality=95, optimize=False)
-                converted_data = buffer.getvalue()
-                filename = filename.rsplit(".", 1)[0] + ".jpg"
-                content_type = "image/jpeg"
-                return StreamingResponse(
-                    iter([converted_data]),
-                    media_type=content_type,
-                    headers={
-                        "Cache-Control": "no-store",
-                        "Content-Disposition": f'inline; filename="{filename}"'
-                    }
-                )
-            except Exception as e:
-                # Fallback: stream original if conversion fails
-                print(f"HEIC conversion failed for {image.filename}: {e}")
-                return StreamingResponse(
-                    response.iter_content(chunk_size=1024 * 1024),
-                    media_type=content_type,
-                    headers={
-                        "Cache-Control": "no-store",
-                        "Content-Disposition": f'inline; filename="{filename}"'
-                    }
-                )
-
-        return StreamingResponse(
-            response.iter_content(chunk_size=1024 * 1024),
-            media_type=content_type,
-            headers={
-                "Cache-Control": "no-store",
-                "Content-Disposition": f'inline; filename="{filename}"'
-            }
-        )
+        file_bytes = provider.download_file(source_ref)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error fetching Dropbox image: {exc}")
+        raise HTTPException(status_code=500, detail=f"Error fetching {provider_name} image: {exc}")
+
+    filename = image.filename or "image"
+    content_type, _ = mimetypes.guess_type(filename or source_ref)
+    content_type = content_type or "application/octet-stream"
+
+    # Convert HEIC to JPEG for browser compatibility
+    if filename.lower().endswith((".heic", ".heif")):
+        try:
+            processor = ImageProcessor()
+            pil_image = processor.load_image(file_bytes)
+            pil_image_rgb = pil_image.convert("RGB") if pil_image.mode != "RGB" else pil_image
+            buffer = io.BytesIO()
+            pil_image_rgb.save(buffer, format="JPEG", quality=95, optimize=False)
+            file_bytes = buffer.getvalue()
+            filename = filename.rsplit(".", 1)[0] + ".jpg"
+            content_type = "image/jpeg"
+        except Exception as exc:
+            print(f"HEIC conversion failed for {image.filename}: {exc}")
+
+    return StreamingResponse(
+        iter([file_bytes]),
+        media_type=content_type,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'inline; filename="{filename}"'
+        }
+    )
 
 
 @router.post("/images/{image_id}/refresh-metadata", response_model=dict, operation_id="refresh_image_metadata")
@@ -1779,31 +1766,28 @@ async def refresh_image_metadata(
         db=db,
         require_source=True,
     )
-    dropbox_ref = _resolve_dropbox_ref(storage_info, image)
-    if not dropbox_ref:
-        raise HTTPException(status_code=404, detail="Image not available in Dropbox")
-
-    if not tenant.dropbox_app_key:
-        raise HTTPException(status_code=400, detail="Dropbox app key not configured for tenant")
-    if not tenant.dropbox_token_secret or not tenant.dropbox_app_secret:
-        raise HTTPException(status_code=400, detail="Dropbox secrets not configured for tenant")
+    provider_name, source_ref = _resolve_provider_ref(storage_info, image)
+    if not source_ref:
+        if provider_name == "dropbox":
+            raise HTTPException(status_code=404, detail="Image not available in Dropbox")
+        raise HTTPException(status_code=404, detail=f"Image not available in {provider_name}")
 
     try:
-        refresh_token = get_secret(tenant.dropbox_token_secret)
-        app_secret = get_secret(tenant.dropbox_app_secret)
+        provider = create_storage_provider(provider_name, tenant=tenant, get_secret=get_secret)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Dropbox secrets missing: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize {provider_name} provider: {exc}")
 
     try:
-        dbx = Dropbox(
-            oauth2_refresh_token=refresh_token,
-            app_key=tenant.dropbox_app_key,
-            app_secret=app_secret
-        )
-        metadata, response = dbx.files_download(dropbox_ref)
-        image_bytes = response.content
+        entry = provider.get_entry(source_ref)
+    except Exception:
+        entry = None
+
+    try:
+        image_bytes = provider.download_file(source_ref)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Error downloading Dropbox image: {exc}")
+        raise HTTPException(status_code=500, detail=f"Error downloading {provider_name} image: {exc}")
 
     try:
         processor = ImageProcessor()
@@ -1826,9 +1810,9 @@ async def refresh_image_metadata(
         db=db,
         image=image,
         tenant=tenant,
-        source_provider="dropbox",
-        source_key=getattr(metadata, "path_display", None) or storage_info.source_key,
-        source_rev=getattr(metadata, "rev", None),
+        source_provider=provider_name,
+        source_key=(entry.source_key if entry else storage_info.source_key),
+        source_rev=(entry.revision if entry else None),
     )
     thumbnail_path = asset.thumbnail_key
     if not thumbnail_path or thumbnail_path.startswith("legacy:"):
@@ -1863,23 +1847,24 @@ async def refresh_image_metadata(
         setattr(image, "thumbnail_path", thumbnail_path)
     image.last_processed = datetime.utcnow()
 
-    if metadata is not None:
-        image.file_size = getattr(metadata, "size", image.file_size)
-        image.modified_time = getattr(metadata, "server_modified", image.modified_time)
-        image.content_hash = getattr(metadata, "content_hash", image.content_hash)
-        if getattr(metadata, "path_display", None) and settings.asset_write_legacy_fields and hasattr(ImageMetadata, "dropbox_path"):
-            setattr(image, "dropbox_path", metadata.path_display)
-        if getattr(metadata, "id", None) and hasattr(ImageMetadata, "dropbox_id"):
-            setattr(image, "dropbox_id", metadata.id)
+    if entry is not None:
+        image.file_size = entry.size if entry.size is not None else image.file_size
+        image.modified_time = entry.modified_time or image.modified_time
+        image.content_hash = entry.content_hash or image.content_hash
+        if provider_name == "dropbox" and settings.asset_write_legacy_fields and hasattr(ImageMetadata, "dropbox_path"):
+            if entry.display_path:
+                setattr(image, "dropbox_path", entry.display_path)
+        if provider_name == "dropbox" and hasattr(ImageMetadata, "dropbox_id") and entry.file_id:
+            setattr(image, "dropbox_id", entry.file_id)
 
     guessed_mime_type = mimetypes.guess_type(image.filename or "")[0]
     asset.thumbnail_key = thumbnail_path
     asset.filename = image.filename or asset.filename
-    asset.source_provider = "dropbox"
-    if getattr(metadata, "path_display", None):
-        asset.source_key = metadata.path_display
-    if getattr(metadata, "rev", None):
-        asset.source_rev = metadata.rev
+    asset.source_provider = provider_name
+    if entry and entry.source_key:
+        asset.source_key = entry.source_key
+    if entry and entry.revision:
+        asset.source_rev = entry.revision
     if asset.mime_type is None:
         asset.mime_type = guessed_mime_type or (f"image/{str(image.format).lower()}" if image.format else None)
     asset.width = image.width

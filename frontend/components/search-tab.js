@@ -33,9 +33,11 @@ import FolderBrowserPanel from './folder-browser-panel.js';
  * Provides search functionality with two modes:
  * - Search Home: Filter-based image search with list management
  * - Browse by Folder: Browse images grouped by folder
+ * - Natural Search: Experimental NL query flow
+ * - Explore: Tag chip based navigation
  *
  * @property {String} tenant - Current tenant ID
- * @property {String} searchSubTab - Active subtab ('home' or 'browse-by-folder')
+ * @property {String} searchSubTab - Active subtab ('home', 'browse-by-folder', 'natural-search', 'chips')
  * @property {Array} searchChipFilters - Current filter chip selections
  * @property {Array} searchDropboxOptions - Dropbox folder options
  * @property {Array} searchImages - Images from filter panel
@@ -1986,6 +1988,18 @@ export class SearchTab extends LitElement {
               >
                 Browse by Folder
               </button>
+              <button
+                class="curate-subtab ${this.searchSubTab === 'natural-search' ? 'active' : ''}"
+                @click=${() => this._handleSearchSubTabChange('natural-search')}
+              >
+                Natural Search
+              </button>
+              <button
+                class="curate-subtab ${this.searchSubTab === 'chips' ? 'active' : ''}"
+                @click=${() => this._handleSearchSubTabChange('chips')}
+              >
+                Explore
+              </button>
             </div>
           `}
 
@@ -2311,6 +2325,40 @@ export class SearchTab extends LitElement {
             </div>
           </div>
         ` : ''}
+
+        ${this.searchSubTab === 'natural-search' ? html`
+          <lab-tab
+            .tenant=${this.tenant}
+            .tagStatsBySource=${this.tagStatsBySource}
+            .activeCurateTagSource=${this.activeCurateTagSource}
+            .keywords=${this.keywords}
+            .imageStats=${this.imageStats}
+            .curateOrderBy=${this.searchOrderBy}
+            .curateDateOrder=${this.searchDateOrder}
+            .renderCurateRatingWidget=${this.renderCurateRatingWidget}
+            .renderCurateRatingStatic=${this.renderCurateRatingStatic}
+            .formatCurateDate=${this.formatCurateDate}
+            @image-clicked=${(event) => this._handleSearchImageClick(event.detail.event, event.detail.image, event.detail.imageSet)}
+            @image-selected=${(event) => this._handleSearchImageClick(null, event.detail.image, event.detail.imageSet)}
+          ></lab-tab>
+        ` : html``}
+
+        ${this.searchSubTab === 'chips' ? html`
+          <home-chips-tab
+            .tenant=${this.tenant}
+            .tagStatsBySource=${this.tagStatsBySource}
+            .activeCurateTagSource=${this.activeCurateTagSource}
+            .keywords=${this.keywords}
+            .imageStats=${this.imageStats}
+            .curateOrderBy=${this.searchOrderBy}
+            .curateDateOrder=${this.searchDateOrder}
+            .renderCurateRatingWidget=${this.renderCurateRatingWidget}
+            .renderCurateRatingStatic=${this.renderCurateRatingStatic}
+            .formatCurateDate=${this.formatCurateDate}
+            @image-clicked=${(event) => this._handleSearchImageClick(event.detail.event, event.detail.image, event.detail.imageSet)}
+            @image-selected=${(event) => this._handleSearchImageClick(null, event.detail.image, event.detail.imageSet)}
+          ></home-chips-tab>
+        ` : html``}
       </div>
     `;
   }

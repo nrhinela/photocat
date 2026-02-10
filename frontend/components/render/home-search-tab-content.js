@@ -14,18 +14,6 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
             Overview
           </button>
           <button
-            class="curate-subtab ${host.homeSubTab === 'lab' ? 'active' : ''}"
-            @click=${() => { host.homeSubTab = 'lab'; }}
-          >
-            Natural Search
-          </button>
-          <button
-            class="curate-subtab ${host.homeSubTab === 'chips' ? 'active' : ''}"
-            @click=${() => { host.homeSubTab = 'chips'; }}
-          >
-            Chips
-          </button>
-          <button
             class="curate-subtab ${host.homeSubTab === 'insights' ? 'active' : ''}"
             @click=${() => { host.homeSubTab = 'insights'; }}
           >
@@ -40,34 +28,6 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
           .navCards=${navCards}
           @navigate=${host._handleHomeNavigate}
         ></home-tab>
-      ` : html``}
-      ${host.homeSubTab === 'lab' ? html`
-        <lab-tab
-          .tenant=${host.tenant}
-          .tagStatsBySource=${host.tagStatsBySource}
-          .activeCurateTagSource=${host.activeCurateTagSource}
-          .keywords=${host.keywords}
-          .imageStats=${host.imageStats}
-          .renderCurateRatingWidget=${(image) => renderCurateRatingWidget(host, image)}
-          .renderCurateRatingStatic=${renderCurateRatingStatic}
-          .formatCurateDate=${formatCurateDate}
-          @image-clicked=${(e) => host._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
-          @image-selected=${(e) => host._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
-        ></lab-tab>
-      ` : html``}
-      ${host.homeSubTab === 'chips' ? html`
-        <home-chips-tab
-          .tenant=${host.tenant}
-          .tagStatsBySource=${host.tagStatsBySource}
-          .activeCurateTagSource=${host.activeCurateTagSource}
-          .keywords=${host.keywords}
-          .imageStats=${host.imageStats}
-          .renderCurateRatingWidget=${(image) => renderCurateRatingWidget(host, image)}
-          .renderCurateRatingStatic=${renderCurateRatingStatic}
-          .formatCurateDate=${formatCurateDate}
-          @image-clicked=${(e) => host._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}
-          @image-selected=${(e) => host._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
-        ></home-chips-tab>
       ` : html``}
       ${host.homeSubTab === 'insights' ? html`
         <home-insights-tab

@@ -37,9 +37,10 @@ import { renderCurateTabContent } from './render/curate-tab-content.js';
 import { renderHomeTabContent, renderSearchTabContent } from './render/home-search-tab-content.js';
 import { renderAuxTabContent, renderGlobalOverlays, renderRatingModal } from './render/aux-tab-content.js';
 import { photocatAppStyles } from './styles/photocat-app-styles.js';
+import { propertyGridStyles } from './shared/widgets/property-grid.js';
 
 class PhotoCatApp extends LitElement {
-  static styles = [tailwind, photocatAppStyles];
+  static styles = [tailwind, photocatAppStyles, propertyGridStyles];
 
   static properties = {
       tenant: { type: String },

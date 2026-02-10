@@ -96,8 +96,5 @@ export function getCurateQuickSortArrow(state, orderBy) {
 }
 
 export function shouldIncludeRatingStats(state) {
-  return (
-    (state.activeTab === 'curate' && state.curateSubTab === 'home')
-    || (state.activeTab === 'search' && state.searchSubTab === 'explore-by-tag')
-  );
+  return state.activeTab === 'curate' && state.curateSubTab === 'home';
 }

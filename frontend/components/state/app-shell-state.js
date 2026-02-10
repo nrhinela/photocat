@@ -98,8 +98,11 @@ export class AppShellStateController extends BaseStateController {
     }
 
     if (tab === 'home') {
+      if (this.host.homeSubTab === 'lab' || this.host.homeSubTab === 'chips') {
+        this.host.homeSubTab = 'overview';
+      }
       this.fetchHomeStats();
-      if (this.host.homeSubTab === 'chips' || this.host.homeSubTab === 'insights') {
+      if (this.host.homeSubTab === 'insights') {
         this.host.fetchKeywords();
       }
       this.host._tabBootstrapped.add(key);
@@ -169,7 +172,11 @@ export class AppShellStateController extends BaseStateController {
       this.host.activeTab = 'home';
     }
     if (changedProperties.has('homeSubTab') && this.host.activeTab === 'home') {
-      if (this.host.homeSubTab === 'chips' || this.host.homeSubTab === 'insights') {
+      if (this.host.homeSubTab === 'lab' || this.host.homeSubTab === 'chips') {
+        this.host.homeSubTab = 'overview';
+        return;
+      }
+      if (this.host.homeSubTab === 'insights') {
         this.host.fetchKeywords();
       }
     }
