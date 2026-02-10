@@ -99,6 +99,7 @@ export class CurateExploreTab extends LitElement {
     curateNoPositivePermatags: { type: Boolean },
     minRating: { type: Object },
     dropboxPathPrefix: { type: String },
+    filenameQuery: { type: String },
     listFilterId: { type: [String, Number] },
     listFilterMode: { type: String },
     dropboxFolders: { type: Array },
@@ -158,6 +159,7 @@ export class CurateExploreTab extends LitElement {
     this.curateNoPositivePermatags = false;
     this.minRating = null;
     this.dropboxPathPrefix = '';
+    this.filenameQuery = '';
     this.listFilterId = '';
     this.listFilterMode = 'include';
     this.dropboxFolders = [];
@@ -926,6 +928,15 @@ export class CurateExploreTab extends LitElement {
         value: this.dropboxPathPrefix,
         displayLabel: 'Folder',
         displayValue: this.dropboxPathPrefix,
+      });
+    }
+
+    if (this.filenameQuery) {
+      filters.push({
+        type: 'filename',
+        value: this.filenameQuery,
+        displayLabel: 'Filename',
+        displayValue: this.filenameQuery,
       });
     }
 

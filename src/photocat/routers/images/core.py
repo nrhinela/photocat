@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Body, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, distinct, and_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
 from dropbox import Dropbox
@@ -43,6 +43,34 @@ from photocat.exif import (
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
+
+# Columns required by /images list response + ordering logic.
+LIST_IMAGES_LOAD_ONLY_COLUMNS = (
+    ImageMetadata.id,
+    ImageMetadata.asset_id,
+    ImageMetadata.tenant_id,
+    ImageMetadata.created_at,
+    ImageMetadata.filename,
+    ImageMetadata.file_size,
+    ImageMetadata.modified_time,
+    ImageMetadata.width,
+    ImageMetadata.height,
+    ImageMetadata.format,
+    ImageMetadata.camera_make,
+    ImageMetadata.camera_model,
+    ImageMetadata.lens_model,
+    ImageMetadata.iso,
+    ImageMetadata.aperture,
+    ImageMetadata.shutter_speed,
+    ImageMetadata.focal_length,
+    ImageMetadata.capture_timestamp,
+    ImageMetadata.gps_latitude,
+    ImageMetadata.gps_longitude,
+    ImageMetadata.last_processed,
+    ImageMetadata.tags_applied,
+    ImageMetadata.faces_detected,
+    ImageMetadata.rating,
+)
 
 
 def _serialize_asset_variant(
@@ -256,6 +284,7 @@ async def list_images(
     hide_zero_rating: bool = False,
     reviewed: Optional[bool] = None,
     dropbox_path_prefix: Optional[str] = None,
+    filename_query: Optional[str] = None,
     permatag_keyword: Optional[str] = None,
     permatag_category: Optional[str] = None,
     permatag_signum: Optional[int] = None,
@@ -276,6 +305,27 @@ async def list_images(
         build_image_query_with_subqueries
     )
 
+    ml_keyword_id = None
+    if ml_keyword:
+        normalized_keyword = ml_keyword.strip().lower()
+        if normalized_keyword:
+            keyword_row = db.query(Keyword.id).filter(
+                func.lower(Keyword.keyword) == normalized_keyword,
+                Keyword.tenant_id == tenant.id
+            ).first()
+            if keyword_row:
+                ml_keyword_id = keyword_row[0]
+
+    date_order = (date_order or "desc").lower()
+    if date_order not in ("asc", "desc"):
+        date_order = "desc"
+    order_by_value = (order_by or "").lower()
+    if order_by_value not in ("photo_creation", "image_id", "processed", "ml_score", "rating"):
+        order_by_value = None
+    if order_by_value == "ml_score" and not ml_keyword_id:
+        order_by_value = None
+    constrain_to_ml_matches = order_by_value == "ml_score" and ml_keyword_id is not None
+
     base_query, subqueries_list, exclude_subqueries_list, has_empty_filter = build_image_query_with_subqueries(
         db,
         tenant,
@@ -286,13 +336,15 @@ async def list_images(
         hide_zero_rating=hide_zero_rating,
         reviewed=reviewed,
         dropbox_path_prefix=dropbox_path_prefix,
+        filename_query=filename_query,
         permatag_keyword=permatag_keyword,
         permatag_category=permatag_category,
         permatag_signum=permatag_signum,
         permatag_missing=permatag_missing,
         permatag_positive_missing=permatag_positive_missing,
         ml_keyword=ml_keyword,
-        ml_tag_type=ml_tag_type
+        ml_tag_type=ml_tag_type,
+        apply_ml_tag_filter=not constrain_to_ml_matches,
     )
 
     # If any filter resulted in empty set, return empty response
@@ -320,26 +372,9 @@ async def list_images(
             return current_offset
         return max(int(rn) - 1, 0)
 
-    # Handle per-category filters if provided
-    ml_keyword_id = None
-    if ml_keyword:
-        normalized_keyword = ml_keyword.strip().lower()
-        if normalized_keyword:
-            keyword_row = db.query(Keyword.id).filter(
-                func.lower(Keyword.keyword) == normalized_keyword,
-                Keyword.tenant_id == tenant.id
-            ).first()
-            if keyword_row:
-                ml_keyword_id = keyword_row[0]
+    total = 0
 
-    date_order = (date_order or "desc").lower()
-    if date_order not in ("asc", "desc"):
-        date_order = "desc"
-    order_by_value = (order_by or "").lower()
-    if order_by_value not in ("photo_creation", "image_id", "processed", "ml_score", "rating"):
-        order_by_value = None
-    if order_by_value == "ml_score" and not ml_keyword_id:
-        order_by_value = None
+    # Handle per-category filters if provided
     if order_by_value == "processed":
         order_by_date = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
     else:
@@ -387,10 +422,7 @@ async def list_images(
                 for filter_data in filters.values():
                     all_keywords.extend(filter_data.get('keywords', []))
 
-                # Total count of matching images
-                total = builder.get_total_count(unique_image_ids)
-
-                if total:
+                if unique_image_ids:
                     # Get active tag type for scoring
                     active_tag_type = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
 
@@ -465,6 +497,8 @@ async def list_images(
                             )
                         )
 
+                    total = len(sorted_ids)
+
                     # Apply anchor offset if requested
                     if anchor_id is not None and limit is not None:
                         try:
@@ -489,16 +523,17 @@ async def list_images(
                         images = []
                 else:
                     images = []
+                    total = 0
             else:
                 # No matches
-                total = 0
                 images = []
+                total = 0
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             print(f"Error parsing category_filters: {e}")
             # Fall back to returning all images
             query = db.query(ImageMetadata).filter_by(tenant_id=tenant.id)
-            total = query.count()
+            total = int(query.order_by(None).count() or 0)
             query = query.order_by(*order_by_clauses)
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
@@ -636,8 +671,8 @@ async def list_images(
             # No valid keywords, use base_query with subquery filters
             query = base_query
             query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
-            total = builder.get_total_count(query)
             order_by_clauses = builder.build_order_clauses()
+            total = builder.get_total_count(query)
             images = builder.apply_pagination(query.order_by(*order_by_clauses), offset, limit)
     else:
         # No keywords filter, use base_query with subquery filters
@@ -646,10 +681,17 @@ async def list_images(
         query = base_query
         builder = QueryBuilder(db, tenant, date_order, order_by_value)
         query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
+        query = query.options(load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS))
 
         if order_by_value == "ml_score" and ml_keyword_id:
-            # Apply ML score ordering via outer join
-            query, ml_scores = builder.apply_ml_score_ordering(query, ml_keyword_id, ml_tag_type)
+            # Apply ML score ordering and require matching ML-tag rows for this keyword.
+            query, ml_scores = builder.apply_ml_score_ordering(
+                query,
+                ml_keyword_id,
+                ml_tag_type,
+                require_match=True,
+            )
+            total = builder.get_total_count(query)
             # Build order clauses with ML score priority
             order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
             order_by_date_clause = order_by_date_clause.desc() if date_order == "desc" else order_by_date_clause.asc()
@@ -663,12 +705,11 @@ async def list_images(
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
         else:
+            total = builder.get_total_count(query)
             order_by_clauses = builder.build_order_clauses()
             query = query.order_by(*order_by_clauses)
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
-
-        total = query.count()
 
     # Get tags for all images
     image_ids = [img.id for img in images]

@@ -2,8 +2,8 @@ import { LitElement, html } from 'lit';
 import './app-header.js';
 import './tag-histogram.js';
 import './upload-modal.js';
-import './tab-container.js'; // Import the new tab container
-import './list-editor.js'; // Import the new list editor
+import './tab-container.js';
+import './list-editor.js';
 import './permatag-editor.js';
 import './tagging-admin.js';
 import './ml-training.js';
@@ -17,14 +17,9 @@ import './shared/widgets/keyword-dropdown.js';
 import { initializeAppCoreSetup } from './state/app-core-setup.js';
 import { initializeAppDefaultState } from './state/app-default-state.js';
 import { initializeAppConstructorWiring } from './state/app-constructor-wiring.js';
+import { bindAppDelegateMethods } from './state/app-delegate-methods.js';
 import { tailwind } from './tailwind-lit.js';
 import { retryFailedCommand } from '../services/command-queue.js';
-import {
-  buildCurateFilterObject,
-  getCurateAuditFetchKey,
-  getCurateHomeFetchKey,
-} from './shared/curate-filters.js';
-import { shouldAutoRefreshCurateStats } from './shared/curate-stats.js';
 import {
   formatCurateDate,
   formatQueueItem,
@@ -49,11 +44,12 @@ class PhotoCatApp extends LitElement {
   static properties = {
       tenant: { type: String },
       showUploadModal: { type: Boolean },
-      activeTab: { type: String }, // New property for active tab
-      activeAdminSubTab: { type: String }, // Subtab for admin section (people or tagging)
-      activeSystemSubTab: { type: String }, // Subtab for system section (pipeline or cli)
+      activeTab: { type: String },
+      activeAdminSubTab: { type: String },
+      activeSystemSubTab: { type: String },
       keywords: { type: Array },
       queueState: { type: Object },
+      queueNotice: { type: Object },
       imageStats: { type: Object },
       mlTrainingStats: { type: Object },
       tagStatsBySource: { type: Object },
@@ -67,6 +63,7 @@ class PhotoCatApp extends LitElement {
       curateKeywordOperators: { type: Object },
       curateCategoryFilterOperator: { type: String },
       curateDropboxPathPrefix: { type: String },
+      curateFilenameQuery: { type: String },
       curateListId: { type: [Number, String] },
       curateListExcludeId: { type: [Number, String] },
       curateImages: { type: Array },
@@ -107,6 +104,7 @@ class PhotoCatApp extends LitElement {
       curateAuditMinRating: { type: [Number, String] },
       curateAuditNoPositivePermatags: { type: Boolean },
       curateAuditDropboxPathPrefix: { type: String },
+      curateAuditFilenameQuery: { type: String },
       curateHomeRefreshing: { type: Boolean },
       curateStatsLoading: { type: Boolean },
       homeSubTab: { type: String },
@@ -118,6 +116,8 @@ class PhotoCatApp extends LitElement {
       curateExploreTargets: { type: Array },
       curateExploreRatingEnabled: { type: Boolean },
       curateAuditRatingEnabled: { type: Boolean },
+      searchOrderBy: { type: String },
+      searchOrderDirection: { type: String },
       searchImages: { type: Array },
       searchTotal: { type: Number },
       currentUser: { type: Object },
@@ -125,69 +125,17 @@ class PhotoCatApp extends LitElement {
 
   constructor() {
       super();
-      this.tenant = 'bcg'; // Default tenant
+      this.tenant = 'bcg';
       this.showUploadModal = false;
-      this.activeTab = 'home'; // Default to home tab
+      this.activeTab = 'home';
       this.homeSubTab = 'overview';
-      this.activeAdminSubTab = 'tagging'; // Default admin subtab
-      this.activeSystemSubTab = 'ml-training'; // Default system subtab
+      this.activeAdminSubTab = 'tagging';
+      this.activeSystemSubTab = 'ml-training';
 
       initializeAppCoreSetup(this);
+      bindAppDelegateMethods(this);
       initializeAppDefaultState(this);
       initializeAppConstructorWiring(this);
-  }
-
-  _getCurateDefaultState() {
-      return this._curateHomeState.getDefaultState();
-  }
-
-  _snapshotCurateState() {
-      return this._curateHomeState.snapshotState();
-  }
-
-  _restoreCurateState(state) {
-      this._curateHomeState.restoreState(state || this._getCurateDefaultState());
-      this._curateDragOrder = null;
-      this._cancelCuratePressState();
-  }
-
-  _handleCurateHotspotChanged(event) {
-      return this._curateExploreState.handleHotspotChanged(event);
-  }
-
-  _handleCurateAuditHotspotChanged(event) {
-      // Transform event detail to match state controller expectations
-      const detail = {
-          changeType: event.detail.type?.replace('-change', '').replace('-target', '').replace('hotspot-drop', 'drop'),
-          targetId: event.detail.targetId,
-          value: event.detail.value,
-          event: event.detail.event,
-      };
-      return this._curateAuditState.handleHotspotChanged({ detail });
-  }
-
-  _removeCurateImagesByIds(ids) {
-      return this._curateHomeState.removeImagesByIds(ids);
-  }
-
-  _removeAuditImagesByIds(ids) {
-      return this._curateAuditState.removeImagesByIds(ids);
-  }
-
-  _processExploreTagDrop(ids, target) {
-      return this._curateExploreState.processTagDrop(ids, target);
-  }
-
-  _syncAuditHotspotPrimary() {
-      return this._curateAuditState.syncHotspotPrimary();
-  }
-
-  _handleCurateExploreRatingDrop(event, ratingValue = null) {
-      return this._curateExploreState.handleRatingDrop(event, ratingValue);
-  }
-
-  _handleCurateAuditRatingDrop(event) {
-      return this._auditRatingHandlers.handleDrop(event);
   }
 
   connectedCallback() {
@@ -195,209 +143,9 @@ class PhotoCatApp extends LitElement {
       this._appEventsState.connect();
   }
 
-  async _loadCurrentUser() {
-      return await this._appShellState.loadCurrentUser();
-  }
-
-  _canCurate() {
-      return this._appShellState.canCurate();
-  }
-
-  _handleTabChange(event) {
-      return this._appShellState.handleTabChange(event);
-  }
-
-  _handleHomeNavigate(event) {
-      return this._appShellState.handleHomeNavigate(event);
-  }
-
-  _initializeTab(tab, { force = false } = {}) {
-      return this._appShellState.initializeTab(tab, { force });
-  }
-
-  _showExploreRatingDialog(imageIds) {
-      return this._ratingModalState.showExploreRatingDialog(imageIds);
-  }
-
-  _showAuditRatingDialog(imageIds) {
-      return this._ratingModalState.showAuditRatingDialog(imageIds);
-  }
-
-  _handleRatingModalClick(rating) {
-      return this._ratingModalState.handleRatingModalClick(rating);
-  }
-
-  _closeRatingModal() {
-      return this._ratingModalState.closeRatingModal();
-  }
-
-  _handleEscapeKey(e) {
-      return this._ratingModalState.handleEscapeKey(e);
-  }
-
-  async _applyExploreRating(imageIds, rating) {
-      return await this._ratingModalState.applyExploreRating(imageIds, rating);
-  }
-
-  async _applyAuditRating(imageIds, rating) {
-      return await this._ratingModalState.applyAuditRating(imageIds, rating);
-  }
-
   disconnectedCallback() {
       this._appEventsState.disconnect();
       super.disconnectedCallback();
-  }
-
-  _applyCurateFilters({ resetOffset = false } = {}) {
-      return this._curateHomeState.applyCurateFilters({ resetOffset });
-  }
-
-  // Explore selection handlers - now using factory to eliminate duplication
-  _cancelCuratePressState() {
-      return this._exploreSelectionHandlers.cancelPressState();
-  }
-
-  // Audit selection handlers - now using factory to eliminate duplication
-  _cancelCurateAuditPressState() {
-      return this._auditSelectionHandlers.cancelPressState();
-  }
-
-  _handleCurateKeywordSelect(event, mode) {
-      return this._curateHomeState.handleKeywordSelect(event, mode);
-  }
-
-  _updateCurateCategoryCards() {
-      return this._curateHomeState.updateCurateCategoryCards();
-  }
-
-  async _fetchCurateHomeImages() {
-      return await this._curateHomeState.fetchCurateHomeImages();
-  }
-
-  async _refreshCurateHome() {
-      return await this._curateHomeState.refreshCurateHome();
-  }
-
-
-  _handleTenantChange(e) {
-      return this._appShellState.handleTenantChange(e);
-  }
-
-  _handleOpenUploadModal() {
-      this.showUploadModal = true;
-  }
-
-    _handleCloseUploadModal() {
-        this.showUploadModal = false;
-    }
-
-    _handlePipelineOpenImage(event) {
-        const image = event?.detail?.image;
-        if (!image?.id) return;
-        this.curateEditorImage = image;
-        this.curateEditorImageSet = Array.isArray(this.curateImages) ? [...this.curateImages] : [];
-        this.curateEditorImageIndex = this.curateEditorImageSet.findIndex(img => img.id === image.id);
-        this.curateEditorOpen = true;
-    }
-    
-    _handleUploadComplete() {
-        const curateFilters = buildCurateFilterObject(this);
-        this.curateHomeFilterPanel.updateFilters(curateFilters);
-        this._fetchCurateHomeImages();
-        this.fetchStats({
-          force: true,
-          includeTagStats: this.activeTab === 'curate' && this.curateSubTab === 'home',
-        });
-        this.showUploadModal = false;
-    }
-
-  _handleCurateChipFiltersChanged(event) {
-      return this._curateHomeState.handleChipFiltersChanged(event);
-  }
-
-  _handleCurateListExcludeFromRightPanel(event) {
-      return this._curateHomeState.handleListExcludeFromRightPanel(event);
-  }
-
-  _handleCurateAuditChipFiltersChanged(event) {
-      return this._curateAuditState.handleChipFiltersChanged(event);
-  }
-
-  async _fetchDropboxFolders(query) {
-      return await this._searchState.fetchDropboxFolders(query);
-  }
-
-  _handleCurateThumbSizeChange(event) {
-      this.curateThumbSize = Number(event.target.value);
-  }
-
-  _handleCurateSubTabChange(nextTab) {
-      return this._curateExploreState.handleSubTabChange(nextTab);
-  }
-
-  _buildCurateFilters(options = {}) {
-      return buildCurateFilterObject(this, options);
-  }
-
-  _getCurateHomeFetchKey() {
-      return getCurateHomeFetchKey(this);
-  }
-
-  _getCurateAuditFetchKey(options = {}) {
-      return getCurateAuditFetchKey(this, options);
-  }
-
-  _shouldAutoRefreshCurateStats() {
-      return shouldAutoRefreshCurateStats(this);
-  }
-
-  async _loadExploreByTagData(forceRefresh = false) {
-      return await this._curateExploreState.loadExploreByTagData(forceRefresh);
-  }
-
-  _handleCurateAuditModeChange(valueOrEvent) {
-      const mode = typeof valueOrEvent === 'string'
-          ? valueOrEvent
-          : valueOrEvent.target.value;
-      return this._curateAuditState.handleModeChange(mode);
-  }
-
-  _handleCurateAuditAiEnabledChange(event) {
-      return this._curateAuditState.handleAiEnabledChange(event.target.checked);
-  }
-
-  _handleCurateAuditAiModelChange(nextModel) {
-      return this._curateAuditState.handleAiModelChange(nextModel);
-  }
-
-  // Audit pagination handlers - now using factory to eliminate duplication
-  async _fetchCurateAuditImages(options = {}) {
-      return await this._curateAuditState.fetchCurateAuditImages(options);
-  }
-
-  _refreshCurateAudit() {
-      return this._curateAuditState.refreshAudit();
-  }
-
-
-  _handleCurateImageClick(event, image, imageSet) {
-      return this._curateHomeState.handleCurateImageClick(event, image, imageSet);
-  }
-
-  async _handleZoomToPhoto(e) {
-      return await this._curateExploreState.handleZoomToPhoto(e);
-  }
-
-  _handleCurateEditorClose() {
-      return this._curateHomeState.handleCurateEditorClose();
-  }
-
-  _handleImageNavigate(event) {
-      return this._curateHomeState.handleImageNavigate(event);
-  }
-
-  _flashCurateSelection(imageId) {
-      return this._curateHomeState.flashSelection(imageId);
   }
 
   render() {
@@ -455,18 +203,6 @@ class PhotoCatApp extends LitElement {
       if (e?.detail?.imageId !== undefined && e?.detail?.rating !== undefined) {
           this._curateExploreState.applyCurateRating(e.detail.imageId, e.detail.rating);
       }
-  }
-
-  _handleSyncProgress(e) {
-      return this._appDataState.handleSyncProgress(e);
-  }
-
-  _handleSyncComplete(e) {
-      return this._appDataState.handleSyncComplete(e);
-  }
-
-  _handleSyncError(e) {
-      return this._appDataState.handleSyncError(e);
   }
 
   updated(changedProperties) {

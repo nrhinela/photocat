@@ -211,6 +211,7 @@ export class CurateHomeStateController extends BaseStateController {
     let nextMinRating = null;
     let nextNoPositivePermatags = false;
     let nextDropboxPathPrefix = '';
+    let nextFilenameQuery = '';
     let nextHideDeleted = true;
     let nextListId = '';
     let nextListExcludeId = '';
@@ -252,6 +253,9 @@ export class CurateHomeStateController extends BaseStateController {
         case 'folder':
           nextDropboxPathPrefix = chip.value || '';
           break;
+        case 'filename':
+          nextFilenameQuery = chip.value || '';
+          break;
         case 'list':
           if (chip.mode === 'exclude') {
             nextListExcludeId = chip.value || '';
@@ -277,6 +281,7 @@ export class CurateHomeStateController extends BaseStateController {
       curateMinRating: nextMinRating,
       curateHideDeleted: nextHideDeleted,
       curateDropboxPathPrefix: nextDropboxPathPrefix,
+      curateFilenameQuery: nextFilenameQuery,
       curateListId: nextListId,
       curateListExcludeId: nextListExcludeId,
       curateCategoryFilterOperator: nextCategoryFilterOperator,
@@ -439,6 +444,7 @@ export class CurateHomeStateController extends BaseStateController {
       curateKeywordFilters: {},
       curateKeywordOperators: {},
       curateDropboxPathPrefix: '',
+      curateFilenameQuery: '',
       curateListId: '',
       curateListExcludeId: '',
       curateFilters: buildCurateFilterObject(this.host),
@@ -472,6 +478,7 @@ export class CurateHomeStateController extends BaseStateController {
       curateKeywordFilters: { ...(host.curateKeywordFilters || {}) },
       curateKeywordOperators: { ...(host.curateKeywordOperators || {}) },
       curateDropboxPathPrefix: host.curateDropboxPathPrefix,
+      curateFilenameQuery: host.curateFilenameQuery,
       curateListId: host.curateListId,
       curateListExcludeId: host.curateListExcludeId,
       curateFilters: { ...(host.curateFilters || {}) },
@@ -654,6 +661,7 @@ export class CurateHomeStateController extends BaseStateController {
     this.host.curateKeywordFilters = {};
     this.host.curateKeywordOperators = {};
     this.host.curateDropboxPathPrefix = '';
+    this.host.curateFilenameQuery = '';
     this.host.curateListId = '';
     this.host.curateListExcludeId = '';
     this.host.curateFilters = buildCurateFilterObject(this.host, { resetOffset: true });

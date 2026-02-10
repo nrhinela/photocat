@@ -7,6 +7,7 @@ import {
   mergePermatags,
   resolveKeywordCategory,
 } from '../shared/keyword-utils.js';
+import { parseUtilityKeywordValue } from '../shared/hotspot-controls.js';
 import { enqueueCommand } from '../../services/command-queue.js';
 
 /**
@@ -202,6 +203,7 @@ export class CurateAuditStateController extends BaseStateController {
     let nextMinRating = null;
     let nextHideDeleted = true;
     let nextDropboxPathPrefix = '';
+    let nextFilenameQuery = '';
 
     chips.forEach((chip) => {
       switch (chip.type) {
@@ -216,6 +218,9 @@ export class CurateAuditStateController extends BaseStateController {
           break;
         case 'folder':
           nextDropboxPathPrefix = chip.value || '';
+          break;
+        case 'filename':
+          nextFilenameQuery = chip.value || '';
           break;
         default:
           break;
@@ -238,6 +243,7 @@ export class CurateAuditStateController extends BaseStateController {
     this.host.curateAuditMinRating = nextMinRating;
     this.host.curateAuditHideDeleted = nextHideDeleted;
     this.host.curateAuditDropboxPathPrefix = nextDropboxPathPrefix;
+    this.host.curateAuditFilenameQuery = nextFilenameQuery;
     this.host.curateAuditPageOffset = 0;
     this.host.curateAuditOffset = 0;
     this.host.curateAuditLoadAll = false;
@@ -317,9 +323,17 @@ export class CurateAuditStateController extends BaseStateController {
    * @param {string} targetId - Target hotspot ID
    */
   handleHotspotKeywordChange(value, targetId) {
+    const { category, keyword } = parseUtilityKeywordValue(value);
     const targets = this.getHostProperty('curateAuditTargets') || [];
     const updated = targets.map((target) =>
-      target.id === targetId ? { ...target, keyword: value } : target
+      target.id === targetId
+        ? {
+            ...target,
+            category,
+            keyword,
+            count: 0,
+          }
+        : target
     );
     this.setHostProperty('curateAuditTargets', updated);
     this.syncHotspotPrimary();
@@ -345,8 +359,18 @@ export class CurateAuditStateController extends BaseStateController {
    */
   handleHotspotTypeChange(value, targetId) {
     const targets = this.getHostProperty('curateAuditTargets') || [];
+    const nextType = value === 'rating' ? 'rating' : 'keyword';
     const updated = targets.map((target) =>
-      target.id === targetId ? { ...target, type: value } : target
+      target.id === targetId
+        ? {
+            ...target,
+            type: nextType,
+            ...(nextType === 'rating'
+              ? { keyword: '', category: '', rating: '', action: 'add' }
+              : { rating: null }),
+            count: 0,
+          }
+        : target
     );
     this.setHostProperty('curateAuditTargets', updated);
   }
@@ -371,8 +395,9 @@ export class CurateAuditStateController extends BaseStateController {
     const targets = this.getHostProperty('curateAuditTargets') || [];
     const newTarget = {
       id: `audit-hotspot-${Date.now()}`,
-      type: 'tags',
+      type: 'keyword',
       keyword: '',
+      category: '',
       action: 'add',
       rating: null,
       count: 0,
@@ -451,7 +476,7 @@ export class CurateAuditStateController extends BaseStateController {
         return;
       }
       this.host._applyAuditRating(ids, Number.parseInt(target.rating, 10));
-    } else if (target.type === 'tags') {
+    } else {
       if (!target.keyword) {
         this.handleHotspotDragLeave();
         return;
@@ -746,6 +771,7 @@ export class CurateAuditStateController extends BaseStateController {
       curateAuditAiModel: null,
       curateAuditHideDeleted: true,
       curateAuditMinRating: null,
+      curateAuditFilenameQuery: '',
       curateAuditNoPositivePermatags: false,
       curateAuditTargets: [],
       curateAuditImages: [],
@@ -771,6 +797,7 @@ export class CurateAuditStateController extends BaseStateController {
       curateAuditAiModel: host.curateAuditAiModel,
       curateAuditHideDeleted: host.curateAuditHideDeleted,
       curateAuditMinRating: host.curateAuditMinRating,
+      curateAuditFilenameQuery: host.curateAuditFilenameQuery,
       curateAuditNoPositivePermatags: host.curateAuditNoPositivePermatags,
       curateAuditTargets: Array.isArray(host.curateAuditTargets) ? [...host.curateAuditTargets] : [],
       curateAuditImages: Array.isArray(host.curateAuditImages) ? [...host.curateAuditImages] : [],
@@ -826,6 +853,7 @@ export class CurateAuditStateController extends BaseStateController {
     this.host.curateAuditAiEnabled = false;
     this.host.curateAuditAiModel = '';
     this.host.curateAuditDropboxPathPrefix = '';
+    this.host.curateAuditFilenameQuery = '';
     this.requestUpdate();
   }
 }

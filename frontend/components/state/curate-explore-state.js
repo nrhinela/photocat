@@ -163,6 +163,7 @@ export class CurateExploreStateController extends BaseStateController {
     this.host.curateNoPositivePermatags = false;
     this.host.curateMinRating = null;
     this.host.curateDropboxPathPrefix = '';
+    this.host.curateFilenameQuery = '';
     this.host.curateListId = '';
     this.host.curateListExcludeId = '';
     this.host.curateFilters = buildCurateFilterObject(this.host);

@@ -54,8 +54,8 @@ import FolderBrowserPanel from './folder-browser-panel.js';
  * @property {Array} keywords - Flat keyword list for faster dropdowns
  * @property {String} activeCurateTagSource - Active tag source
  * @property {Object} imageStats - Image statistics
- * @property {String} curateOrderBy - Sort field
- * @property {String} curateDateOrder - Date sort order
+ * @property {String} searchOrderBy - Sort field
+ * @property {String} searchDateOrder - Date sort order
  *
  * @fires search-subtab-changed - When user changes subtab
  * @fires search-filters-changed - When search filters change
@@ -108,8 +108,8 @@ export class SearchTab extends LitElement {
     activeCurateTagSource: { type: String },
     keywords: { type: Array },
     imageStats: { type: Object },
-    curateOrderBy: { type: String },
-    curateDateOrder: { type: String },
+    searchOrderBy: { type: String },
+    searchDateOrder: { type: String },
     renderCurateRatingWidget: { type: Object },
     renderCurateRatingStatic: { type: Object },
     formatCurateDate: { type: Object },
@@ -173,8 +173,8 @@ export class SearchTab extends LitElement {
     this.activeCurateTagSource = 'permatags';
     this.keywords = [];
     this.imageStats = null;
-    this.curateOrderBy = 'rating';
-    this.curateDateOrder = 'desc';
+    this.searchOrderBy = 'photo_creation';
+    this.searchDateOrder = 'desc';
     this.renderCurateRatingWidget = null;
     this.renderCurateRatingStatic = null;
     this.formatCurateDate = null;
@@ -325,6 +325,7 @@ export class SearchTab extends LitElement {
     }
     this._fetchSearchLists();
     this._setupSearchFilterPanel(this.searchFilterPanel);
+    this._syncChipFiltersFromFilterPanel();
     this._setupFolderBrowserPanel();
     this._maybeStartInitialRefresh();
 
@@ -458,7 +459,7 @@ export class SearchTab extends LitElement {
 
     if (
       this.searchSubTab === 'browse-by-folder'
-      && (changedProps.has('curateOrderBy') || changedProps.has('curateDateOrder'))
+      && (changedProps.has('searchOrderBy') || changedProps.has('searchDateOrder'))
     ) {
       if (this.browseByFolderAppliedSelection?.length) {
         this._refreshBrowseByFolderData();
@@ -525,6 +526,7 @@ export class SearchTab extends LitElement {
     this._listsLoading = true;
     try {
       this.searchLists = await getLists(this.tenant, { force });
+      this._syncChipFiltersFromFilterPanel();
     } catch (error) {
       console.error('Error fetching search lists:', error);
     } finally {
@@ -1353,9 +1355,15 @@ export class SearchTab extends LitElement {
     const handleError = () => {
       this._finishInitialRefresh();
     };
-    this._searchFilterPanelHandlers = { panel, handleLoaded, handleError };
+    const handleFiltersChanged = (detail) => {
+      if (!detail?.filters) return;
+      this._syncChipFiltersFromFilterState(detail.filters);
+    };
+    this._searchFilterPanelHandlers = { panel, handleLoaded, handleError, handleFiltersChanged };
     panel.on('images-loaded', handleLoaded);
     panel.on('error', handleError);
+    panel.on('filters-changed', handleFiltersChanged);
+    this._syncChipFiltersFromFilterPanel();
   }
 
   _setupFolderBrowserPanel() {
@@ -1416,7 +1424,118 @@ export class SearchTab extends LitElement {
     if (!panel || !this._searchFilterPanelHandlers) return;
     panel.off('images-loaded', this._searchFilterPanelHandlers.handleLoaded);
     panel.off('error', this._searchFilterPanelHandlers.handleError);
+    panel.off('filters-changed', this._searchFilterPanelHandlers.handleFiltersChanged);
     this._searchFilterPanelHandlers = null;
+  }
+
+  _syncChipFiltersFromFilterPanel() {
+    const filters = this.searchFilterPanel?.getState?.() || this.searchFilterPanel?.filters;
+    if (!filters || typeof filters !== 'object') return;
+    this._syncChipFiltersFromFilterState(filters);
+  }
+
+  _syncChipFiltersFromFilterState(filters) {
+    const nextChips = [];
+
+    if (filters.permatagPositiveMissing) {
+      nextChips.push({
+        type: 'keyword',
+        untagged: true,
+        displayLabel: 'Keywords',
+        displayValue: 'Untagged',
+      });
+    } else if (filters.keywords && typeof filters.keywords === 'object' && Object.keys(filters.keywords).length > 0) {
+      const keywordsByCategory = {};
+      for (const [category, rawValues] of Object.entries(filters.keywords)) {
+        const values = Array.isArray(rawValues)
+          ? rawValues
+          : (rawValues instanceof Set ? [...rawValues] : Array.from(rawValues || []));
+        const normalizedValues = values.filter(Boolean);
+        if (normalizedValues.length) {
+          keywordsByCategory[category] = normalizedValues;
+        }
+      }
+      if (Object.keys(keywordsByCategory).length > 0) {
+        const operator = filters.categoryFilterOperator
+          || (() => {
+            const ops = Object.values(filters.operators || {}).filter(Boolean);
+            const unique = [...new Set(ops)];
+            return unique.length === 1 ? unique[0] : 'OR';
+          })();
+        nextChips.push({
+          type: 'keyword',
+          keywordsByCategory,
+          operator: operator || 'OR',
+          displayLabel: 'Keywords',
+          displayValue: 'Multiple',
+        });
+      }
+    }
+
+    if (filters.ratingOperator === 'is_null') {
+      nextChips.push({
+        type: 'rating',
+        value: 'unrated',
+        displayLabel: 'Rating',
+        displayValue: 'Unrated',
+      });
+    } else if (filters.rating !== undefined && filters.rating !== null && filters.rating !== '') {
+      const numericRating = Number(filters.rating);
+      nextChips.push({
+        type: 'rating',
+        value: Number.isFinite(numericRating) ? numericRating : filters.rating,
+        displayLabel: 'Rating',
+        displayValue: Number.isFinite(numericRating) && numericRating > 0 ? `${numericRating}+` : String(filters.rating),
+      });
+    }
+
+    const folder = (filters.dropboxPathPrefix || '').trim();
+    if (folder) {
+      nextChips.push({
+        type: 'folder',
+        value: folder,
+        displayLabel: 'Folder',
+        displayValue: folder,
+      });
+    }
+
+    const filenameQuery = (filters.filenameQuery || '').trim();
+    if (filenameQuery) {
+      nextChips.push({
+        type: 'filename',
+        value: filenameQuery,
+        displayLabel: 'Filename',
+        displayValue: filenameQuery,
+      });
+    }
+
+    if (filters.listExcludeId !== undefined && filters.listExcludeId !== null && filters.listExcludeId !== '') {
+      const listExcludeValue = Number(filters.listExcludeId);
+      const listId = Number.isFinite(listExcludeValue) ? listExcludeValue : filters.listExcludeId;
+      const list = (this.searchLists || []).find((entry) => String(entry.id) === String(listId));
+      const listTitle = list?.title || `List ${listId}`;
+      nextChips.push({
+        type: 'list',
+        value: listId,
+        mode: 'exclude',
+        displayLabel: 'List',
+        displayValue: `Not in ${listTitle}`,
+      });
+    } else if (filters.listId !== undefined && filters.listId !== null && filters.listId !== '') {
+      const listValue = Number(filters.listId);
+      const listId = Number.isFinite(listValue) ? listValue : filters.listId;
+      const list = (this.searchLists || []).find((entry) => String(entry.id) === String(listId));
+      const listTitle = list?.title || `List ${listId}`;
+      nextChips.push({
+        type: 'list',
+        value: listId,
+        mode: 'include',
+        displayLabel: 'List',
+        displayValue: listTitle,
+      });
+    }
+
+    this.searchChipFilters = nextChips;
   }
 
   _maybeStartInitialRefresh() {
@@ -1455,8 +1574,8 @@ export class SearchTab extends LitElement {
 
   _refreshBrowseByFolderData({ force = false, orderBy, sortOrder } = {}) {
     if (!this.folderBrowserPanel) return;
-    const resolvedOrderBy = orderBy || this.curateOrderBy || 'photo_creation';
-    const resolvedSortOrder = sortOrder || this.curateDateOrder || 'desc';
+    const resolvedOrderBy = orderBy || this.searchOrderBy || 'photo_creation';
+    const resolvedSortOrder = sortOrder || this.searchDateOrder || 'desc';
     const appliedSelection = this.browseByFolderAppliedSelection || [];
     if (appliedSelection.length) {
       this.folderBrowserPanel.setSelection(appliedSelection);
@@ -1596,8 +1715,8 @@ export class SearchTab extends LitElement {
 
   _handleCurateQuickSort(field) {
     const nextOrderBy = field;
-    const nextDateOrder = this.curateOrderBy === field
-      ? (this.curateDateOrder === 'desc' ? 'asc' : 'desc')
+    const nextDateOrder = this.searchOrderBy === field
+      ? (this.searchDateOrder === 'desc' ? 'asc' : 'desc')
       : 'desc';
     this.dispatchEvent(new CustomEvent('sort-changed', {
       detail: { orderBy: nextOrderBy, dateOrder: nextDateOrder },
@@ -1614,8 +1733,8 @@ export class SearchTab extends LitElement {
   }
 
   _getCurateQuickSortArrow(field) {
-    if (this.curateOrderBy !== field) return '';
-    return this.curateDateOrder === 'desc' ? '↓' : '↑';
+    if (this.searchOrderBy !== field) return '';
+    return this.searchDateOrder === 'desc' ? '↓' : '↑';
   }
 
   _getBrowseByFolderSortValue(image, field) {
@@ -1650,8 +1769,8 @@ export class SearchTab extends LitElement {
     if (!Array.isArray(images) || images.length < 2) {
       return images || [];
     }
-    const field = this.curateOrderBy || 'photo_creation';
-    const direction = this.curateDateOrder === 'asc' ? 1 : -1;
+    const field = this.searchOrderBy || 'photo_creation';
+    const direction = this.searchDateOrder === 'asc' ? 1 : -1;
     const sorted = [...images];
     sorted.sort((a, b) => {
       const rawA = this._getBrowseByFolderSortValue(a, field);
@@ -1700,14 +1819,15 @@ export class SearchTab extends LitElement {
     const searchFilters = {
       limit: 100,
       offset: 0,
-      sortOrder: 'desc',
-      orderBy: 'photo_creation',
+      sortOrder: this.searchDateOrder || 'desc',
+      orderBy: this.searchOrderBy || 'photo_creation',
       hideZeroRating: true,
       keywords: {},
       operators: {},
       categoryFilterOperator: undefined,
       categoryFilterSource: 'permatags',
       dropboxPathPrefix: '',
+      filenameQuery: '',
       listId: undefined,
       listExcludeId: undefined,
     };
@@ -1756,6 +1876,9 @@ export class SearchTab extends LitElement {
           } else {
             searchFilters.listId = chip.value;
           }
+          break;
+        case 'filename':
+          searchFilters.filenameQuery = chip.value || '';
           break;
       }
     });
@@ -2168,19 +2291,19 @@ export class SearchTab extends LitElement {
                   <span class="text-sm font-semibold text-gray-700">Sort:</span>
                   <div class="curate-audit-toggle">
                     <button
-                      class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                      class=${this.searchOrderBy === 'rating' ? 'active' : ''}
                       @click=${() => this._handleCurateQuickSort('rating')}
                     >
                       Rating ${this._getCurateQuickSortArrow('rating')}
                     </button>
                     <button
-                      class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                      class=${this.searchOrderBy === 'photo_creation' ? 'active' : ''}
                       @click=${() => this._handleCurateQuickSort('photo_creation')}
                     >
                       Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
                     </button>
                     <button
-                      class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                      class=${this.searchOrderBy === 'processed' ? 'active' : ''}
                       @click=${() => this._handleCurateQuickSort('processed')}
                     >
                       Process Date ${this._getCurateQuickSortArrow('processed')}
@@ -2423,19 +2546,19 @@ export class SearchTab extends LitElement {
                         <span class="text-sm font-semibold text-gray-700">Sort:</span>
                         <div class="curate-audit-toggle">
                           <button
-                            class=${this.curateOrderBy === 'rating' ? 'active' : ''}
+                            class=${this.searchOrderBy === 'rating' ? 'active' : ''}
                             @click=${() => this._handleCurateQuickSort('rating')}
                           >
                             Rating ${this._getCurateQuickSortArrow('rating')}
                           </button>
                           <button
-                            class=${this.curateOrderBy === 'photo_creation' ? 'active' : ''}
+                            class=${this.searchOrderBy === 'photo_creation' ? 'active' : ''}
                             @click=${() => this._handleCurateQuickSort('photo_creation')}
                           >
                             Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
                           </button>
                           <button
-                            class=${this.curateOrderBy === 'processed' ? 'active' : ''}
+                            class=${this.searchOrderBy === 'processed' ? 'active' : ''}
                             @click=${() => this._handleCurateQuickSort('processed')}
                           >
                             Process Date ${this._getCurateQuickSortArrow('processed')}

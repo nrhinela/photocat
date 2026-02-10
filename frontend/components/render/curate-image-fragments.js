@@ -1,18 +1,31 @@
 import { html } from 'lit';
 
 export function renderCurateAiMLScore(host, image) {
+  const isCurateAuditMissingView = host.curateSubTab === 'tag-audit'
+    && host.curateAuditMode === 'missing';
   const isAiMode = host.curateAuditMode === 'missing'
     && host.curateAuditAiEnabled
     && !!host.curateAuditAiModel
     && host.curateAuditKeyword;
 
-  if (!isAiMode) return html``;
+  if (!isAiMode || !isCurateAuditMissingView) return html``;
 
   const tags = Array.isArray(image?.tags) ? image.tags : [];
-  const mlTag = tags.find((tag) => tag.keyword === host.curateAuditKeyword);
-  if (!mlTag) return html``;
+  const keyword = String(host.curateAuditKeyword || '').trim().toLowerCase();
+  const matches = tags.filter((tag) => String(tag?.keyword || '').trim().toLowerCase() === keyword);
+  if (!matches.length) return html``;
 
-  return html``;
+  const confidence = matches.reduce((maxScore, tag) => {
+    const value = Number(tag?.confidence);
+    return Number.isFinite(value) ? Math.max(maxScore, value) : maxScore;
+  }, Number.NEGATIVE_INFINITY);
+  if (!Number.isFinite(confidence)) return html``;
+
+  return html`
+    <div class="curate-thumb-ml-score">
+      Confidence: ${confidence.toFixed(2)}
+    </div>
+  `;
 }
 
 export function renderCuratePermatagSummary(image) {

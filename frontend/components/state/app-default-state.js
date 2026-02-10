@@ -3,6 +3,8 @@ import { buildCurateFilterObject } from '../shared/curate-filters.js';
 export function initializeAppDefaultState(host) {
   host.keywords = [];
   host.queueState = { queuedCount: 0, inProgressCount: 0, failedCount: 0 };
+  host.queueNotice = null;
+  host._queueNoticeTimer = null;
   host._unsubscribeQueue = null;
   host.imageStats = null;
   host.mlTrainingStats = null;
@@ -16,6 +18,7 @@ export function initializeAppDefaultState(host) {
   host.curateKeywordOperators = {};
   host.curateCategoryFilterOperator = undefined;
   host.curateDropboxPathPrefix = '';
+  host.curateFilenameQuery = '';
   host.curateListId = '';
   host.curateListExcludeId = '';
   host.curateFilters = buildCurateFilterObject(host);
@@ -57,12 +60,15 @@ export function initializeAppDefaultState(host) {
   host.curateAuditMinRating = null;
   host.curateAuditNoPositivePermatags = false;
   host.curateAuditDropboxPathPrefix = '';
+  host.curateAuditFilenameQuery = '';
   host.curateHomeRefreshing = false;
   host.curateStatsLoading = false;
   host.curateAdvancedOpen = false;
   host.curateNoPositivePermatags = false;
   host.activeCurateTagSource = 'permatags';
   host.curateCategoryCards = [];
+  host.searchOrderBy = 'photo_creation';
+  host.searchOrderDirection = 'desc';
   host.searchImages = [];
   host.searchTotal = 0;
   host.currentUser = null;

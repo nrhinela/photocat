@@ -11,10 +11,24 @@ export class AppEventsStateController extends BaseStateController {
   handleQueueCommandComplete(event) {
     const detail = event?.detail;
     if (!detail) return;
+    if (detail.type === 'bulk-permatags') {
+      const result = detail.result || {};
+      const skipped = Number(result.skipped || 0);
+      const errors = Array.isArray(result.errors) ? result.errors.length : 0;
+      if (skipped > 0 || errors > 0) {
+        const created = Number(result.created || 0);
+        const updated = Number(result.updated || 0);
+        this._showQueueNotice(
+          `Tag update completed with issues: ${created} created, ${updated} updated, ${skipped} skipped, ${errors} errors.`,
+          'warning'
+        );
+      }
+    }
     if (
       detail.type === 'retag' ||
       detail.type === 'add-positive-permatag' ||
-      detail.type === 'add-negative-permatag'
+      detail.type === 'add-negative-permatag' ||
+      detail.type === 'bulk-permatags'
     ) {
       scheduleStatsRefresh(this.host);
     }
@@ -23,6 +37,26 @@ export class AppEventsStateController extends BaseStateController {
   handleQueueCommandFailed(event) {
     const detail = event?.detail;
     if (!detail?.id) return;
+    if (detail.type === 'bulk-permatags') {
+      this._showQueueNotice(`Tag update failed: ${detail.error || 'unknown error'}`, 'error');
+    }
+  }
+
+  _showQueueNotice(message, level = 'warning') {
+    if (!message) return;
+    if (this.host._queueNoticeTimer) {
+      clearTimeout(this.host._queueNoticeTimer);
+    }
+    this.host.queueNotice = {
+      message,
+      level,
+      createdAt: Date.now(),
+    };
+    this.host._queueNoticeTimer = setTimeout(() => {
+      this.host.queueNotice = null;
+      this.host._queueNoticeTimer = null;
+    }, 7000);
+    this.requestUpdate();
   }
 
   handleCurateGlobalPointerDown(event) {
@@ -110,6 +144,10 @@ export class AppEventsStateController extends BaseStateController {
     if (this.host._statsRefreshTimer) {
       clearTimeout(this.host._statsRefreshTimer);
       this.host._statsRefreshTimer = null;
+    }
+    if (this.host._queueNoticeTimer) {
+      clearTimeout(this.host._queueNoticeTimer);
+      this.host._queueNoticeTimer = null;
     }
   }
 }

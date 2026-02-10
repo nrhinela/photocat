@@ -74,21 +74,29 @@ export class SearchStateController extends BaseStateController {
   }
 
   handleSortChanged(detail) {
-    this.host.curateOrderBy = detail.orderBy;
-    this.host.curateOrderDirection = detail.dateOrder;
+    this.host.searchOrderBy = detail.orderBy;
+    this.host.searchOrderDirection = detail.dateOrder;
     const panel = this.host.searchFilterPanel;
     if (!panel) return;
     const filters = panel.getState();
     panel.updateFilters({
       ...filters,
-      orderBy: this.host.curateOrderBy,
-      sortOrder: this.host.curateOrderDirection,
+      orderBy: this.host.searchOrderBy,
+      sortOrder: this.host.searchOrderDirection,
       offset: 0,
     });
     panel.fetchImages();
   }
 
   initializeSearchTab() {
+    const panelState = this.host.searchFilterPanel?.getState?.() || this.host.searchFilterPanel?.filters || {};
+    if (panelState.orderBy) {
+      this.host.searchOrderBy = panelState.orderBy;
+    }
+    if (panelState.sortOrder) {
+      this.host.searchOrderDirection = panelState.sortOrder;
+    }
+
     this.host.fetchKeywords();
     this.host.fetchStats({
       includeRatings: this.host.searchSubTab === 'explore-by-tag',

@@ -180,6 +180,30 @@ export function renderAuxTabContent(host, { formatCurateDate, formatQueueItem, r
 
 export function renderGlobalOverlays(host, { canCurate }) {
   return html`
+    ${host.queueNotice?.message ? html`
+      <div class="fixed top-24 right-4 z-[1200] max-w-md">
+        <div class="rounded-lg shadow-lg border px-4 py-3 text-sm ${host.queueNotice.level === 'error'
+          ? 'bg-red-50 border-red-200 text-red-800'
+          : 'bg-amber-50 border-amber-200 text-amber-800'}">
+          <div class="flex items-start gap-3">
+            <div class="flex-1">${host.queueNotice.message}</div>
+            <button
+              class="text-xs opacity-70 hover:opacity-100"
+              @click=${() => {
+                host.queueNotice = null;
+                if (host._queueNoticeTimer) {
+                  clearTimeout(host._queueNoticeTimer);
+                  host._queueNoticeTimer = null;
+                }
+              }}
+              aria-label="Dismiss notification"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+    ` : html``}
     ${host.showUploadModal ? html`
       <upload-modal
         .tenant=${host.tenant}

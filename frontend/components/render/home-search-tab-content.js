@@ -73,6 +73,7 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
         <home-insights-tab
           .imageStats=${host.imageStats}
           .mlTrainingStats=${host.mlTrainingStats}
+          .tagStatsBySource=${host.tagStatsBySource}
           .keywords=${host.keywords}
         ></home-insights-tab>
       ` : html``}
@@ -93,8 +94,8 @@ export function renderSearchTabContent(host, { formatCurateDate }) {
       .activeCurateTagSource=${host.activeCurateTagSource}
       .keywords=${host.keywords}
       .imageStats=${host.imageStats}
-      .curateOrderBy=${host.curateOrderBy}
-      .curateDateOrder=${host.curateOrderDirection}
+      .searchOrderBy=${host.searchOrderBy}
+      .searchDateOrder=${host.searchOrderDirection}
       .renderCurateRatingWidget=${(image) => renderCurateRatingWidget(host, image)}
       .renderCurateRatingStatic=${renderCurateRatingStatic}
       .renderCuratePermatagSummary=${renderCuratePermatagSummary}

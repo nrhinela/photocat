@@ -137,6 +137,7 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .dragEndIndex=${host.curateDragEndIndex}
             .minRating=${host.curateMinRating}
             .dropboxPathPrefix=${host.curateDropboxPathPrefix}
+            .filenameQuery=${host.curateFilenameQuery}
             .renderCurateRatingWidget=${(image) => renderCurateRatingWidget(host, image)}
             .renderCurateRatingStatic=${renderCurateRatingStatic}
             .renderCuratePermatagSummary=${renderCuratePermatagSummary}
@@ -214,6 +215,7 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .thumbSize=${host.curateThumbSize}
             .minRating=${host.curateAuditMinRating}
             .dropboxPathPrefix=${host.curateAuditDropboxPathPrefix}
+            .filenameQuery=${host.curateAuditFilenameQuery}
             .offset=${host.curateAuditPageOffset || 0}
             .limit=${host.curateAuditLimit}
             .total=${host.curateAuditTotal}

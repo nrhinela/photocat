@@ -1,17 +1,30 @@
 # PhotoCat Modularization Plan
 
-**Status**: Proposed
+**Status**: Phase 1 Complete, Phase 2 Pending
 **Date**: 2026-02-09
 **Priority**: High - Critical for LLM compatibility per CLAUDE.md guidelines
 
 ## Executive Summary
 
-The PhotoCat codebase has two critical files that violate the project's "small files for LLM compatibility" principle:
+The PhotoCat codebase had two critical files that violated the project's "small files for LLM compatibility" principle:
 
-- **`frontend/components/photocat-app.js`**: 4,602 lines, 135 methods
+- **`frontend/components/photocat-app.js`**: 4,602 lines, 135 methods (baseline) -> 215 lines (current)
 - **`src/photocat/routers/images/core.py`**: 1,893 lines, 26 endpoints
 
 This plan outlines a systematic refactoring to reduce these files to manageable sizes (~400-800 lines each) while maintaining functionality and test coverage.
+
+## Latest Status Update (2026-02-09)
+
+- Phase 1 frontend modularization is complete.
+- `photocat-app.js` has been reduced to 215 lines and now acts as an orchestrator.
+- State and wiring code has been extracted into:
+  - `frontend/components/state/app-core-setup.js`
+  - `frontend/components/state/app-default-state.js`
+  - `frontend/components/state/app-constructor-wiring.js`
+  - `frontend/components/state/app-delegate-methods.js`
+  - Plus previously extracted tab/domain controllers under `frontend/components/state/`.
+- Build validation passed after extraction (`npm run build`).
+- Phase 2 (`src/photocat/routers/images/core.py`) remains pending.
 
 ## Refactoring Principles
 
@@ -26,7 +39,7 @@ This plan outlines a systematic refactoring to reduce these files to manageable 
 
 ### Current State Analysis
 
-**File**: `frontend/components/photocat-app.js` (4,602 lines)
+**File**: `frontend/components/photocat-app.js` (4,602 baseline, 215 current)
 
 **Method Breakdown by Feature**:
 - Curate Home: 47 methods (filters, sorting, selection, loading)
@@ -324,7 +337,7 @@ Simpler than Audit - fewer hotspot options, no complex modes.
 
 #### Step 1.6: Update PhotoCat App
 
-**File**: `frontend/components/photocat-app.js` (reduced to 800 lines)
+**File**: `frontend/components/photocat-app.js` (reduced to 215 lines)
 
 **Remaining Responsibilities**:
 - Component lifecycle (constructor, connectedCallback, disconnectedCallback)
@@ -516,8 +529,8 @@ This avoids allocating new lambdas on every render while still delegating to sta
   - ImageFilterPanel handles all search filter logic
   - Creating state controller would provide minimal value
 - ✅ Final assessment and documentation
-  - photocat-app.js: 4,602 → 4,425 lines (177 lines removed, 3.8% reduction)
-  - State controllers created: 3 files, 1,237 lines, 59 methods
+  - photocat-app.js: 4,602 → 215 lines (4,387 lines removed, 95.3% reduction)
+  - State/wiring extracted into dedicated `components/state` modules
   - Successful extraction of core curate functionality
   - All golden workflows validated (1, 2, 4, 5)
 - ✅ Architecture evaluation
