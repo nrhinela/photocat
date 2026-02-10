@@ -18,6 +18,7 @@ class AppHeader extends LitElement {
         queueCount: { type: Number },
         currentUser: { type: Object },
         canCurate: { type: Boolean },
+        tenantMenuOpen: { type: Boolean },
     }
 
     constructor() {
@@ -34,6 +35,9 @@ class AppHeader extends LitElement {
         this.queueCount = 0;
         this.currentUser = null;
         this.canCurate = null;
+        this.tenantMenuOpen = false;
+        this._lastTenantReconcileAttempt = '';
+        this._handleDocumentClick = this._handleDocumentClick.bind(this);
     }
 
   createRenderRoot() {
@@ -46,6 +50,12 @@ class AppHeader extends LitElement {
       this.fetchEnvironment();
       this._loadSyncStatus();
       this.fetchCurrentUser();
+      document.addEventListener('click', this._handleDocumentClick);
+  }
+
+  disconnectedCallback() {
+      document.removeEventListener('click', this._handleDocumentClick);
+      super.disconnectedCallback();
   }
 
   async fetchCurrentUser() {
@@ -64,6 +74,26 @@ class AppHeader extends LitElement {
       }
   }
 
+  updated() {
+      const storedTenant = this._getStoredTenant();
+      const currentTenant = this._normalizeTenantValue(this.tenant);
+      if (!storedTenant || storedTenant === currentTenant) {
+          return;
+      }
+      const reconcileKey = `${storedTenant}::${currentTenant}`;
+      if (this._lastTenantReconcileAttempt === reconcileKey) {
+          return;
+      }
+      this._lastTenantReconcileAttempt = reconcileKey;
+      queueMicrotask(() => {
+          this.dispatchEvent(new CustomEvent('tenant-change', {
+              detail: storedTenant,
+              bubbles: true,
+              composed: true,
+          }));
+      });
+  }
+
   async fetchEnvironment() {
       try {
           const response = await fetch('/api/v1/config/system');
@@ -80,6 +110,18 @@ class AppHeader extends LitElement {
   async fetchTenants() {
       try {
           this.tenants = await getTenantsPublic();
+          const storedTenant = this._getStoredTenant();
+          const currentTenant = this._normalizeTenantValue(this.tenant);
+
+          // localStorage is the source of truth on initial load; reconcile header/app state.
+          if (storedTenant && storedTenant !== currentTenant) {
+              this.dispatchEvent(new CustomEvent('tenant-change', {
+                  detail: storedTenant,
+                  bubbles: true,
+                  composed: true,
+              }));
+              return;
+          }
       } catch (error) {
           console.error('Error fetching tenants:', error);
       }
@@ -132,8 +174,68 @@ class AppHeader extends LitElement {
       window.location.href = '/admin';
   }
 
+  _formatTenantLabel(tenant) {
+      if (!tenant) return '';
+      const name = this._normalizeTenantValue(tenant.name);
+      const id = this._normalizeTenantValue(tenant.id);
+      if (!id) return name;
+      if (!name || name === id) return id;
+      return `${id} - ${name}`;
+  }
+
+  _normalizeTenantValue(value) {
+      if (typeof value !== 'string') return '';
+      return value.trim();
+  }
+
+  _getStoredTenant() {
+      try {
+          return this._normalizeTenantValue(
+              localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || ''
+          );
+      } catch (_error) {
+          return '';
+      }
+  }
+
+  _getEffectiveTenantId() {
+      return this._getStoredTenant() || this._normalizeTenantValue(this.tenant);
+  }
+
+  _getTenantDisplayLabel(tenantId) {
+      const normalizedId = this._normalizeTenantValue(tenantId);
+      if (!normalizedId) return 'Select Tenant';
+      const match = this.tenants.find((tenant) => this._normalizeTenantValue(tenant.id) === normalizedId);
+      if (!match) return `${normalizedId} (not in tenant list)`;
+      return this._formatTenantLabel(match);
+  }
+
+  _toggleTenantMenu(event) {
+      event?.stopPropagation?.();
+      this.tenantMenuOpen = !this.tenantMenuOpen;
+  }
+
+  _handleTenantMenuSelect(tenantId) {
+      const nextTenant = this._normalizeTenantValue(tenantId);
+      const currentTenant = this._normalizeTenantValue(this.tenant);
+      this.tenantMenuOpen = false;
+      if (!nextTenant || nextTenant === currentTenant) return;
+      this.dispatchEvent(new CustomEvent('tenant-change', { detail: nextTenant, bubbles: true, composed: true }));
+  }
+
+  _handleDocumentClick(event) {
+      if (!this.tenantMenuOpen) return;
+      const target = event?.target;
+      if (target && this.contains(target)) return;
+      this.tenantMenuOpen = false;
+  }
+
   render() {
     const canCurate = this.canCurate ?? this._canCurateFromUser();
+    const libraryActive = this.activeTab === 'library' || this.activeTab === 'lists' || this.activeTab === 'admin';
+    const selectedTenant = this._getEffectiveTenantId();
+    const tenantMissingFromList = !!selectedTenant
+      && !this.tenants.some((tenant) => this._normalizeTenantValue(tenant.id) === selectedTenant);
     return html`
         <nav class="bg-white shadow-lg">
             <div class="max-w-7xl mx-auto px-4 py-4">
@@ -146,9 +248,49 @@ class AppHeader extends LitElement {
                     <div class="flex items-start space-x-4">
                         <div class="flex items-center space-x-2">
                             <label for="tenantSelect" class="text-gray-700 font-medium text-sm">Tenant:</label>
-                            <select .value=${this.tenant} id="tenantSelect" class="px-4 py-2 border-2 border-gray-300 rounded-lg text-base font-medium focus:border-blue-500 focus:outline-none" style="min-height: 42px;" @change=${this._switchTenant}>
-                                ${this.tenants.map(tenant => html`<option value=${tenant.id}>${tenant.name}</option>`)}
-                            </select>
+                            <div class="relative">
+                                <button
+                                    id="tenantSelect"
+                                    type="button"
+                                    class="px-4 py-2 border-2 border-gray-300 rounded-lg text-base font-medium focus:border-blue-500 focus:outline-none bg-white min-w-[280px] flex items-center justify-between gap-3"
+                                    style="min-height: 42px;"
+                                    aria-haspopup="listbox"
+                                    aria-expanded=${this.tenantMenuOpen ? 'true' : 'false'}
+                                    @click=${this._toggleTenantMenu}
+                                >
+                                    <span class="truncate">${this._getTenantDisplayLabel(selectedTenant)}</span>
+                                    <i class="fas fa-chevron-down text-xs text-gray-500"></i>
+                                </button>
+                                ${this.tenantMenuOpen ? html`
+                                    <div class="absolute left-0 mt-1 min-w-full max-w-[80vw] max-h-72 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="listbox">
+                                        ${tenantMissingFromList ? html`
+                                            <button
+                                                type="button"
+                                                class="w-full text-left px-3 py-2 text-sm bg-blue-50 text-blue-900 border-b border-blue-100"
+                                                @click=${() => this._handleTenantMenuSelect(selectedTenant)}
+                                            >
+                                                ${selectedTenant} (not in tenant list)
+                                            </button>
+                                        ` : html``}
+                                        ${this.tenants.length ? this.tenants.map((tenant) => {
+                                            const tenantId = this._normalizeTenantValue(tenant.id);
+                                            const isSelected = tenantId === selectedTenant;
+                                            return html`
+                                                <button
+                                                    type="button"
+                                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${isSelected ? 'bg-blue-50 text-blue-900' : 'text-gray-800'}"
+                                                    aria-selected=${isSelected ? 'true' : 'false'}
+                                                    @click=${() => this._handleTenantMenuSelect(tenantId)}
+                                                >
+                                                    ${this._formatTenantLabel(tenant)}
+                                                </button>
+                                            `;
+                                        }) : html`
+                                            <div class="px-3 py-2 text-sm text-gray-500">No tenants available.</div>
+                                        `}
+                                    </div>
+                                ` : html``}
+                            </div>
                         </div>
                         <select
                             class="px-4 py-2 text-base font-medium focus:outline-none bg-transparent"
@@ -187,16 +329,10 @@ class AppHeader extends LitElement {
                     </button>
                     ` : html``}
                     <button
-                        @click=${() => this._handleTabChange('lists')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'lists' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
+                        @click=${() => this._handleTabChange('library')}
+                        class="py-3 px-6 text-base font-semibold ${libraryActive ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
                     >
-                        <i class="fas fa-list mr-2"></i>Lists
-                    </button>
-                    <button
-                        @click=${() => this._handleTabChange('admin')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'admin' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-cog mr-2"></i>Keywords
+                        <i class="fas fa-book-open mr-2"></i>Library
                     </button>
                     <button
                         @click=${() => this._handleTabChange('system')}
@@ -362,7 +498,10 @@ class AppHeader extends LitElement {
     }
 
     _switchTenant(e) {
-        this.dispatchEvent(new CustomEvent('tenant-change', { detail: e.target.value, bubbles: true, composed: true }));
+        const nextTenant = this._normalizeTenantValue(e.target.value || '');
+        const currentTenant = this._normalizeTenantValue(this.tenant);
+        if (!nextTenant || nextTenant === currentTenant) return;
+        this.dispatchEvent(new CustomEvent('tenant-change', { detail: nextTenant, bubbles: true, composed: true }));
     }
 
     _openAdmin() {

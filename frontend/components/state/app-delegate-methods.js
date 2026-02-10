@@ -110,8 +110,16 @@ export function bindAppDelegateMethods(host) {
     host.showUploadModal = true;
   };
 
+  host._handleOpenUploadLibraryModal = () => {
+    host.showUploadLibraryModal = true;
+  };
+
   host._handleCloseUploadModal = () => {
     host.showUploadModal = false;
+  };
+
+  host._handleCloseUploadLibraryModal = () => {
+    host.showUploadLibraryModal = false;
   };
 
   host._handlePipelineOpenImage = (event) => {
@@ -132,6 +140,18 @@ export function bindAppDelegateMethods(host) {
       includeTagStats: host.activeTab === 'curate' && host.curateSubTab === 'home',
     });
     host.showUploadModal = false;
+  };
+
+  host._handleUploadLibraryComplete = () => {
+    const curateFilters = buildCurateFilterObject(host);
+    host.curateHomeFilterPanel.updateFilters(curateFilters);
+    host._fetchCurateHomeImages();
+    host.fetchStats({
+      force: true,
+      includeTagStats: host.activeTab === 'curate' && host.curateSubTab === 'home',
+    });
+    host.assetsRefreshToken = (host.assetsRefreshToken || 0) + 1;
+    host.showUploadLibraryModal = false;
   };
 
   host._handleCurateChipFiltersChanged = (event) =>

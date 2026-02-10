@@ -14,6 +14,11 @@ export class AppDataStateController extends BaseStateController {
 
   async fetchKeywords() {
     if (!this.host.tenant) return;
+    const showHomeLoading = this.host.activeTab === 'home';
+    if (showHomeLoading) {
+      this.host._homeLoadingCount = (this.host._homeLoadingCount || 0) + 1;
+      this.host.homeLoading = true;
+    }
     try {
       const keywordsByCategory = await getKeywords(this.host.tenant, { source: 'permatags', includePeople: true });
       const flat = [];
@@ -26,29 +31,47 @@ export class AppDataStateController extends BaseStateController {
     } catch (error) {
       console.error('Error fetching keywords:', error);
       this.host.keywords = [];
+    } finally {
+      if (showHomeLoading) {
+        this.host._homeLoadingCount = Math.max(0, (this.host._homeLoadingCount || 1) - 1);
+        this.host.homeLoading = this.host._homeLoadingCount > 0;
+      }
     }
   }
 
-  async fetchStats({ force = false, includeRatings, includeImageStats = true, includeMlStats = true, includeTagStats = true } = {}) {
-    if (!this.host.tenant) return;
+  async fetchStats({ force = false, includeRatings, includeImageStats = true, includeMlStats = false, includeTagStats = true } = {}) {
+    const tenantAtRequest = this.host.tenant;
+    if (!tenantAtRequest) return;
+    const requestId = (this.host._statsRequestId || 0) + 1;
+    this.host._statsRequestId = requestId;
     const include = includeRatings ?? shouldIncludeRatingStats(this.host);
     const showCurateLoading = this.host.activeTab === 'curate' && this.host.curateSubTab === 'home';
+    const showHomeLoading = this.host.activeTab === 'home';
     if (showCurateLoading) {
       this.host._curateStatsLoadingCount = (this.host._curateStatsLoadingCount || 0) + 1;
       this.host.curateStatsLoading = true;
     }
+    if (showHomeLoading) {
+      this.host._homeLoadingCount = (this.host._homeLoadingCount || 0) + 1;
+      this.host.homeLoading = true;
+    }
     try {
       const requests = [];
       if (includeImageStats) {
-        requests.push(getImageStats(this.host.tenant, { force, includeRatings: include }));
+        requests.push(getImageStats(tenantAtRequest, { force, includeRatings: include }));
       }
       if (includeMlStats) {
-        requests.push(getMlTrainingStats(this.host.tenant, { force }));
+        requests.push(getMlTrainingStats(tenantAtRequest, { force }));
       }
       if (includeTagStats) {
-        requests.push(getTagStats(this.host.tenant, { force }));
+        requests.push(getTagStats(tenantAtRequest, { force }));
       }
       const results = await Promise.allSettled(requests);
+      const isStale =
+        this.host._statsRequestId !== requestId || this.host.tenant !== tenantAtRequest;
+      if (isStale) {
+        return;
+      }
       let index = 0;
       if (includeImageStats) {
         const imageResult = results[index++];
@@ -82,6 +105,10 @@ export class AppDataStateController extends BaseStateController {
       if (showCurateLoading) {
         this.host._curateStatsLoadingCount = Math.max(0, (this.host._curateStatsLoadingCount || 1) - 1);
         this.host.curateStatsLoading = this.host._curateStatsLoadingCount > 0;
+      }
+      if (showHomeLoading) {
+        this.host._homeLoadingCount = Math.max(0, (this.host._homeLoadingCount || 1) - 1);
+        this.host.homeLoading = this.host._homeLoadingCount > 0;
       }
     }
   }

@@ -1,6 +1,6 @@
 import { BaseStateController } from './base-state-controller.js';
 import { getCurrentUser } from '../../services/auth.js';
-import { getImageStats, getMlTrainingStats } from '../../services/api.js';
+import { getImageStats } from '../../services/api.js';
 import { shouldAutoRefreshCurateStats } from '../shared/curate-stats.js';
 
 /**
@@ -45,6 +45,28 @@ export class AppShellStateController extends BaseStateController {
   }
 
   setActiveTab(tabName) {
+    // Normalize legacy deep-links now nested under Library.
+    if (tabName === 'lists') {
+      this.host.curateSubTab = 'lists';
+      this.host.activeTab = 'curate';
+      return;
+    }
+    if (tabName === 'admin') {
+      this.host.activeLibrarySubTab = 'keywords';
+      this.host.activeTab = 'library';
+      return;
+    }
+    if (tabName === 'ml-training') {
+      this.host.activeSystemSubTab = 'cli';
+      this.host.activeTab = 'system';
+      return;
+    }
+    if (tabName === 'library' && !this.host.activeLibrarySubTab) {
+      this.host.activeLibrarySubTab = 'assets';
+    }
+    if (tabName === 'library' && this.host.activeLibrarySubTab === 'lists') {
+      this.host.activeLibrarySubTab = 'assets';
+    }
     if (tabName === 'curate' && !this.canCurate()) {
       this.host.activeTab = 'home';
       return;
@@ -57,7 +79,15 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleHomeNavigate(event) {
-    this.setActiveTab(event.detail.tab);
+    const tab = event?.detail?.tab;
+    const subTab = event?.detail?.subTab;
+    if (tab === 'library' && subTab) {
+      this.host.activeLibrarySubTab = subTab;
+    }
+    if (tab === 'curate' && subTab) {
+      this.host.curateSubTab = subTab;
+    }
+    this.setActiveTab(tab);
   }
 
   getTabBootstrapKey(tab) {
@@ -66,24 +96,35 @@ export class AppShellStateController extends BaseStateController {
   }
 
   async fetchHomeStats({ force = false } = {}) {
-    if (!this.host.tenant) return;
-    const results = await Promise.allSettled([
-      getImageStats(this.host.tenant, { force, includeRatings: false }),
-      getMlTrainingStats(this.host.tenant, { force }),
-    ]);
-    const imageResult = results[0];
-    const mlResult = results[1];
-    if (imageResult.status === 'fulfilled') {
-      this.host.imageStats = imageResult.value;
-    } else {
-      console.error('Error fetching image stats:', imageResult.reason);
-      this.host.imageStats = null;
-    }
-    if (mlResult.status === 'fulfilled') {
-      this.host.mlTrainingStats = mlResult.value;
-    } else {
-      console.error('Error fetching ML training stats:', mlResult.reason);
-      this.host.mlTrainingStats = null;
+    const tenantAtRequest = this.host.tenant;
+    if (!tenantAtRequest) return;
+
+    const requestId = (this.host._homeStatsRequestId || 0) + 1;
+    this.host._homeStatsRequestId = requestId;
+    this.host._homeLoadingCount = (this.host._homeLoadingCount || 0) + 1;
+    this.host.homeLoading = true;
+
+    try {
+      const results = await Promise.allSettled([
+        getImageStats(tenantAtRequest, { force, includeRatings: false }),
+      ]);
+
+      const isStale =
+        this.host._homeStatsRequestId !== requestId || this.host.tenant !== tenantAtRequest;
+      if (isStale) {
+        return;
+      }
+
+      const imageResult = results[0];
+      if (imageResult.status === 'fulfilled') {
+        this.host.imageStats = imageResult.value;
+      } else {
+        console.error('Error fetching image stats:', imageResult.reason);
+        this.host.imageStats = null;
+      }
+    } finally {
+      this.host._homeLoadingCount = Math.max(0, (this.host._homeLoadingCount || 1) - 1);
+      this.host.homeLoading = this.host._homeLoadingCount > 0;
     }
   }
 
@@ -101,10 +142,8 @@ export class AppShellStateController extends BaseStateController {
       if (this.host.homeSubTab === 'lab' || this.host.homeSubTab === 'chips') {
         this.host.homeSubTab = 'overview';
       }
-      this.fetchHomeStats();
-      if (this.host.homeSubTab === 'insights') {
-        this.host.fetchKeywords();
-      }
+      this.fetchHomeStats({ force });
+      this.host.fetchKeywords();
       this.host._tabBootstrapped.add(key);
       return;
     }
@@ -126,10 +165,10 @@ export class AppShellStateController extends BaseStateController {
         this.host.fetchStats({ includeTagStats: false });
         break;
       }
+      case 'library':
       case 'admin':
       case 'people':
       case 'tagging':
-      case 'lists':
       case 'queue':
       default:
         break;
@@ -139,7 +178,18 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleTenantChange(event) {
-    this.host.tenant = event.detail;
+    const nextTenant = (typeof event?.detail === 'string' ? event.detail : '').trim();
+    if (!nextTenant || nextTenant === this.host.tenant) {
+      return;
+    }
+
+    this.host.tenant = nextTenant;
+    try {
+      localStorage.setItem('tenantId', nextTenant);
+      localStorage.setItem('currentTenant', nextTenant);
+    } catch (error) {
+      console.error('Failed to persist tenant selection:', error);
+    }
 
     this.host.searchFilterPanel.setTenant(this.host.tenant);
     this.host.curateHomeFilterPanel.setTenant(this.host.tenant);
@@ -152,8 +202,17 @@ export class AppShellStateController extends BaseStateController {
     this.host._curateHomeLastFetchKey = null;
     this.host._curateStatsAutoRefreshDone = false;
     this.host._searchState.resetForTenantChange();
+    this.host.homeLoading = true;
+    this.host.curateStatsLoading = false;
+    this.host.imageStats = null;
+    this.host.mlTrainingStats = null;
+    this.host.tagStatsBySource = {};
+
+    // Tenant switch always returns to Home and forces a fresh data pull.
+    this.host.activeTab = 'home';
+    this.host.homeSubTab = 'overview';
     this.host._tabBootstrapped = new Set();
-    this.initializeTab(this.host.activeTab, { force: true });
+    this.initializeTab('home', { force: true });
   }
 
   handleUpdated(changedProperties) {
@@ -174,10 +233,6 @@ export class AppShellStateController extends BaseStateController {
     if (changedProperties.has('homeSubTab') && this.host.activeTab === 'home') {
       if (this.host.homeSubTab === 'lab' || this.host.homeSubTab === 'chips') {
         this.host.homeSubTab = 'overview';
-        return;
-      }
-      if (this.host.homeSubTab === 'insights') {
-        this.host.fetchKeywords();
       }
     }
   }

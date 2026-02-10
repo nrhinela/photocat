@@ -1,7 +1,5 @@
 """Shared dependencies for FastAPI endpoints."""
 
-from typing import Optional
-
 from fastapi import Header, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from google.cloud import secretmanager
@@ -16,18 +14,17 @@ from photocat.auth.models import UserProfile, UserTenant
 
 async def get_tenant(
     x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
-    authorization: Optional[str] = Header(None),
+    user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Tenant:
     """Extract and validate tenant from request headers.
 
-    This supports two modes during development transition:
-    1. With JWT token: Authenticates user and checks tenant access
-    2. Without JWT token: Allows legacy X-Tenant-ID only path (development fallback)
+    Requires an authenticated user and verifies tenant membership
+    unless the user is a super admin.
 
     Args:
         x_tenant_id: Tenant ID from X-Tenant-ID header
-        authorization: Optional Authorization header with JWT token
+        user: Authenticated user
         db: Database session
 
     Returns:
@@ -36,29 +33,17 @@ async def get_tenant(
     Raises:
         HTTPException 404: Tenant not found
     """
-    # If authorization header is present, verify user access (future-proof for auth)
-    # For now, we allow access with just X-Tenant-ID for development compatibility
-    if authorization and authorization.startswith("Bearer "):
-        try:
-            user = await get_current_user(authorization=authorization, db=db)
-            # User authenticated - check tenant access
-            if not user.is_super_admin:
-                membership = db.query(UserTenant).filter(
-                    UserTenant.supabase_uid == user.supabase_uid,
-                    UserTenant.tenant_id == x_tenant_id,
-                    UserTenant.accepted_at.isnot(None)
-                ).first()
-                if not membership:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=f"No access to tenant {x_tenant_id}"
-                    )
-        except HTTPException:
-            # Auth header present but invalid - fail the request
-            raise
-        except Exception:
-            # Other auth errors - pass through
-            raise
+    if not user.is_super_admin:
+        membership = db.query(UserTenant).filter(
+            UserTenant.supabase_uid == user.supabase_uid,
+            UserTenant.tenant_id == x_tenant_id,
+            UserTenant.accepted_at.isnot(None)
+        ).first()
+        if not membership:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No access to tenant {x_tenant_id}"
+            )
 
     # Load tenant from database
     tenant_row = db.query(TenantModel).filter(TenantModel.id == x_tenant_id).first()

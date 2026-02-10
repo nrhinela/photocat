@@ -16,6 +16,7 @@ from photocat.models.requests import AddPhotoRequest
 from photocat.settings import settings
 from photocat.auth.dependencies import get_current_user
 from photocat.auth.models import UserProfile
+from photocat.routers.images._shared import _build_source_url
 
 router = APIRouter(
     prefix="/api/v1/lists",
@@ -350,6 +351,7 @@ async def get_list_items(
                 "source_provider": storage_info.source_provider,
                 "source_key": storage_info.source_key,
                 "source_rev": storage_info.source_rev,
+                "source_url": _build_source_url(storage_info, tenant, img),
                 "camera_make": img.camera_make,
                 "camera_model": img.camera_model,
                 "lens_model": img.lens_model,

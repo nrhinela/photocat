@@ -4,17 +4,27 @@ import json
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, distinct, and_, case
+from sqlalchemy import func, distinct, and_, case, cast, Text
 from sqlalchemy.orm import Session, load_only
+from google.cloud import storage
 
 from photocat.dependencies import get_db, get_tenant, get_tenant_setting
 from photocat.asset_helpers import load_assets_for_images
 from photocat.tenant import Tenant
-from photocat.metadata import Asset, ImageMetadata, MachineTag, Permatag
-from photocat.models.config import Keyword
+from photocat.metadata import (
+    Asset,
+    AssetDerivative,
+    ImageEmbedding,
+    ImageMetadata,
+    MachineTag,
+    Permatag,
+)
+from photocat.models.config import Keyword, PhotoListItem
 from photocat.tagging import calculate_tags
 from photocat.config.db_utils import load_keywords_map
+from photocat.settings import settings
 from photocat.routers.images._shared import (
+    _build_source_url,
     _resolve_storage_or_409,
 )
 
@@ -102,7 +112,7 @@ async def list_images(
     if date_order not in ("asc", "desc"):
         date_order = "desc"
     order_by_value = (order_by or "").lower()
-    if order_by_value not in ("photo_creation", "image_id", "processed", "ml_score", "rating"):
+    if order_by_value not in ("photo_creation", "created_at", "image_id", "processed", "ml_score", "rating"):
         order_by_value = None
     if order_by_value == "ml_score" and not ml_keyword_id:
         order_by_value = None
@@ -159,6 +169,8 @@ async def list_images(
     # Handle per-category filters if provided
     if order_by_value == "processed":
         order_by_date = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
+    elif order_by_value == "created_at":
+        order_by_date = ImageMetadata.created_at
     else:
         order_by_date = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
     order_by_date = order_by_date.desc() if date_order == "desc" else order_by_date.asc()
@@ -222,6 +234,11 @@ async def list_images(
                             row[0]: row[3] or row[4]
                             for row in date_rows
                         }
+                    elif order_by_value == "created_at":
+                        date_map = {
+                            row[0]: row[4]
+                            for row in date_rows
+                        }
                     else:
                         date_map = {
                             row[0]: row[1] or row[2]
@@ -245,7 +262,7 @@ async def list_images(
                             unique_image_ids,
                             key=lambda img_id: -img_id if date_order == "desc" else img_id
                         )
-                    elif order_by_value in ("photo_creation", "processed"):
+                    elif order_by_value in ("photo_creation", "processed", "created_at"):
                         sorted_ids = sorted(
                             unique_image_ids,
                             key=lambda img_id: (
@@ -475,7 +492,12 @@ async def list_images(
             )
             total = builder.get_total_count(query)
             # Build order clauses with ML score priority
-            order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
+            if order_by_value == "processed":
+                order_by_date_clause = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
+            elif order_by_value == "created_at":
+                order_by_date_clause = ImageMetadata.created_at
+            else:
+                order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
             order_by_date_clause = order_by_date_clause.desc() if date_order == "desc" else order_by_date_clause.asc()
             id_order_clause = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
             order_clauses = (
@@ -581,6 +603,7 @@ async def list_images(
             "source_provider": storage_info.source_provider,
             "source_key": storage_info.source_key,
             "source_rev": storage_info.source_rev,
+            "source_url": _build_source_url(storage_info, tenant, img),
             "camera_make": img.camera_make,
             "camera_model": img.camera_model,
             "lens_model": img.lens_model,
@@ -610,6 +633,154 @@ async def list_images(
         "total": total,
         "limit": limit,
         "offset": offset
+    }
+
+
+@router.get("/images/duplicates", response_model=dict, operation_id="list_duplicate_images")
+async def list_duplicate_images(
+    tenant: Tenant = Depends(get_tenant),
+    limit: int = 100,
+    offset: int = 0,
+    date_order: str = "desc",
+    filename_query: Optional[str] = None,
+    include_total: bool = False,
+    db: Session = Depends(get_db),
+):
+    """List assets whose embedding value appears more than once."""
+    date_order = (date_order or "desc").lower()
+    if date_order not in ("asc", "desc"):
+        date_order = "desc"
+
+    embedding_hash_expr = func.md5(cast(ImageEmbedding.embedding, Text))
+    duplicate_groups = db.query(
+        embedding_hash_expr.label("embedding_hash"),
+        func.count(ImageEmbedding.id).label("duplicate_count"),
+    ).filter(
+        ImageEmbedding.tenant_id == tenant.id,
+        ImageEmbedding.asset_id.is_not(None),
+    ).group_by(
+        embedding_hash_expr,
+    ).having(
+        func.count(ImageEmbedding.id) > 1,
+    ).subquery()
+
+    base_query = db.query(
+        ImageMetadata.id.label("image_id"),
+        duplicate_groups.c.embedding_hash.label("embedding_hash"),
+        duplicate_groups.c.duplicate_count.label("duplicate_count"),
+    ).join(
+        ImageEmbedding,
+        and_(
+            ImageEmbedding.asset_id == ImageMetadata.asset_id,
+            ImageEmbedding.tenant_id == tenant.id,
+            ImageEmbedding.asset_id.is_not(None),
+        ),
+    ).join(
+        duplicate_groups,
+        embedding_hash_expr == duplicate_groups.c.embedding_hash,
+    ).filter(
+        ImageMetadata.tenant_id == tenant.id,
+    )
+    if filename_query:
+        filename_pattern = f"%{filename_query.strip()}%"
+        if filename_pattern != "%%":
+            base_query = base_query.filter(ImageMetadata.filename.ilike(filename_pattern))
+
+    created_order = ImageMetadata.created_at.desc() if date_order == "desc" else ImageMetadata.created_at.asc()
+    id_order = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
+    requested_limit = max(1, int(limit or 100))
+    rows = base_query.order_by(
+        duplicate_groups.c.duplicate_count.desc(),
+        duplicate_groups.c.embedding_hash.asc(),
+        created_order,
+        id_order,
+    ).limit(requested_limit + 1).offset(offset).all()
+    has_more = len(rows) > requested_limit
+    if has_more:
+        rows = rows[:requested_limit]
+
+    total = int(base_query.order_by(None).count() or 0) if include_total else (offset + len(rows) + (1 if has_more else 0))
+
+    image_ids = [row.image_id for row in rows]
+    images = db.query(ImageMetadata).filter(
+        ImageMetadata.id.in_(image_ids)
+    ).options(
+        load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS)
+    ).all() if image_ids else []
+    image_by_id = {img.id: img for img in images}
+    ordered_images = [image_by_id[img_id] for img_id in image_ids if img_id in image_by_id]
+
+    assets_by_id = load_assets_for_images(db, ordered_images)
+    asset_id_to_image_id = {img.asset_id: img.id for img in ordered_images if img.asset_id is not None}
+    asset_ids = list(asset_id_to_image_id.keys())
+    duplicate_meta_by_image_id = {
+        row.image_id: {
+            "embedding_hash": row.embedding_hash,
+            "duplicate_count": int(row.duplicate_count or 0),
+        }
+        for row in rows
+    }
+
+    permatags = db.query(Permatag).filter(
+        Permatag.asset_id.in_(asset_ids),
+        Permatag.tenant_id == tenant.id
+    ).all() if asset_ids else []
+
+    keyword_ids = {tag.keyword_id for tag in permatags}
+    keywords_map = load_keywords_map(db, tenant.id, keyword_ids)
+
+    permatags_by_image = {}
+    for permatag in permatags:
+        image_id = asset_id_to_image_id.get(permatag.asset_id)
+        if image_id is None:
+            continue
+        if image_id not in permatags_by_image:
+            permatags_by_image[image_id] = []
+        kw_info = keywords_map.get(permatag.keyword_id, {"keyword": "unknown", "category": "unknown"})
+        permatags_by_image[image_id].append({
+            "id": permatag.id,
+            "keyword": kw_info["keyword"],
+            "category": kw_info["category"],
+            "signum": permatag.signum,
+        })
+
+    images_list = []
+    for img in ordered_images:
+        storage_info = _resolve_storage_or_409(
+            image=img,
+            tenant=tenant,
+            db=db,
+            assets_by_id=assets_by_id,
+        )
+        dup_meta = duplicate_meta_by_image_id.get(img.id, {})
+        image_permatags = permatags_by_image.get(img.id, [])
+        images_list.append({
+            "id": img.id,
+            "asset_id": storage_info.asset_id,
+            "filename": img.filename,
+            "file_size": img.file_size,
+            "source_provider": storage_info.source_provider,
+            "source_key": storage_info.source_key,
+            "source_rev": storage_info.source_rev,
+            "source_url": _build_source_url(storage_info, tenant, img),
+            "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
+            "modified_time": img.modified_time.isoformat() if img.modified_time else None,
+            "created_at": img.created_at.isoformat() if img.created_at else None,
+            "thumbnail_path": storage_info.thumbnail_key,
+            "thumbnail_url": storage_info.thumbnail_url,
+            "rating": img.rating,
+            "permatags": image_permatags,
+            "duplicate_group": dup_meta.get("embedding_hash"),
+            "duplicate_count": dup_meta.get("duplicate_count", 0),
+        })
+
+    return {
+        "tenant_id": tenant.id,
+        "images": images_list,
+        "total": total,
+        "limit": requested_limit,
+        "offset": offset,
+        "has_more": has_more,
     }
 
 
@@ -704,6 +875,7 @@ async def get_image(
         "source_provider": storage_info.source_provider,
         "source_key": storage_info.source_key,
         "source_rev": storage_info.source_rev,
+        "source_url": _build_source_url(storage_info, tenant, image),
         "camera_make": image.camera_make,
         "camera_model": image.camera_model,
         "lens_model": image.lens_model,
@@ -756,6 +928,7 @@ async def get_image_asset(
         "source_provider": storage_info.source_provider,
         "source_key": storage_info.source_key,
         "source_rev": storage_info.source_rev,
+        "source_url": _build_source_url(storage_info, tenant, image),
         "filename": asset.filename if asset else image.filename,
         "mime_type": asset.mime_type if asset else None,
         "width": asset.width if asset and asset.width is not None else image.width,
@@ -797,6 +970,7 @@ async def get_asset(
         "source_provider": asset.source_provider,
         "source_key": asset.source_key,
         "source_rev": asset.source_rev,
+        "source_url": _build_source_url(asset, tenant, image=None),
         "thumbnail_key": asset.thumbnail_key,
         "thumbnail_url": tenant.get_thumbnail_url(settings, asset.thumbnail_key),
         "mime_type": asset.mime_type,
@@ -804,4 +978,109 @@ async def get_asset(
         "height": asset.height,
         "duration_ms": asset.duration_ms,
         "linked_image_ids": linked_image_ids,
+    }
+
+
+@router.delete("/images/{image_id}", response_model=dict, operation_id="delete_image")
+async def delete_image(
+    image_id: int,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db),
+):
+    """Delete an asset image and related tenant-scoped records."""
+    image = db.query(ImageMetadata).filter(
+        ImageMetadata.id == image_id,
+        ImageMetadata.tenant_id == tenant.id,
+    ).first()
+    if not image:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    asset_id = image.asset_id
+    asset = None
+    derivative_keys = []
+    source_provider = None
+    source_key = None
+    thumbnail_key = None
+
+    if asset_id is not None:
+        asset = db.query(Asset).filter(
+            Asset.id == asset_id,
+            Asset.tenant_id == tenant.id,
+        ).first()
+        if asset:
+            source_provider = (asset.source_provider or "").strip().lower() or None
+            source_key = (asset.source_key or "").strip() or None
+            thumbnail_key = (asset.thumbnail_key or "").strip() or None
+
+        derivative_rows = db.query(AssetDerivative).filter(
+            AssetDerivative.asset_id == asset_id
+        ).all()
+        derivative_keys = [
+            (row.storage_key or "").strip()
+            for row in derivative_rows
+            if (row.storage_key or "").strip()
+        ]
+
+        db.query(Permatag).filter(
+            Permatag.tenant_id == tenant.id,
+            Permatag.asset_id == asset_id,
+        ).delete(synchronize_session=False)
+        db.query(MachineTag).filter(
+            MachineTag.tenant_id == tenant.id,
+            MachineTag.asset_id == asset_id,
+        ).delete(synchronize_session=False)
+        db.query(ImageEmbedding).filter(
+            ImageEmbedding.tenant_id == tenant.id,
+            ImageEmbedding.asset_id == asset_id,
+        ).delete(synchronize_session=False)
+        db.query(PhotoListItem).filter(
+            PhotoListItem.asset_id == asset_id
+        ).delete(synchronize_session=False)
+        db.query(AssetDerivative).filter(
+            AssetDerivative.asset_id == asset_id
+        ).delete(synchronize_session=False)
+
+    db.query(ImageMetadata).filter(
+        ImageMetadata.id == image_id,
+        ImageMetadata.tenant_id == tenant.id,
+    ).delete(synchronize_session=False)
+    if asset is not None:
+        db.query(Asset).filter(
+            Asset.id == asset_id,
+            Asset.tenant_id == tenant.id,
+        ).delete(synchronize_session=False)
+    db.commit()
+
+    deleted_objects = []
+    storage_delete_errors = []
+
+    def _delete_blob(bucket_name: str, key: Optional[str]) -> None:
+        normalized_key = (key or "").strip()
+        if not bucket_name or not normalized_key:
+            return
+        try:
+            bucket = storage_client.bucket(bucket_name)
+            blob = bucket.blob(normalized_key)
+            blob.delete()
+            deleted_objects.append(f"{bucket_name}/{normalized_key}")
+        except Exception as exc:  # pragma: no cover - best effort cleanup
+            storage_delete_errors.append(f"{bucket_name}/{normalized_key}: {exc}")
+
+    try:
+        storage_client = storage.Client(project=settings.gcp_project_id)
+        if source_provider in ("managed", "gcs", "google_cloud_storage"):
+            _delete_blob(tenant.get_storage_bucket(settings), source_key)
+        _delete_blob(tenant.get_thumbnail_bucket(settings), thumbnail_key)
+        for derivative_key in derivative_keys:
+            _delete_blob(tenant.get_storage_bucket(settings), derivative_key)
+    except Exception as exc:  # pragma: no cover - best effort cleanup
+        storage_delete_errors.append(f"storage client init failed: {exc}")
+
+    return {
+        "status": "deleted",
+        "tenant_id": tenant.id,
+        "image_id": image_id,
+        "asset_id": str(asset_id) if asset_id is not None else None,
+        "deleted_storage_objects": deleted_objects,
+        "storage_delete_errors": storage_delete_errors,
     }

@@ -2,10 +2,12 @@ import { LitElement, html } from 'lit';
 import './app-header.js';
 import './tag-histogram.js';
 import './upload-modal.js';
+import './upload-library-modal.js';
 import './tab-container.js';
 import './list-editor.js';
 import './permatag-editor.js';
 import './tagging-admin.js';
+import './assets-admin.js';
 import './ml-training.js';
 import './image-editor.js';
 import './cli-commands.js';
@@ -45,7 +47,9 @@ class PhotoCatApp extends LitElement {
   static properties = {
       tenant: { type: String },
       showUploadModal: { type: Boolean },
+      showUploadLibraryModal: { type: Boolean },
       activeTab: { type: String },
+      activeLibrarySubTab: { type: String },
       activeAdminSubTab: { type: String },
       activeSystemSubTab: { type: String },
       keywords: { type: Array },
@@ -54,6 +58,7 @@ class PhotoCatApp extends LitElement {
       imageStats: { type: Object },
       mlTrainingStats: { type: Object },
       tagStatsBySource: { type: Object },
+      homeLoading: { type: Boolean },
       curateFilters: { type: Object },
       curateLimit: { type: Number },
       curateOrderBy: { type: String },
@@ -122,16 +127,27 @@ class PhotoCatApp extends LitElement {
       searchImages: { type: Array },
       searchTotal: { type: Number },
       currentUser: { type: Object },
+      _homeLoadingCount: { type: Number },
+      assetsRefreshToken: { type: Number },
   }
 
   constructor() {
       super();
-      this.tenant = 'bcg';
+      let storedTenant = '';
+      try {
+          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
+      } catch (_error) {
+          storedTenant = '';
+      }
+      this.tenant = storedTenant || '';
       this.showUploadModal = false;
+      this.showUploadLibraryModal = false;
       this.activeTab = 'home';
       this.homeSubTab = 'overview';
+      this.activeLibrarySubTab = 'assets';
       this.activeAdminSubTab = 'tagging';
-      this.activeSystemSubTab = 'ml-training';
+      this.activeSystemSubTab = 'cli';
+      this.assetsRefreshToken = 0;
 
       initializeAppCoreSetup(this);
       bindAppDelegateMethods(this);
@@ -142,6 +158,7 @@ class PhotoCatApp extends LitElement {
   connectedCallback() {
       super.connectedCallback();
       this._appEventsState.connect();
+      this._syncTenantFromStorage();
   }
 
   disconnectedCallback() {
@@ -190,7 +207,7 @@ class PhotoCatApp extends LitElement {
       return await this._appDataState.fetchKeywords();
   }
 
-  async fetchStats({ force = false, includeRatings, includeImageStats = true, includeMlStats = true, includeTagStats = true } = {}) {
+  async fetchStats({ force = false, includeRatings, includeImageStats = true, includeMlStats = false, includeTagStats = true } = {}) {
       return await this._appDataState.fetchStats({
           force,
           includeRatings,
@@ -214,6 +231,19 @@ class PhotoCatApp extends LitElement {
           this._syncAuditHotspotPrimary();
       }
       this._appShellState.handleUpdated(changedProperties);
+  }
+
+  _syncTenantFromStorage() {
+      let storedTenant = '';
+      try {
+          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
+      } catch (_error) {
+          storedTenant = '';
+      }
+      if (!storedTenant || storedTenant === this.tenant) {
+          return;
+      }
+      this._handleTenantChange({ detail: storedTenant });
   }
 
 }

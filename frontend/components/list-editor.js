@@ -374,11 +374,20 @@ class ListEditor extends LitElement {
       // Add items
       doc.setFont(undefined, 'normal');
       for (const item of this.listItems) {
-        const encodedPath = item.image.dropbox_path.split('/').map(part => encodeURIComponent(part)).join('/');
-        const dropboxUrl = `https://www.dropbox.com/home${encodedPath}`;
+        const sourcePath = item?.image?.source_key || item?.image?.dropbox_path || '';
+        const sourceProvider = String(item?.image?.source_provider || '').trim().toLowerCase();
+        const sourceUrlFromApi = String(item?.image?.source_url || '').trim();
+        let sourceUrl = sourceUrlFromApi;
+        if (!sourceUrl && sourcePath && sourceProvider === 'dropbox') {
+          const encodedPath = sourcePath.split('/').map((part) => encodeURIComponent(part)).join('/');
+          sourceUrl = `https://www.dropbox.com/home${encodedPath}`;
+        }
+        if (!sourceUrl) {
+          sourceUrl = `${window.location.origin}/api/v1/images/${item.image.id}/full`;
+        }
 
         // Wrap long URLs to fit the page width
-        const urlLines = doc.splitTextToSize(dropboxUrl, maxWidth);
+        const urlLines = doc.splitTextToSize(sourceUrl, maxWidth);
         const itemHeight = urlLines.length * lineHeight;
 
         // Check if we need a new page

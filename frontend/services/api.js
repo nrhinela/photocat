@@ -116,6 +116,31 @@ export async function getImages(tenantId, filters = {}) {
   });
 }
 
+export async function getDuplicateImages(
+  tenantId,
+  {
+    limit = 100,
+    offset = 0,
+    sortOrder = 'desc',
+    includeTotal = false,
+    filenameQuery = '',
+  } = {}
+) {
+  const params = new URLSearchParams();
+  params.append('limit', String(limit));
+  params.append('offset', String(offset));
+  params.append('date_order', sortOrder === 'asc' ? 'asc' : 'desc');
+  if (filenameQuery) {
+    params.append('filename_query', filenameQuery);
+  }
+  if (includeTotal) {
+    params.append('include_total', 'true');
+  }
+  return fetchWithAuth(`/images/duplicates?${params.toString()}`, {
+    tenantId,
+  });
+}
+
 export async function getDropboxFolders(tenantId, { query = '', limit } = {}) {
   const params = new URLSearchParams();
   if (query) {
@@ -234,6 +259,13 @@ export async function setRating(tenantId, imageId, rating) {
         method: 'PATCH',
         tenantId,
         body: JSON.stringify({ rating }),
+    });
+}
+
+export async function deleteImage(tenantId, imageId) {
+    return fetchWithAuth(`/images/${imageId}`, {
+        method: 'DELETE',
+        tenantId,
     });
 }
 

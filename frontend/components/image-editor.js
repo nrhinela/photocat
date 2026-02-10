@@ -1637,10 +1637,45 @@ class ImageEditor extends LitElement {
     return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
   }
 
+  _normalizeSourceProvider(value) {
+    if (!value) return '';
+    return String(value).trim().toLowerCase();
+  }
+
+  _formatSourceProvider(value = this.details?.source_provider) {
+    const normalized = this._normalizeSourceProvider(value);
+    if (!normalized) return 'Unknown';
+    if (normalized === 'dropbox') return 'Dropbox';
+    if (normalized === 'gdrive') return 'Google Drive';
+    if (normalized === 'managed') return 'Managed Storage';
+    if (normalized === 'local') return 'Local Storage';
+    if (normalized === 'flickr') return 'Flickr';
+    return normalized.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+  }
+
   _buildDropboxHref(path) {
     if (!path) return '';
     const encodedPath = path.split('/').map((part) => encodeURIComponent(part)).join('/');
     return `https://www.dropbox.com/home${encodedPath}`;
+  }
+
+  _getSourcePath(details = this.details) {
+    return details?.source_key || details?.dropbox_path || '';
+  }
+
+  _getSourceHref(details = this.details) {
+    const sourceUrl = String(details?.source_url || '').trim();
+    if (sourceUrl) return sourceUrl;
+    const sourcePath = this._getSourcePath(details);
+    if (!sourcePath) return '';
+    const sourceProvider = this._normalizeSourceProvider(details?.source_provider);
+    if (!sourceProvider || sourceProvider === 'dropbox') {
+      return this._buildDropboxHref(sourcePath);
+    }
+    if (sourcePath.startsWith('http://') || sourcePath.startsWith('https://')) {
+      return sourcePath;
+    }
+    return '';
   }
 
   _renderEditTab() {
@@ -1651,8 +1686,9 @@ class ImageEditor extends LitElement {
     const selectedValue = this.tagInput
       ? `${encodeURIComponent(selectedCategory)}::${encodeURIComponent(this.tagInput)}`
       : '';
-    const dropboxPath = this.details?.dropbox_path || '';
-    const dropboxHref = this._buildDropboxHref(dropboxPath);
+    const sourcePath = this._getSourcePath(this.details);
+    const sourceHref = this._getSourceHref(this.details);
+    const sourceProvider = this._formatSourceProvider(this.details?.source_provider);
     const flatKeywords = categories.flatMap((category) => (
       (this.keywordsByCategory?.[category] || [])
         .filter((entry) => entry.keyword)
@@ -1683,10 +1719,14 @@ class ImageEditor extends LitElement {
               `,
             },
             {
-              label: 'Dropbox',
-              value: dropboxHref
-                ? html`<a class="prop-link" href=${dropboxHref} target="dropbox" rel="noopener noreferrer">${dropboxPath}</a>`
-                : 'Unknown',
+              label: 'Provider',
+              value: sourceProvider,
+            },
+            {
+              label: 'Source',
+              value: sourceHref
+                ? html`<a class="prop-link" href=${sourceHref} target="_blank" rel="noopener noreferrer">${sourcePath || sourceHref}</a>`
+                : (sourcePath || 'Unknown'),
             },
           ],
         })}
@@ -1740,16 +1780,16 @@ class ImageEditor extends LitElement {
             : html`<div class="empty-text">No active tags.</div>`,
         })}
 
-        ${this.canEditTags ? renderPropertySection({
+        ${(this.canEditTags && this._normalizeSourceProvider(this.details?.source_provider) === 'dropbox') ? renderPropertySection({
           title: 'Tag Actions',
           body: html`
             <div class="edit-action-row">
-              <span>Write tags to Dropbox</span>
+              <span>Write tags to ${sourceProvider}</span>
               <button
                 class="text-xs text-blue-600 hover:text-blue-700"
                 ?disabled=${this.tagsPropagating}
                 @click=${this._handlePropagateDropboxTags}
-                title="Write GMM tags to Dropbox for this image"
+                title="Write GMM tags for this image"
               >
                 ${this.tagsPropagating ? 'Propagating...' : 'Propagate tags'}
               </button>
@@ -1908,12 +1948,12 @@ class ImageEditor extends LitElement {
           rows: [
             { label: 'Filename', value: details.filename || 'Unknown' },
             { label: 'Asset ID', value: details.asset_id || 'Unknown' },
-            { label: 'Dropbox ID', value: details.dropbox_id || 'Unknown' },
+            { label: 'Source provider', value: this._formatSourceProvider(details.source_provider) },
             {
-              label: 'Dropbox path',
-              value: details.dropbox_path
-                ? html`<a class="prop-link" href=${this._buildDropboxHref(details.dropbox_path)} target="dropbox" rel="noopener noreferrer">${details.dropbox_path}</a>`
-                : 'Unknown',
+              label: 'Source path',
+              value: this._getSourceHref(details)
+                ? html`<a class="prop-link" href=${this._getSourceHref(details)} target="_blank" rel="noopener noreferrer">${this._getSourcePath(details) || this._getSourceHref(details)}</a>`
+                : (this._getSourcePath(details) || 'Unknown'),
             },
           ],
         })}
@@ -1922,7 +1962,7 @@ class ImageEditor extends LitElement {
           title: 'Timeline',
           rows: [
             { label: 'Photo taken', value: this._formatDateTime(details.capture_timestamp) },
-            { label: 'Dropbox modified', value: this._formatDateTime(details.modified_time) },
+            { label: 'Source modified', value: this._formatDateTime(details.modified_time) },
             { label: 'Ingested', value: this._formatDateTime(details.created_at) },
             { label: 'Last review', value: this._formatDateTime(details.reviewed_at) },
           ],
@@ -2017,12 +2057,13 @@ class ImageEditor extends LitElement {
   _renderImageTab() {
     const ratingControl = this._renderRatingControl();
     if (this.fullImageLoading) {
+      const provider = this._formatSourceProvider(this.details?.source_provider);
       return html`
         <div class="space-y-3">
           ${ratingControl}
           <div class="loading-indicator">
             <span class="loading-dot"></span>
-            <span>Loading full-size image from Dropbox...</span>
+            <span>Loading full-size image from ${provider}...</span>
           </div>
         </div>
       `;
@@ -2037,15 +2078,13 @@ class ImageEditor extends LitElement {
       `;
     }
     if (this.fullImageUrl) {
-      const dropboxPath = this.details?.dropbox_path;
-      const dropboxHref = dropboxPath
-        ? `https://www.dropbox.com/home${encodeURIComponent(dropboxPath)}`
-        : this.fullImageUrl;
+      const sourceHref = this._getSourceHref(this.details) || this.fullImageUrl;
+      const provider = this._formatSourceProvider(this.details?.source_provider);
       return html`
         <div class="space-y-3 text-sm text-gray-600">
           ${ratingControl}
-          <div>Full-size image loaded from Dropbox.</div>
-          <a class="text-blue-600" href=${dropboxHref} target="dropbox" rel="noopener noreferrer">Open in new tab</a>
+          <div>Full-size image loaded from ${provider}.</div>
+          <a class="text-blue-600" href=${sourceHref} target="_blank" rel="noopener noreferrer">Open in new tab</a>
         </div>
       `;
     }

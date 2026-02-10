@@ -45,7 +45,7 @@ class QueryBuilder:
             db: SQLAlchemy database session
             tenant: Current tenant
             date_order: Sort order for dates ("asc" or "desc"), defaults to "desc"
-            order_by: Ordering strategy ("photo_creation", "image_id", "processed", "ml_score", "rating"), defaults to None
+            order_by: Ordering strategy ("photo_creation", "created_at", "image_id", "processed", "ml_score", "rating"), defaults to None
         """
         self.db = db
         self.tenant = tenant
@@ -57,7 +57,7 @@ class QueryBuilder:
 
         # Validate and normalize order_by
         self.order_by = (order_by or "").lower() if order_by else None
-        if self.order_by and self.order_by not in ("photo_creation", "image_id", "processed", "ml_score", "rating"):
+        if self.order_by and self.order_by not in ("photo_creation", "created_at", "image_id", "processed", "ml_score", "rating"):
             self.order_by = None
 
     def apply_subqueries(
@@ -106,6 +106,8 @@ class QueryBuilder:
                 ImageMetadata.last_processed,
                 ImageMetadata.created_at
             )
+        elif self.order_by == "created_at":
+            order_by_date = ImageMetadata.created_at
         else:
             # Build date clause (coalesce capture_timestamp or modified_time)
             order_by_date = func.coalesce(

@@ -2,40 +2,117 @@ import { html } from 'lit';
 import { renderCuratePermatagSummary } from './curate-image-fragments.js';
 import { renderCurateRatingWidget, renderCurateRatingStatic } from './curate-rating-widgets.js';
 
-export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
+function renderCtaIcon(iconKey) {
+  if (iconKey === 'search') {
+    return html`
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"></circle>
+        <line x1="16" y1="16" x2="21" y2="21" stroke="currentColor" stroke-width="2" stroke-linecap="round"></line>
+      </svg>
+    `;
+  }
+  if (iconKey === 'curate') {
+    return html`
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3.2l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8z" fill="currentColor"></path>
+      </svg>
+    `;
+  }
   return html`
-    <div slot="home">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 8.2a2.2 2.2 0 0 1 2.2-2.2h4.1l1.9 2h5.8A2.2 2.2 0 0 1 20.2 10v7.8A2.2 2.2 0 0 1 18 20H6.2A2.2 2.2 0 0 1 4 17.8z" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+      <path d="M12 10.4v5.2M9.4 13h5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+    </svg>
+  `;
+}
+
+function renderCtaGlyph(glyphKey) {
+  if (glyphKey === 'search') {
+    return html`<span class="home-cta-glyph-char">S</span>`;
+  }
+  if (glyphKey === 'curate') {
+    return html`<span class="home-cta-glyph-char">C</span>`;
+  }
+  return html`<span class="home-cta-glyph-char">+</span>`;
+}
+
+export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
+  const ctaCards = [
+    {
+      key: 'search',
+      label: 'Search',
+      subtitle: 'Find photos fast with filters and natural-language queries.',
+      iconKey: 'search',
+      accentClass: 'home-cta-search',
+      glyphKey: 'search',
+    },
+    {
+      key: 'curate',
+      label: 'Curate',
+      subtitle: 'Categorize and rate items, organize lists.',
+      iconKey: 'curate',
+      accentClass: 'home-cta-curate',
+      glyphKey: 'curate',
+    },
+    {
+      key: 'library',
+      subTab: 'assets',
+      label: 'Library',
+      subtitle: 'Add photos, manage keywords',
+      iconKey: 'upload',
+      accentClass: 'home-cta-upload',
+      glyphKey: 'upload',
+    },
+  ].filter((card) => card.key !== 'curate' || host._canCurate());
+
+  const handleNavigate = (card) => {
+    host._handleHomeNavigate({
+      detail: {
+        tab: card.key,
+        subTab: card.subTab,
+      },
+    });
+  };
+
+  return html`
+    <div slot="home" class="home-tab-shell">
       <div class="container">
-        <div class="curate-subtabs">
-          <button
-            class="curate-subtab ${host.homeSubTab === 'overview' ? 'active' : ''}"
-            @click=${() => { host.homeSubTab = 'overview'; }}
-          >
-            Overview
-          </button>
-          <button
-            class="curate-subtab ${host.homeSubTab === 'insights' ? 'active' : ''}"
-            @click=${() => { host.homeSubTab = 'insights'; }}
-          >
-            Insights
-          </button>
+        <div class="home-cta-grid">
+          ${ctaCards.map((card) => html`
+            <button
+              type="button"
+              class="home-cta-card ${card.accentClass}"
+              @click=${() => handleNavigate(card)}
+            >
+              <div class="home-cta-backdrop" aria-hidden="true"></div>
+              <div class="home-cta-glyph" aria-hidden="true">
+                ${renderCtaGlyph(card.glyphKey)}
+              </div>
+              <div class="home-cta-icon-wrap" aria-hidden="true">
+                ${renderCtaIcon(card.iconKey)}
+              </div>
+              <div class="home-cta-content">
+                <div class="home-cta-title">${card.label}</div>
+                <div class="home-cta-subtitle">${card.subtitle}</div>
+              </div>
+              <div class="home-cta-arrow" aria-hidden="true">
+                <span class="home-cta-arrow-char">&#8594;</span>
+              </div>
+            </button>
+          `)}
         </div>
       </div>
-      ${host.homeSubTab === 'overview' ? html`
-        <home-tab
-          .imageStats=${host.imageStats}
-          .mlTrainingStats=${host.mlTrainingStats}
-          .navCards=${navCards}
-          @navigate=${host._handleHomeNavigate}
-        ></home-tab>
-      ` : html``}
-      ${host.homeSubTab === 'insights' ? html`
-        <home-insights-tab
-          .imageStats=${host.imageStats}
-          .mlTrainingStats=${host.mlTrainingStats}
-          .tagStatsBySource=${host.tagStatsBySource}
-          .keywords=${host.keywords}
-        ></home-insights-tab>
+      <home-insights-tab
+        .imageStats=${host.imageStats}
+        .keywords=${host.keywords}
+      ></home-insights-tab>
+      ${host.homeLoading ? html`
+        <div class="home-loading-overlay" aria-live="polite" aria-label="Refreshing home statistics">
+          <div class="home-loading-card">
+            <span class="curate-spinner xlarge" aria-hidden="true"></span>
+            <span class="home-loading-text">Refreshing tenant statistics...</span>
+          </div>
+        </div>
       ` : html``}
     </div>
   `;

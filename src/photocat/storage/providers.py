@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 import httpx
 
+from photocat.settings import settings
+
 
 @dataclass
 class ProviderEntry:
@@ -495,6 +497,60 @@ class GoogleDriveStorageProvider(StorageProvider):
         return access_token
 
 
+class ManagedStorageProvider(StorageProvider):
+    """PhotoCat-managed objects stored directly in tenant GCS bucket."""
+
+    provider_name = "managed"
+
+    def __init__(self, *, bucket_name: str, project_id: Optional[str] = None, client: Optional[Any] = None):
+        if not bucket_name:
+            raise ValueError("ManagedStorageProvider requires a storage bucket name")
+
+        if client is None:
+            from google.cloud import storage
+
+            client = storage.Client(project=project_id) if project_id else storage.Client()
+
+        self._bucket = client.bucket(bucket_name)
+
+    def list_image_entries(self, sync_folders: Optional[Sequence[str]] = None) -> list[ProviderEntry]:
+        _ = sync_folders
+        return []
+
+    def get_entry(self, source_key: str) -> ProviderEntry:
+        blob = self._bucket.blob(source_key)
+        blob.reload()
+        updated = blob.updated
+        if updated is not None and updated.tzinfo is not None:
+            updated = updated.astimezone(timezone.utc).replace(tzinfo=None)
+
+        return ProviderEntry(
+            provider=self.provider_name,
+            source_key=source_key,
+            file_id=str(blob.id) if blob.id is not None else None,
+            display_path=source_key,
+            name=source_key.rsplit("/", 1)[-1],
+            modified_time=updated,
+            size=int(blob.size) if blob.size is not None else None,
+            content_hash=blob.md5_hash,
+            revision=str(blob.generation) if blob.generation is not None else None,
+            mime_type=blob.content_type,
+        )
+
+    def get_media_metadata(self, source_key: str) -> ProviderMediaMetadata:
+        _ = source_key
+        return ProviderMediaMetadata(exif_overrides={}, provider_properties={})
+
+    def download_file(self, source_key: str) -> bytes:
+        blob = self._bucket.blob(source_key)
+        return blob.download_as_bytes()
+
+    def get_thumbnail(self, source_key: str, size: str = "w640h480") -> Optional[bytes]:
+        _ = source_key
+        _ = size
+        return None
+
+
 def create_storage_provider(
     provider_name: str,
     *,
@@ -533,6 +589,13 @@ def create_storage_provider(
             client_id=client_id,
             client_secret=client_secret,
             refresh_token=refresh_token,
+        )
+
+    if normalized in {"managed"}:
+        bucket_name = tenant.get_storage_bucket(settings)
+        return ManagedStorageProvider(
+            bucket_name=bucket_name,
+            project_id=settings.gcp_project_id,
         )
 
     raise ValueError(f"Unsupported storage provider: {provider_name}")

@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from photocat.dependencies import get_db
+from photocat.auth.dependencies import require_super_admin
 from photocat.metadata import Tenant as TenantModel
 
 router = APIRouter(
     prefix="/api/v1/admin/tenants",
-    tags=["admin-tenants"]
+    tags=["admin-tenants"],
+    dependencies=[Depends(require_super_admin)],
 )
 
 

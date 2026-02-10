@@ -73,6 +73,234 @@ export const photocatAppStyles = css`
         transform: translateY(-2px);
         box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
     }
+    .home-tab-shell {
+        position: relative;
+        min-height: 280px;
+    }
+    .home-loading-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.72);
+        z-index: 20;
+        pointer-events: auto;
+    }
+    .home-loading-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+        padding: 16px 20px;
+    }
+    .home-loading-text {
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+        letter-spacing: 0.2px;
+    }
+    .home-cta-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+        margin-top: 4px;
+    }
+    @media (min-width: 900px) {
+        .home-cta-grid {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+    .home-cta-card {
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid #dbe4f0;
+        padding: 18px 18px 18px 16px;
+        text-align: left;
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+        background: #ffffff;
+    }
+    .home-cta-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.1);
+    }
+    .home-cta-card:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+    }
+    .home-cta-backdrop {
+        position: absolute;
+        inset: 0;
+        opacity: 1;
+    }
+    .home-cta-search .home-cta-backdrop {
+        background:
+            radial-gradient(circle at 82% 24%, rgba(37, 99, 235, 0.15), transparent 54%),
+            linear-gradient(140deg, #f8fbff 0%, #eef6ff 48%, #f4f9ff 100%);
+    }
+    .home-cta-curate .home-cta-backdrop {
+        background:
+            radial-gradient(circle at 78% 24%, rgba(8, 145, 178, 0.16), transparent 52%),
+            linear-gradient(140deg, #f5fcfb 0%, #ecfbf8 54%, #f4fcff 100%);
+    }
+    .home-cta-upload .home-cta-backdrop {
+        background:
+            radial-gradient(circle at 80% 24%, rgba(245, 158, 11, 0.2), transparent 54%),
+            linear-gradient(140deg, #fff9ef 0%, #fff5de 52%, #fff8e8 100%);
+    }
+    .home-cta-glyph {
+        position: absolute;
+        right: 12px;
+        top: 10px;
+        z-index: 1;
+        color: rgba(148, 163, 184, 0.2);
+        pointer-events: none;
+        transform: rotate(-7deg);
+    }
+    .home-cta-glyph-char {
+        font-size: 36px;
+        font-weight: 800;
+        line-height: 1;
+        display: inline-block;
+    }
+    .home-cta-search .home-cta-glyph {
+        color: rgba(59, 130, 246, 0.22);
+    }
+    .home-cta-curate .home-cta-glyph {
+        color: rgba(20, 184, 166, 0.22);
+    }
+    .home-cta-upload .home-cta-glyph {
+        color: rgba(245, 158, 11, 0.24);
+    }
+    .home-cta-icon-wrap {
+        position: relative;
+        z-index: 1;
+        width: 52px;
+        height: 52px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 22px;
+        color: #1d4ed8;
+        border: 1px solid rgba(37, 99, 235, 0.22);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.14);
+    }
+    .home-cta-icon-wrap svg {
+        width: 25px;
+        height: 25px;
+        display: block;
+    }
+    .home-cta-curate .home-cta-icon-wrap {
+        color: #0f766e;
+        border-color: rgba(15, 118, 110, 0.24);
+        box-shadow: 0 4px 12px rgba(15, 118, 110, 0.14);
+    }
+    .home-cta-upload .home-cta-icon-wrap {
+        color: #b45309;
+        border-color: rgba(180, 83, 9, 0.24);
+        box-shadow: 0 4px 12px rgba(180, 83, 9, 0.14);
+    }
+    .home-cta-content {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        min-width: 0;
+    }
+    .home-cta-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        color: #0f172a;
+        line-height: 1.1;
+    }
+    .home-cta-subtitle {
+        margin-top: 6px;
+        font-size: 0.94rem;
+        color: #475569;
+        line-height: 1.35;
+    }
+    .home-cta-arrow {
+        position: relative;
+        z-index: 1;
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #1e40af;
+        background: rgba(255, 255, 255, 0.86);
+        border: 1px solid rgba(30, 64, 175, 0.2);
+        font-size: 15px;
+    }
+    .home-cta-arrow-char {
+        font-weight: 700;
+        line-height: 1;
+    }
+    .home-cta-curate .home-cta-arrow {
+        color: #0f766e;
+        border-color: rgba(15, 118, 110, 0.25);
+    }
+    .home-cta-upload .home-cta-arrow {
+        color: #b45309;
+        border-color: rgba(180, 83, 9, 0.28);
+    }
+    .home-loading-bar {
+        width: 100%;
+        height: 6px;
+        background: #e5e7eb;
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+        margin: 12px 0 20px;
+    }
+    .home-loading-bar::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #60a5fa, #2563eb);
+        animation: home-progress 25s linear infinite;
+    }
+    @keyframes home-progress {
+        from { width: 0%; }
+        to { width: 100%; }
+    }
+    .home-insights-large .prop-section-title {
+        font-size: 12px;
+        padding: 10px 12px;
+    }
+    .home-insights-large .prop-row {
+        font-size: 14px;
+        padding: 9px 12px;
+    }
+    .home-insights-large .prop-key {
+        font-size: 15px;
+    }
+    .home-insights-large .prop-value {
+        font-size: 15px;
+    }
+    .home-insights-large .prop-content {
+        padding: 12px;
+    }
+    .home-insights-large .prop-content .text-[10px] {
+        font-size: 11px;
+    }
+    .home-insights-large .prop-content .text-xs {
+        font-size: 13px;
+    }
     .curate-subtabs {
         display: inline-flex;
         gap: 6px;

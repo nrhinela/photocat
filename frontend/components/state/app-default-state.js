@@ -6,6 +6,8 @@ export function initializeAppDefaultState(host) {
   host.queueNotice = null;
   host._queueNoticeTimer = null;
   host._unsubscribeQueue = null;
+  host.homeLoading = false;
+  host._homeLoadingCount = 0;
   host.imageStats = null;
   host.mlTrainingStats = null;
   host.tagStatsBySource = {};

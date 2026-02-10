@@ -1,6 +1,4 @@
 import { html } from 'lit';
-import { renderCuratePermatagSummary } from './curate-image-fragments.js';
-import { renderCurateRatingWidget, renderCurateRatingStatic } from './curate-rating-widgets.js';
 
 export function renderRatingModal(host) {
   if (!host._curateRatingModalActive) {
@@ -38,42 +36,64 @@ export function renderRatingModal(host) {
 }
 
 export function renderAuxTabContent(host, { formatCurateDate, formatQueueItem, retryFailedCommand }) {
-  return html`
-    ${host.activeTab === 'lists' ? html`
-      <div slot="lists" class="container p-4">
-        <list-editor
-          .tenant=${host.tenant}
-          .thumbSize=${host.curateThumbSize}
-          .renderCurateRatingWidget=${(image) => renderCurateRatingWidget(host, image)}
-          .renderCurateRatingStatic=${renderCurateRatingStatic}
-          .renderCuratePermatagSummary=${renderCuratePermatagSummary}
-          .formatCurateDate=${formatCurateDate}
-          @image-selected=${(e) => host._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
-        ></list-editor>
-      </div>
-    ` : html``}
+  const libraryTabActive = host.activeTab === 'library' || host.activeTab === 'lists' || host.activeTab === 'admin';
+  const rawLibrarySubTab = host.activeLibrarySubTab
+    || (host.activeTab === 'admin' ? 'keywords' : 'assets');
+  const librarySubTab = rawLibrarySubTab === 'keywords' || rawLibrarySubTab === 'assets'
+    ? rawLibrarySubTab
+    : 'assets';
 
-    ${host.activeTab === 'admin' ? html`
-      <div slot="admin" class="container p-4">
+  return html`
+    ${libraryTabActive ? html`
+      <div slot="library" class="container">
         <div class="admin-subtabs">
           <button
-            class="admin-subtab ${host.activeAdminSubTab === 'tagging' ? 'active' : ''}"
-            @click=${() => host.activeAdminSubTab = 'tagging'}
+            class="admin-subtab ${librarySubTab === 'assets' ? 'active' : ''}"
+            @click=${() => host.activeLibrarySubTab = 'assets'}
           >
-            <i class="fas fa-tags mr-2"></i>Tagging
+            <i class="fas fa-images mr-2"></i>Assets
           </button>
           <button
-            class="admin-subtab ${host.activeAdminSubTab === 'people' ? 'active' : ''}"
-            @click=${() => host.activeAdminSubTab = 'people'}
+            class="admin-subtab ${librarySubTab === 'keywords' ? 'active' : ''}"
+            @click=${() => host.activeLibrarySubTab = 'keywords'}
           >
-            <i class="fas fa-users mr-2"></i>People
+            <i class="fas fa-tags mr-2"></i>Keywords
           </button>
         </div>
-        ${host.activeAdminSubTab === 'tagging' ? html`
-          <tagging-admin .tenant=${host.tenant} @open-upload-modal=${host._handleOpenUploadModal}></tagging-admin>
+        ${librarySubTab === 'assets' ? html`
+          <assets-admin
+            .tenant=${host.tenant}
+            .refreshToken=${host.assetsRefreshToken}
+            @open-library-upload-modal=${host._handleOpenUploadLibraryModal}
+            @image-selected=${(e) => host._handleCurateImageClick(null, e.detail.image, e.detail.imageSet)}
+          ></assets-admin>
         ` : html``}
-        ${host.activeAdminSubTab === 'people' ? html`
-          <person-manager .tenant=${host.tenant}></person-manager>
+        ${librarySubTab === 'keywords' ? html`
+          <div class="mt-2">
+            <div class="admin-subtabs">
+              <button
+                class="admin-subtab ${host.activeAdminSubTab === 'tagging' ? 'active' : ''}"
+                @click=${() => host.activeAdminSubTab = 'tagging'}
+              >
+                <i class="fas fa-tags mr-2"></i>Tagging
+              </button>
+              <button
+                class="admin-subtab ${host.activeAdminSubTab === 'people' ? 'active' : ''}"
+                @click=${() => host.activeAdminSubTab = 'people'}
+              >
+                <i class="fas fa-users mr-2"></i>People
+              </button>
+            </div>
+          </div>
+          ${host.activeAdminSubTab === 'tagging' ? html`
+            <tagging-admin
+              .tenant=${host.tenant}
+              @open-upload-modal=${host._handleOpenUploadModal}
+            ></tagging-admin>
+          ` : html``}
+          ${host.activeAdminSubTab === 'people' ? html`
+            <person-manager .tenant=${host.tenant}></person-manager>
+          ` : html``}
         ` : html``}
       </div>
     ` : html``}
@@ -86,44 +106,16 @@ export function renderAuxTabContent(host, { formatCurateDate, formatQueueItem, r
 
     ${host.activeTab === 'tagging' ? html`
       <div slot="tagging" class="container p-4">
-        <tagging-admin .tenant=${host.tenant} @open-upload-modal=${host._handleOpenUploadModal}></tagging-admin>
+        <tagging-admin
+          .tenant=${host.tenant}
+          @open-upload-modal=${host._handleOpenUploadModal}
+        ></tagging-admin>
       </div>
     ` : html``}
 
     ${host.activeTab === 'system' ? html`
       <div slot="system" class="container p-4">
-        <div class="system-subtabs">
-          <button
-            class="system-subtab ${host.activeSystemSubTab === 'ml-training' ? 'active' : ''}"
-            @click=${() => host.activeSystemSubTab = 'ml-training'}
-          >
-            <i class="fas fa-brain mr-2"></i>Pipeline
-          </button>
-          <button
-            class="system-subtab ${host.activeSystemSubTab === 'cli' ? 'active' : ''}"
-            @click=${() => host.activeSystemSubTab = 'cli'}
-          >
-            <i class="fas fa-terminal mr-2"></i>CLI
-          </button>
-        </div>
-        ${host.activeSystemSubTab === 'ml-training' ? html`
-          <ml-training
-            .tenant=${host.tenant}
-            @open-image-editor=${host._handlePipelineOpenImage}
-          ></ml-training>
-        ` : html``}
-        ${host.activeSystemSubTab === 'cli' ? html`
-          <cli-commands></cli-commands>
-        ` : html``}
-      </div>
-    ` : html``}
-
-    ${host.activeTab === 'ml-training' ? html`
-      <div slot="ml-training" class="container p-4">
-        <ml-training
-          .tenant=${host.tenant}
-          @open-image-editor=${host._handlePipelineOpenImage}
-        ></ml-training>
+        <cli-commands></cli-commands>
       </div>
     ` : html``}
 
@@ -211,6 +203,14 @@ export function renderGlobalOverlays(host, { canCurate }) {
         @upload-complete=${host._handleUploadComplete}
         active
       ></upload-modal>
+    ` : html``}
+    ${host.showUploadLibraryModal ? html`
+      <upload-library-modal
+        .tenant=${host.tenant}
+        @close=${host._handleCloseUploadLibraryModal}
+        @upload-complete=${host._handleUploadLibraryComplete}
+        active
+      ></upload-library-modal>
     ` : html``}
     ${host.curateEditorImage ? html`
       <image-editor

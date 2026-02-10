@@ -5,7 +5,7 @@ import { formatStatNumber } from './shared/formatting.js';
  * Home Tab Component
  *
  * Dashboard view showing:
- * - Image statistics (total, reviewed, zero-shot, keyword-model)
+ * - Image statistics (total, reviewed)
  * - Navigation cards to main features
  *
  * @fires navigate - When a navigation card is clicked
@@ -18,14 +18,12 @@ export class HomeTab extends LitElement {
 
   static properties = {
     imageStats: { type: Object },
-    mlTrainingStats: { type: Object },
     navCards: { type: Array },
   };
 
   constructor() {
     super();
     this.imageStats = null;
-    this.mlTrainingStats = null;
     this.navCards = [];
   }
 
@@ -40,8 +38,6 @@ export class HomeTab extends LitElement {
   render() {
     const imageCount = formatStatNumber(this.imageStats?.image_count);
     const reviewedCount = formatStatNumber(this.imageStats?.reviewed_image_count);
-    const mlTagCount = formatStatNumber(this.imageStats?.ml_tag_count);
-    const trainedTagCount = formatStatNumber(this.mlTrainingStats?.trained_image_count);
 
     return html`
       <div slot="home" class="container">
@@ -53,14 +49,6 @@ export class HomeTab extends LitElement {
           <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
             <div class="text-xs text-gray-500 uppercase">Reviewed</div>
             <div class="text-2xl font-semibold text-gray-900">${reviewedCount}</div>
-          </div>
-          <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-            <div class="text-xs text-gray-500 uppercase">Zero-Shot</div>
-            <div class="text-2xl font-semibold text-gray-900">${mlTagCount}</div>
-          </div>
-          <div class="flex-1 min-w-[200px] border border-gray-200 rounded-lg p-3 bg-white shadow">
-            <div class="text-xs text-gray-500 uppercase">Keyword-Model</div>
-            <div class="text-2xl font-semibold text-gray-900">${trainedTagCount}</div>
           </div>
         </div>
         <div class="home-nav-grid">

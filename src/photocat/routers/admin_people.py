@@ -3,15 +3,17 @@
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from photocat.dependencies import get_db
+from photocat.auth.dependencies import require_super_admin
 from photocat.metadata import Person
 
 router = APIRouter(
     prefix="/api/v1/admin/people",
-    tags=["admin-people"]
+    tags=["admin-people"],
+    dependencies=[Depends(require_super_admin)],
 )
 
 

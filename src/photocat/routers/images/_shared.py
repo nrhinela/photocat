@@ -149,6 +149,34 @@ def _resolve_provider_ref(storage_info, image: ImageMetadata) -> tuple[str, Opti
     return provider_name, None
 
 
+def _build_source_url(storage_info, tenant: Tenant, image: Optional[ImageMetadata] = None) -> Optional[str]:
+    """Build a best-effort browser URL for the original source object."""
+    provider_name, source_ref = _resolve_provider_ref(storage_info, image)
+    if not source_ref:
+        return None
+
+    if provider_name == "dropbox":
+        # Dropbox home links require path-based refs; file IDs do not map cleanly.
+        if source_ref.startswith("id:"):
+            return None
+        normalized_path = source_ref if source_ref.startswith("/") else f"/{source_ref}"
+        return f"https://www.dropbox.com/home{quote(normalized_path, safe='/')}"
+
+    if provider_name in {"managed", "local"}:
+        bucket = tenant.get_storage_bucket(settings)
+        return f"https://storage.googleapis.com/{bucket}/{quote(source_ref, safe='/')}"
+
+    if provider_name in {"gdrive", "google-drive", "google_drive", "drive"}:
+        if source_ref.startswith(("http://", "https://")):
+            return source_ref
+        return f"https://drive.google.com/file/d/{quote(source_ref, safe='')}/view"
+
+    if source_ref.startswith(("http://", "https://")):
+        return source_ref
+
+    return None
+
+
 def _extract_dropbox_tag_text(tag_obj) -> Optional[str]:
     """Best-effort extraction of a Dropbox tag string from SDK objects."""
     if tag_obj is None:

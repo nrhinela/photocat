@@ -130,8 +130,6 @@ class ImageMetadata(Base):
     rating = Column(Integer, nullable=True)
     
     # Relationships
-    tags = relationship("ImageTag", back_populates="image", cascade="all, delete-orphan")
-    trained_tags = relationship("TrainedImageTag", back_populates="image", cascade="all, delete-orphan")
     faces = relationship("DetectedFace", back_populates="image", cascade="all, delete-orphan")
     
     # Indexes for common queries
@@ -141,31 +139,6 @@ class ImageMetadata(Base):
         Index("idx_tenant_location", "tenant_id", "gps_latitude", "gps_longitude"),
         Index("idx_image_metadata_tenant_rating", "tenant_id", "rating"),
         Index("uq_image_metadata_asset_id", "asset_id", unique=True),
-    )
-
-
-class ImageTag(Base):
-    """Tags applied to images from controlled vocabulary."""
-
-    __tablename__ = "image_tags"
-
-    id = Column(Integer, primary_key=True)
-    image_id = Column(Integer, ForeignKey("image_metadata.id"), nullable=False)
-    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
-    keyword_id = Column(Integer, nullable=False, index=True)
-
-    confidence = Column(Float)  # If auto-tagged
-    manual = Column(Boolean, default=False)  # User-applied vs AI
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    image = relationship("ImageMetadata", back_populates="tags")
-    # Note: keyword relationship not defined to avoid cross-module coupling
-    # Use: db.query(Keyword).filter(Keyword.id == image_tag.keyword_id)
-
-    __table_args__ = (
-        Index("idx_image_tags_keyword_id", "keyword_id"),
     )
 
 
@@ -295,32 +268,6 @@ class KeywordModel(Base):
 # for relationships. The models/config.py definitions should inherit from Base
 # defined in this module. This is a forward reference that gets resolved at runtime.
 # The foreign key relationship is automatically created via the migration layer.
-
-
-class TrainedImageTag(Base):
-    """Cache trained-ML tag outputs per image."""
-
-    __tablename__ = "trained_image_tags"
-
-    id = Column(Integer, primary_key=True)
-    image_id = Column(Integer, ForeignKey("image_metadata.id", ondelete="CASCADE"), nullable=False)
-    # Note: keyword_id FK not declared here (keywords table is in different declarative base)
-    keyword_id = Column(Integer, nullable=False, index=True)
-
-    confidence = Column(Float)
-    model_name = Column(String(100))
-    model_version = Column(String(50))
-
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-    # Relationships
-    image = relationship("ImageMetadata", back_populates="trained_tags")
-    # Note: keyword relationship not defined to avoid cross-module coupling
-    # Use: db.query(Keyword).filter(Keyword.id == trained_tag.keyword_id)
-
-    __table_args__ = (
-        Index("idx_trained_tags_image_keyword_model", "image_id", "keyword_id", "model_name", unique=True),
-    )
 
 
 class MachineTag(Base):

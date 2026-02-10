@@ -1,25 +1,41 @@
 """Tagging endpoints: upload, analyze, retag single, retag all."""
 
 import base64
+import hashlib
+import mimetypes
 import traceback
+from datetime import datetime
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from sqlalchemy.orm import Session
 from google.cloud import storage
+from uuid import uuid4
 
+from photocat.auth.dependencies import require_tenant_role_from_header
+from photocat.auth.models import UserProfile
 from photocat.asset_helpers import AssetReadinessError, load_assets_for_images, resolve_image_storage
 from photocat.dependencies import get_db, get_tenant
+from photocat.exif import (
+    get_exif_value,
+    parse_exif_datetime,
+    parse_exif_float,
+    parse_exif_int,
+    parse_exif_str,
+)
 from photocat.tenant import Tenant
-from photocat.metadata import ImageMetadata, MachineTag
+from photocat.metadata import Asset, ImageMetadata, MachineTag
 from photocat.models.config import Keyword
 from photocat.settings import settings
 from photocat.image import ImageProcessor
 from photocat.config.db_config import ConfigManager
 from photocat.tagging import get_tagger
-from photocat.learning import score_keywords_for_categories
+from photocat.learning import ensure_image_embedding, score_keywords_for_categories
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
+
+PHASE1_MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+PHASE1_ALLOWED_DEDUP_POLICIES = {"keep_both", "skip_duplicate"}
 
 
 def _resolve_storage_or_409(
@@ -132,6 +148,204 @@ async def upload_images(
         "uploaded": len([r for r in results if r["status"] == "success"]),
         "failed": len([r for r in results if r["status"] == "error"]),
         "results": results
+    }
+
+
+@router.post("/images/upload-and-ingest", response_model=dict, operation_id="upload_and_ingest_image")
+async def upload_and_ingest_image(
+    file: UploadFile = File(...),
+    dedup_policy: str = Query("keep_both", description="Dedup policy: keep_both or skip_duplicate"),
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(require_tenant_role_from_header("user")),
+):
+    """Upload one image, persist original + thumbnail, and create Asset/ImageMetadata rows."""
+    policy = (dedup_policy or "keep_both").strip().lower()
+    if policy not in PHASE1_ALLOWED_DEDUP_POLICIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported dedup policy '{dedup_policy}'. Allowed: keep_both, skip_duplicate.",
+        )
+
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Missing filename.")
+
+    processor = ImageProcessor(thumbnail_size=(settings.thumbnail_size, settings.thumbnail_size))
+    if not processor.is_supported(filename):
+        raise HTTPException(status_code=400, detail="Unsupported file format.")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(file_bytes) > PHASE1_MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds Phase 1 upload limit ({PHASE1_MAX_UPLOAD_BYTES // (1024 * 1024)} MB).",
+        )
+
+    # Header-level validation: reject non-image bytes even if extension/mime are spoofed.
+    try:
+        probe = processor.load_image(file_bytes)
+        probe.verify()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Uploaded file content is not a valid image.")
+
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    if policy == "skip_duplicate":
+        existing = (
+            db.query(ImageMetadata)
+            .filter(
+                ImageMetadata.tenant_id == tenant.id,
+                ImageMetadata.content_hash == content_hash,
+            )
+            .order_by(ImageMetadata.id.asc())
+            .first()
+        )
+        if existing:
+            return {
+                "status": "skipped_duplicate",
+                "tenant_id": tenant.id,
+                "dedup_policy": policy,
+                "image_id": existing.id,
+                "filename": existing.filename,
+            }
+
+    guessed_content_type = mimetypes.guess_type(filename)[0]
+    content_type = (file.content_type or guessed_content_type or "application/octet-stream").strip()
+
+    storage_client = storage.Client(project=settings.gcp_project_id)
+    storage_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+    thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+
+    asset_id = uuid4()
+    source_key = tenant.get_asset_source_key(str(asset_id), filename)
+    thumbnail_key = tenant.get_asset_thumbnail_key(str(asset_id), "default-256.jpg")
+    source_blob = storage_bucket.blob(source_key)
+    thumbnail_blob = thumbnail_bucket.blob(thumbnail_key)
+
+    source_uploaded = False
+    thumbnail_uploaded = False
+    try:
+        source_blob.upload_from_string(file_bytes, content_type=content_type)
+        source_uploaded = True
+
+        features = processor.extract_features(file_bytes)
+        tagger = get_tagger(model_type=settings.tagging_model)
+        model_name = getattr(tagger, "model_name", settings.tagging_model)
+        model_version = getattr(tagger, "model_version", model_name)
+        exif = features.get("exif", {}) or {}
+
+        thumbnail_blob.cache_control = "public, max-age=31536000, immutable"
+        thumbnail_blob.upload_from_string(features["thumbnail"], content_type="image/jpeg")
+        thumbnail_uploaded = True
+
+        capture_timestamp = parse_exif_datetime(get_exif_value(exif, "DateTimeOriginal", "DateTime"))
+        gps_latitude = parse_exif_float(get_exif_value(exif, "GPSLatitude"))
+        gps_longitude = parse_exif_float(get_exif_value(exif, "GPSLongitude"))
+        iso = parse_exif_int(get_exif_value(exif, "ISOSpeedRatings", "ISOSpeed", "ISO"))
+        aperture = parse_exif_float(get_exif_value(exif, "FNumber", "ApertureValue"))
+        shutter_speed = parse_exif_str(get_exif_value(exif, "ExposureTime", "ShutterSpeedValue"))
+        focal_length = parse_exif_float(get_exif_value(exif, "FocalLength"))
+        camera_make = parse_exif_str(get_exif_value(exif, "Make"))
+        camera_model = parse_exif_str(get_exif_value(exif, "Model"))
+        lens_model = parse_exif_str(get_exif_value(exif, "LensModel", "Lens"))
+
+        mime_type = guessed_content_type
+        if not mime_type and features.get("format"):
+            mime_type = f"image/{str(features.get('format')).lower()}"
+
+        asset = Asset(
+            id=asset_id,
+            tenant_id=tenant.id,
+            filename=filename,
+            source_provider="managed",
+            source_key=source_key,
+            source_rev=str(source_blob.generation) if source_blob.generation is not None else None,
+            thumbnail_key=thumbnail_key,
+            mime_type=mime_type,
+            width=features.get("width"),
+            height=features.get("height"),
+            duration_ms=None,
+            created_by=current_user.supabase_uid,
+        )
+        db.add(asset)
+
+        metadata = ImageMetadata(
+            asset_id=asset.id,
+            tenant_id=tenant.id,
+            filename=filename,
+            file_size=len(file_bytes),
+            content_hash=content_hash,
+            modified_time=datetime.utcnow(),
+            width=features.get("width"),
+            height=features.get("height"),
+            format=features.get("format"),
+            perceptual_hash=features.get("perceptual_hash"),
+            color_histogram=features.get("color_histogram"),
+            exif_data=exif,
+            camera_make=camera_make,
+            camera_model=camera_model,
+            lens_model=lens_model,
+            iso=iso,
+            aperture=aperture,
+            shutter_speed=shutter_speed,
+            focal_length=focal_length,
+            capture_timestamp=capture_timestamp,
+            gps_latitude=gps_latitude,
+            gps_longitude=gps_longitude,
+            embedding_generated=False,
+            faces_detected=False,
+            tags_applied=False,
+            dropbox_properties=None,
+        )
+        if settings.asset_write_legacy_fields and hasattr(ImageMetadata, "thumbnail_path"):
+            setattr(metadata, "thumbnail_path", thumbnail_key)
+        db.add(metadata)
+        db.flush()
+
+        # Create embedding at ingest time so duplicate detection and ML workflows
+        # can use newly uploaded assets immediately.
+        ensure_image_embedding(
+            db=db,
+            tenant_id=tenant.id,
+            image_id=metadata.id,
+            image_data=features["thumbnail"],
+            model_name=model_name,
+            model_version=model_version,
+            asset_id=asset.id,
+        )
+
+        db.commit()
+        db.refresh(metadata)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        if thumbnail_uploaded:
+            try:
+                thumbnail_blob.delete()
+            except Exception:
+                pass
+        if source_uploaded:
+            try:
+                source_blob.delete()
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to upload and ingest image: {exc}")
+
+    return {
+        "status": "processed",
+        "tenant_id": tenant.id,
+        "dedup_policy": policy,
+        "image_id": metadata.id,
+        "asset_id": str(asset.id),
+        "filename": filename,
+        "source_provider": asset.source_provider,
+        "source_key": asset.source_key,
+        "thumbnail_key": asset.thumbnail_key,
+        "thumbnail_url": tenant.get_thumbnail_url(settings, asset.thumbnail_key),
     }
 
 
