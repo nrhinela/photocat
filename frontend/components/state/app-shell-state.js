@@ -77,14 +77,32 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleTabChange(event) {
-    this.setActiveTab(event.detail);
+    const detail = event?.detail;
+    if (detail && typeof detail === 'object') {
+      const tab = detail.tab;
+      const subTab = detail.subTab;
+      const adminSubTab = detail.adminSubTab;
+      if (tab === 'library' && subTab) {
+        this.host.activeLibrarySubTab = subTab;
+      }
+      if (tab === 'library' && subTab === 'keywords' && adminSubTab) {
+        this.host.activeAdminSubTab = adminSubTab;
+      }
+      this.setActiveTab(tab);
+      return;
+    }
+    this.setActiveTab(detail);
   }
 
   handleHomeNavigate(event) {
     const tab = event?.detail?.tab;
     const subTab = event?.detail?.subTab;
+    const adminSubTab = event?.detail?.adminSubTab;
     if (tab === 'library' && subTab) {
       this.host.activeLibrarySubTab = subTab;
+    }
+    if (tab === 'library' && subTab === 'keywords' && adminSubTab) {
+      this.host.activeAdminSubTab = adminSubTab;
     }
     if (tab === 'curate' && subTab) {
       this.host.curateSubTab = subTab;

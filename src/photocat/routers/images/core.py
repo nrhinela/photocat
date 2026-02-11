@@ -4,7 +4,7 @@ import json
 from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, distinct, and_, case, cast, Text
+from sqlalchemy import func, distinct, and_, case, cast, Text, literal
 from sqlalchemy.orm import Session, load_only
 from google.cloud import storage
 
@@ -662,52 +662,76 @@ async def list_duplicate_images(
     include_total: bool = False,
     db: Session = Depends(get_db),
 ):
-    """List assets whose embedding value appears more than once."""
+    """List duplicate assets using embedding hash (preferred) or content hash fallback."""
     date_order = (date_order or "desc").lower()
     if date_order not in ("asc", "desc"):
         date_order = "desc"
 
-    embedding_hash_expr = func.md5(cast(ImageEmbedding.embedding, Text))
-    duplicate_groups = db.query(
-        embedding_hash_expr.label("embedding_hash"),
-        func.count(ImageEmbedding.id).label("duplicate_count"),
-    ).filter(
-        ImageEmbedding.tenant_id == tenant.id,
-        ImageEmbedding.asset_id.is_not(None),
-    ).group_by(
-        embedding_hash_expr,
-    ).having(
-        func.count(ImageEmbedding.id) > 1,
-    ).subquery()
+    embedding_key_expr = case(
+        (
+            ImageEmbedding.id.is_not(None),
+            cast(literal("emb:"), Text) + func.md5(cast(ImageEmbedding.embedding, Text)),
+        ),
+        else_=None,
+    )
+    content_hash_key_expr = case(
+        (
+            ImageMetadata.content_hash.is_not(None),
+            cast(literal("sha:"), Text) + ImageMetadata.content_hash,
+        ),
+        else_=None,
+    )
+    # Prefer content hash so duplicate grouping matches upload dedup behavior.
+    # Fall back to embedding hash only when content hash is unavailable.
+    duplicate_key_expr = func.coalesce(content_hash_key_expr, embedding_key_expr)
 
-    base_query = db.query(
+    image_keys = db.query(
         ImageMetadata.id.label("image_id"),
-        duplicate_groups.c.embedding_hash.label("embedding_hash"),
-        duplicate_groups.c.duplicate_count.label("duplicate_count"),
-    ).join(
+        ImageMetadata.filename.label("filename"),
+        ImageMetadata.created_at.label("created_at"),
+        duplicate_key_expr.label("duplicate_key"),
+    ).outerjoin(
         ImageEmbedding,
         and_(
             ImageEmbedding.asset_id == ImageMetadata.asset_id,
             ImageEmbedding.tenant_id == tenant.id,
             ImageEmbedding.asset_id.is_not(None),
         ),
-    ).join(
-        duplicate_groups,
-        embedding_hash_expr == duplicate_groups.c.embedding_hash,
     ).filter(
         ImageMetadata.tenant_id == tenant.id,
+    ).subquery()
+
+    duplicate_groups = db.query(
+        image_keys.c.duplicate_key.label("duplicate_key"),
+        func.count(image_keys.c.image_id).label("duplicate_count"),
+    ).filter(
+        image_keys.c.duplicate_key.is_not(None),
+    ).group_by(
+        image_keys.c.duplicate_key,
+    ).having(
+        func.count(image_keys.c.image_id) > 1,
+    ).subquery()
+
+    base_query = db.query(
+        image_keys.c.image_id.label("image_id"),
+        duplicate_groups.c.duplicate_key.label("duplicate_key"),
+        duplicate_groups.c.duplicate_count.label("duplicate_count"),
+        image_keys.c.created_at.label("created_at"),
+    ).join(
+        duplicate_groups,
+        image_keys.c.duplicate_key == duplicate_groups.c.duplicate_key,
     )
     if filename_query:
         filename_pattern = f"%{filename_query.strip()}%"
         if filename_pattern != "%%":
-            base_query = base_query.filter(ImageMetadata.filename.ilike(filename_pattern))
+            base_query = base_query.filter(image_keys.c.filename.ilike(filename_pattern))
 
-    created_order = ImageMetadata.created_at.desc() if date_order == "desc" else ImageMetadata.created_at.asc()
-    id_order = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
+    created_order = image_keys.c.created_at.desc() if date_order == "desc" else image_keys.c.created_at.asc()
+    id_order = image_keys.c.image_id.desc() if date_order == "desc" else image_keys.c.image_id.asc()
     requested_limit = max(1, int(limit or 100))
     rows = base_query.order_by(
         duplicate_groups.c.duplicate_count.desc(),
-        duplicate_groups.c.embedding_hash.asc(),
+        duplicate_groups.c.duplicate_key.asc(),
         created_order,
         id_order,
     ).limit(requested_limit + 1).offset(offset).all()
@@ -731,7 +755,7 @@ async def list_duplicate_images(
     asset_ids = list(asset_id_to_image_id.keys())
     duplicate_meta_by_image_id = {
         row.image_id: {
-            "embedding_hash": row.embedding_hash,
+            "duplicate_key": row.duplicate_key,
             "duplicate_count": int(row.duplicate_count or 0),
         }
         for row in rows
@@ -782,6 +806,8 @@ async def list_duplicate_images(
         )
         dup_meta = duplicate_meta_by_image_id.get(img.id, {})
         image_permatags = permatags_by_image.get(img.id, [])
+        duplicate_key = dup_meta.get("duplicate_key")
+        duplicate_basis = "embedding" if (duplicate_key or "").startswith("emb:") else "content_hash"
         images_list.append({
             "id": img.id,
             "asset_id": storage_info.asset_id,
@@ -800,8 +826,9 @@ async def list_duplicate_images(
             "thumbnail_url": storage_info.thumbnail_url,
             "rating": img.rating,
             "permatags": image_permatags,
-            "duplicate_group": dup_meta.get("embedding_hash"),
+            "duplicate_group": duplicate_key,
             "duplicate_count": dup_meta.get("duplicate_count", 0),
+            "duplicate_basis": duplicate_basis,
         })
 
     return {

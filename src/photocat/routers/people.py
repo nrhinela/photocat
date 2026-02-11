@@ -8,29 +8,40 @@ from pydantic import BaseModel, Field
 
 from photocat.dependencies import get_db, get_tenant
 from photocat.tenant import Tenant
-from photocat.metadata import Person, MachineTag
+from photocat.metadata import Person, Permatag
 from photocat.models.config import Keyword, KeywordCategory
 
 router = APIRouter(prefix="/api/v1/people", tags=["people"])
 
-PERSON_MACHINE_TAG_TYPES = ("manual_person", "person")
-
-
 def _get_person_keyword(db: Session, tenant_id: str, person_id: int) -> Optional[Keyword]:
-    """Resolve the canonical keyword row backing a person tag."""
-    return db.query(Keyword).filter(
+    """Resolve the canonical keyword row backing a person tag.
+
+    Prefer tag_type='person' rows, but fall back to any keyword linked to the
+    person to support legacy data.
+    """
+    keyword = db.query(Keyword).filter(
         Keyword.tenant_id == tenant_id,
         Keyword.person_id == person_id,
         Keyword.tag_type == "person",
     ).first()
+    if keyword:
+        return keyword
+
+    return db.query(Keyword).filter(
+        Keyword.tenant_id == tenant_id,
+        Keyword.person_id == person_id,
+    ).order_by(Keyword.id.asc()).first()
 
 
 def _count_person_tagged_images(db: Session, tenant_id: str, keyword_id: int) -> int:
-    """Count distinct assets tagged for this person within tenant scope."""
-    count = db.query(func.count(distinct(MachineTag.asset_id))).filter(
-        MachineTag.tenant_id == tenant_id,
-        MachineTag.keyword_id == keyword_id,
-        MachineTag.tag_type.in_(PERSON_MACHINE_TAG_TYPES),
+    """Count distinct assets tagged for this person within tenant scope.
+
+    Counts only positive permatags attached to the person's keyword.
+    """
+    count = db.query(func.count(distinct(Permatag.asset_id))).filter(
+        Permatag.tenant_id == tenant_id,
+        Permatag.keyword_id == keyword_id,
+        Permatag.signum == 1,
     ).scalar()
     return int(count or 0)
 

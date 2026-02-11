@@ -302,7 +302,7 @@ class TaggingAdmin extends LitElement {
       } else {
         const name = this.dialog.personName?.trim() || '';
         if (!name) {
-          this.error = 'Person name is required when linking a person.';
+          this.error = 'Person / company name is required when linking a person or company.';
           return;
         }
         const instagramUrl = (this.dialog.personInstagramUrl || '').trim();
@@ -522,7 +522,7 @@ class TaggingAdmin extends LitElement {
               `}
               ${this.dialog.isPeopleCategory ? html`
                 <div class="border-t border-gray-100 pt-4 mt-2 mb-6">
-                  <label class="block text-sm font-semibold text-gray-700 mb-2">Linked Person</label>
+                  <label class="block text-sm font-semibold text-gray-700 mb-2">Linked Person / Company</label>
                   <select
                     class="w-full border rounded-lg px-3 py-2 mb-3"
                     .value=${personSelection}
@@ -546,7 +546,7 @@ class TaggingAdmin extends LitElement {
                     }}
                   >
                     <option value="">None</option>
-                    <option value="new" ?selected=${personSelection === 'new'}>Create new person…</option>
+                    <option value="new" ?selected=${personSelection === 'new'}>Create new person/company…</option>
                     ${selectedMissing ? html`
                       <option value=${personSelection} ?selected=${true}>${selectedLabel}</option>
                     ` : ''}
@@ -561,7 +561,7 @@ class TaggingAdmin extends LitElement {
                     <div class="text-xs text-gray-500 mb-3">Loading people…</div>
                   ` : ''}
                   ${this.dialog.personSelection ? html`
-                    <label class="block text-sm font-semibold text-gray-700 mb-2">Person Name</label>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Person / Company Name</label>
                     <input
                       class="w-full border rounded-lg px-3 py-2 mb-3"
                       .value=${this.dialog.personName || ''}
@@ -662,7 +662,7 @@ class TaggingAdmin extends LitElement {
             ${keywords.length ? html`
               <div class="grid grid-cols-3 gap-2 text-xs font-semibold text-gray-500 mb-2">
                 <div>Keyword</div>
-                <div>${isPeopleCategory ? 'Person' : 'Prompt'}</div>
+                <div>${isPeopleCategory ? 'Person / Company' : 'Prompt'}</div>
                 <div class="text-right">${this.readOnly ? '' : 'Actions'}</div>
               </div>
               <div class="divide-y divide-gray-100">

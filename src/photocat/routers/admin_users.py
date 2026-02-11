@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Header
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import secrets
@@ -654,6 +655,13 @@ async def create_invitation(
         HTTPException 403: User is not admin of the tenant
         HTTPException 400: Invitation already exists for this email
     """
+    normalized_email = (request.email or "").strip().lower()
+    if not normalized_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email is required",
+        )
+
     # Verify admin has access to tenant
     if not user.is_super_admin:
         membership = db.query(UserTenant).filter(
@@ -668,9 +676,57 @@ async def create_invitation(
                 detail="Admin role required for this tenant"
             )
 
+    # If user already exists, assign them immediately and skip invitation flow.
+    existing_user = db.query(UserProfile).filter(
+        func.lower(UserProfile.email) == normalized_email
+    ).first()
+    if existing_user:
+        now = datetime.utcnow()
+        existing_membership = db.query(UserTenant).filter(
+            UserTenant.supabase_uid == existing_user.supabase_uid,
+            UserTenant.tenant_id == request.tenant_id,
+        ).first()
+
+        if existing_membership:
+            if existing_membership.accepted_at is None:
+                existing_membership.accepted_at = now
+                existing_membership.invited_at = existing_membership.invited_at or now
+                existing_membership.invited_by = existing_membership.invited_by or user.supabase_uid
+            if existing_membership.role != request.role:
+                existing_membership.role = request.role
+        else:
+            db.add(
+                UserTenant(
+                    supabase_uid=existing_user.supabase_uid,
+                    tenant_id=request.tenant_id,
+                    role=request.role,
+                    invited_by=user.supabase_uid,
+                    invited_at=now,
+                    accepted_at=now,
+                )
+            )
+
+        # Remove stale pending invitations for this tenant/email.
+        stale_invitations = db.query(Invitation).filter(
+            func.lower(Invitation.email) == normalized_email,
+            Invitation.tenant_id == request.tenant_id,
+            Invitation.accepted_at.is_(None),
+        ).all()
+        for stale in stale_invitations:
+            db.delete(stale)
+
+        db.commit()
+
+        return {
+            "message": "Existing user added to tenant",
+            "user_id": str(existing_user.supabase_uid),
+            "invitation_created": False,
+            "role": request.role,
+        }
+
     # Check for existing invitation
     existing = db.query(Invitation).filter(
-        Invitation.email == request.email,
+        func.lower(Invitation.email) == normalized_email,
         Invitation.tenant_id == request.tenant_id,
         Invitation.accepted_at.is_(None),
         Invitation.expires_at > datetime.utcnow()
@@ -687,7 +743,7 @@ async def create_invitation(
 
     # Create invitation
     invitation = Invitation(
-        email=request.email,
+        email=normalized_email,
         tenant_id=request.tenant_id,
         role=request.role,
         invited_by=user.supabase_uid,
@@ -706,7 +762,8 @@ async def create_invitation(
         "message": "Invitation created",
         "invitation_id": str(invitation.id),
         "token": token,  # Return for now, would not be returned in production
-        "expires_at": invitation.expires_at.isoformat()
+        "expires_at": invitation.expires_at.isoformat(),
+        "invitation_created": True,
     }
 
 

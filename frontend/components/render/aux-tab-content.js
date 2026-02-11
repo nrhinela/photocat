@@ -74,14 +74,6 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
           >
             <i class="fas fa-tags mr-2"></i>Keywords
           </button>
-          ${canManageTenantUsers ? html`
-            <button
-              class="admin-subtab ${librarySubTab === 'users' ? 'active' : ''}"
-              @click=${() => host.activeLibrarySubTab = 'users'}
-            >
-              <i class="fas fa-users mr-2"></i>Users
-            </button>
-          ` : html``}
         </div>
         ${librarySubTab === 'assets' ? html`
           <assets-admin
@@ -106,7 +98,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
                 class="admin-subtab ${host.activeAdminSubTab === 'people' ? 'active' : ''}"
                 @click=${() => host.activeAdminSubTab = 'people'}
               >
-                <i class="fas fa-users mr-2"></i>People
+                <i class="fas fa-users mr-2"></i>People and Organizations
               </button>
             </div>
           </div>

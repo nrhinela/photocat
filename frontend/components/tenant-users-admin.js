@@ -548,11 +548,12 @@ class TenantUsersAdmin extends LitElement {
     this.inviteSubmitting = true;
     this.error = '';
     try {
+      this.inviteLink = '';
       const result = await createTenantInvitation(this.tenant, email, this.inviteRole || 'user');
       const token = result?.token || '';
       this.inviteLink = token ? this._buildInvitationLink(token) : '';
-      await this._loadInvitations();
       this._closeInviteModal();
+      await this._loadData();
       if (this.inviteLink) {
         await this._copyToClipboard(this.inviteLink);
       }

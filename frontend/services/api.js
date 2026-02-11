@@ -780,6 +780,21 @@ export async function createPerson(tenantId, data) {
 }
 
 /**
+ * Update an existing person
+ * @param {string} tenantId - Tenant ID
+ * @param {number} personId - Person ID
+ * @param {Object} data - Fields to update (name, instagram_url)
+ * @returns {Promise<Object>} Updated person
+ */
+export async function updatePerson(tenantId, personId, data) {
+    return fetchWithAuth(`/people/${personId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+        tenantId
+    });
+}
+
+/**
  * Delete a person
  * @param {string} tenantId - Tenant ID
  * @param {number} personId - Person ID

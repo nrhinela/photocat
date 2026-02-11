@@ -231,9 +231,12 @@ async def upload_and_ingest_image(
         source_uploaded = True
 
         features = processor.extract_features(file_bytes)
-        tagger = get_tagger(model_type=settings.tagging_model)
-        model_name = getattr(tagger, "model_name", settings.tagging_model)
-        model_version = getattr(tagger, "model_version", model_name)
+        model_name = settings.tagging_model
+        model_version = settings.tagging_model
+        if settings.upload_generate_embeddings:
+            tagger = get_tagger(model_type=settings.tagging_model)
+            model_name = getattr(tagger, "model_name", settings.tagging_model)
+            model_version = getattr(tagger, "model_version", model_name)
         exif = features.get("exif", {}) or {}
 
         thumbnail_blob.cache_control = "public, max-age=31536000, immutable"
@@ -304,17 +307,17 @@ async def upload_and_ingest_image(
         db.add(metadata)
         db.flush()
 
-        # Create embedding at ingest time so duplicate detection and ML workflows
-        # can use newly uploaded assets immediately.
-        ensure_image_embedding(
-            db=db,
-            tenant_id=tenant.id,
-            image_id=metadata.id,
-            image_data=features["thumbnail"],
-            model_name=model_name,
-            model_version=model_version,
-            asset_id=asset.id,
-        )
+        if settings.upload_generate_embeddings:
+            # Optional: generate embedding during ingest for immediate duplicate/model workflows.
+            ensure_image_embedding(
+                db=db,
+                tenant_id=tenant.id,
+                image_id=metadata.id,
+                image_data=features["thumbnail"],
+                model_name=model_name,
+                model_version=model_version,
+                asset_id=asset.id,
+            )
 
         db.commit()
         db.refresh(metadata)

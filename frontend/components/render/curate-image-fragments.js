@@ -41,10 +41,10 @@ export function renderCuratePermatagSummary(image) {
     ? `${variantCount} variant${variantCount === 1 ? '' : 's'}`
     : '';
   return html`
-    ${hasVariants ? html`
-      <span class="curate-thumb-variant-bar" title=${variantTitle} aria-hidden="true"></span>
-    ` : html``}
-    <div class="curate-thumb-rating">
+    <div class="curate-thumb-rating ${hasVariants ? 'has-variant' : ''}">
+      ${hasVariants ? html`
+        <span class="curate-thumb-variant-count" title=${variantTitle}>V${variantCount}</span>
+      ` : html``}
       <span class="curate-thumb-rating-label">Tags: ${label}</span>
     </div>
   `;

@@ -205,6 +205,16 @@ export const photocatAppStyles = css`
             radial-gradient(circle at 80% 24%, rgba(99, 102, 241, 0.18), transparent 54%),
             linear-gradient(140deg, #f4f4ff 0%, #eceefe 52%, #f6f7ff 100%);
     }
+    .home-cta-keywords .home-cta-backdrop {
+        background:
+            radial-gradient(circle at 80% 24%, rgba(236, 72, 153, 0.17), transparent 54%),
+            linear-gradient(140deg, #fff5fb 0%, #ffecf7 52%, #fff7fc 100%);
+    }
+    .home-cta-assets .home-cta-backdrop {
+        background:
+            radial-gradient(circle at 80% 24%, rgba(14, 116, 144, 0.16), transparent 54%),
+            linear-gradient(140deg, #f0fcff 0%, #e7f8ff 52%, #f4fbff 100%);
+    }
     .home-cta-glyph {
         position: absolute;
         right: 12px;
@@ -231,6 +241,12 @@ export const photocatAppStyles = css`
     }
     .home-cta-admin .home-cta-glyph {
         color: rgba(99, 102, 241, 0.22);
+    }
+    .home-cta-keywords .home-cta-glyph {
+        color: rgba(236, 72, 153, 0.24);
+    }
+    .home-cta-assets .home-cta-glyph {
+        color: rgba(14, 116, 144, 0.24);
     }
     .home-cta-icon-wrap {
         position: relative;
@@ -266,6 +282,16 @@ export const photocatAppStyles = css`
         color: #4338ca;
         border-color: rgba(67, 56, 202, 0.24);
         box-shadow: 0 4px 12px rgba(67, 56, 202, 0.14);
+    }
+    .home-cta-keywords .home-cta-icon-wrap {
+        color: #be185d;
+        border-color: rgba(190, 24, 93, 0.24);
+        box-shadow: 0 4px 12px rgba(190, 24, 93, 0.14);
+    }
+    .home-cta-assets .home-cta-icon-wrap {
+        color: #0e7490;
+        border-color: rgba(14, 116, 144, 0.24);
+        box-shadow: 0 4px 12px rgba(14, 116, 144, 0.14);
     }
     .home-cta-content {
         position: relative;
@@ -314,6 +340,14 @@ export const photocatAppStyles = css`
     .home-cta-admin .home-cta-arrow {
         color: #4338ca;
         border-color: rgba(67, 56, 202, 0.28);
+    }
+    .home-cta-keywords .home-cta-arrow {
+        color: #be185d;
+        border-color: rgba(190, 24, 93, 0.28);
+    }
+    .home-cta-assets .home-cta-arrow {
+        color: #0e7490;
+        border-color: rgba(14, 116, 144, 0.28);
     }
     .home-loading-bar {
         width: 100%;
@@ -776,7 +810,7 @@ export const photocatAppStyles = css`
         position: absolute;
         left: 6px;
         right: 6px;
-        bottom: 6px;
+        bottom: 1px;
         font-size: 10px;
         color: #f9fafb;
         background: rgba(17, 24, 39, 0.65);
@@ -795,24 +829,39 @@ export const photocatAppStyles = css`
         color: #e5e7eb;
     }
     .curate-thumb-date.processed {
-        bottom: 24px;
+        bottom: 23px;
     }
     .curate-thumb-rating {
         position: absolute;
         left: 6px;
         right: 6px;
-        bottom: 22px;
+        bottom: 19px;
         font-size: 10px;
         color: #f9fafb;
         background: rgba(17, 24, 39, 0.65);
         padding: 2px 6px;
         border-radius: 6px;
         text-align: center;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 5px;
+        display: block;
         pointer-events: none;
+    }
+    .curate-thumb-variant-count {
+        position: absolute;
+        left: 6px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #ffffff;
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        border: 1px solid rgba(255, 255, 255, 0.45);
+        border-radius: 999px;
+        padding: 1px 5px;
+        font-weight: 700;
+        font-size: 10px;
+        line-height: 1.1;
+        text-transform: uppercase;
+        flex: 0 0 auto;
+        letter-spacing: 0.01em;
+        box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.35), 0 1px 3px rgba(0, 0, 0, 0.35);
     }
     .curate-thumb-variant-bar {
         position: absolute;
@@ -833,17 +882,23 @@ export const photocatAppStyles = css`
         z-index: 8;
     }
     .curate-thumb-rating-label {
+        display: block;
         min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        display: block;
+        text-align: center;
+        padding: 0 6px;
+    }
+    .curate-thumb-rating.has-variant .curate-thumb-rating-label {
+        padding-left: 40px;
+        padding-right: 40px;
     }
     .curate-thumb-ml-score {
         position: absolute;
         left: 6px;
         right: 6px;
-        bottom: 36px;
+        bottom: 37px;
         font-size: 10px;
         color: #f9fafb;
         background: rgba(17, 24, 39, 0.65);

@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     keyword_model_threshold: float = 0.25
     keyword_model_min_positive: int = 2
     keyword_model_min_negative: int = 2
+    upload_generate_embeddings: bool = False
     
     # API
     api_host: str = "0.0.0.0"

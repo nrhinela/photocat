@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
-import { getPeople, createPerson, deletePerson } from '../services/api.js';
+import { getPeople, createPerson, updatePerson, deletePerson } from '../services/api.js';
 
 class PersonManager extends LitElement {
   static properties = {
@@ -18,12 +18,12 @@ class PersonManager extends LitElement {
   static styles = [tailwind, css`
     :host {
       display: block;
-      min-height: 400px;
+      min-height: 460px;
     }
     .container {
       display: flex;
       flex-direction: column;
-      min-height: 400px;
+      min-height: 460px;
       background: #f9fafb;
     }
     .header {
@@ -36,20 +36,22 @@ class PersonManager extends LitElement {
       font-size: 24px;
       font-weight: 700;
       color: #111827;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
     .header-controls {
       display: flex;
       gap: 12px;
       align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
     }
     .search-box {
-      flex: 1;
-      max-width: 300px;
-      padding: 8px 12px;
+      flex: 1 1 420px;
+      min-width: 220px;
+      padding: 9px 12px;
       border: 1px solid #d1d5db;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 14px;
     }
     .btn-primary {
       padding: 10px 16px;
@@ -79,74 +81,101 @@ class PersonManager extends LitElement {
     .btn-secondary:hover {
       background: #d1d5db;
     }
+    .btn-danger {
+      padding: 10px 16px;
+      background: #dc2626;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-danger:hover {
+      background: #b91c1c;
+    }
+    .btn-danger:disabled,
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
     .content {
       flex: 1;
       overflow: auto;
       padding: 20px;
     }
-    .list-view {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 16px;
-    }
-    .person-card {
+    .table-shell {
       background: #ffffff;
       border: 1px solid #e5e7eb;
       border-radius: 8px;
       overflow: hidden;
-      transition: box-shadow 0.2s;
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
     }
-    .person-card:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    .table-wrap {
+      overflow-x: auto;
     }
-    .person-card-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 16px;
-      color: #ffffff;
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 860px;
     }
-    .person-name {
-      font-size: 16px;
-      font-weight: 600;
-      margin-bottom: 4px;
-    }
-    .person-card-body {
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .stat {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 13px;
-      color: #6b7280;
-    }
-    .stat-label {
-      font-weight: 500;
-    }
-    .stat-value {
-      font-weight: 600;
-      color: #111827;
-    }
-    .instagram-link {
-      color: #3b82f6;
-      text-decoration: none;
+    thead th {
+      text-align: left;
+      background: #f3f4f6;
+      color: #374151;
+      padding: 12px 14px;
       font-size: 12px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid #e5e7eb;
       white-space: nowrap;
     }
-    .instagram-link:hover {
+    tbody td {
+      padding: 13px 14px;
+      border-bottom: 1px solid #e5e7eb;
+      color: #111827;
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    tbody tr:hover {
+      background: #f9fafb;
+    }
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+    .name-cell {
+      font-weight: 600;
+      color: #111827;
+      white-space: nowrap;
+    }
+    .count-cell {
+      font-weight: 600;
+      color: #1f2937;
+      white-space: nowrap;
+    }
+    .date-cell {
+      color: #4b5563;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .url-cell a {
+      color: #3b82f6;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .url-cell a:hover {
       text-decoration: underline;
     }
-    .card-actions {
-      display: flex;
+    .row-actions {
+      display: inline-flex;
       gap: 8px;
+      align-items: center;
     }
     .btn-small {
-      flex: 1;
-      padding: 8px;
+      padding: 7px 10px;
       background: #f3f4f6;
       color: #111827;
       border: 1px solid #d1d5db;
@@ -159,21 +188,20 @@ class PersonManager extends LitElement {
     .btn-small:hover {
       background: #e5e7eb;
     }
-    .btn-small.delete {
-      background: #fee2e2;
-      color: #dc2626;
-      border-color: #fecaca;
-    }
-    .btn-small.delete:hover {
-      background: #fecaca;
-    }
     .editor-form {
-      max-width: 500px;
+      max-width: 760px;
       margin: 0 auto;
       background: #ffffff;
       border-radius: 8px;
-      padding: 24px;
+      padding: 24px 24px 20px;
       border: 1px solid #e5e7eb;
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.05);
+    }
+    .editor-title {
+      margin-bottom: 18px;
+      font-size: 20px;
+      font-weight: 700;
+      color: #111827;
     }
     .form-group {
       margin-bottom: 16px;
@@ -204,8 +232,16 @@ class PersonManager extends LitElement {
     }
     .form-actions {
       display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
       gap: 12px;
       margin-top: 24px;
+    }
+    .form-actions-right {
+      display: flex;
+      gap: 12px;
+      align-items: center;
     }
     .error-message {
       background: #fee2e2;
@@ -274,35 +310,36 @@ class PersonManager extends LitElement {
 
   async loadPeople() {
     const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
-    let data = await getPeople(tenantId, {
+    const data = await getPeople(tenantId, {
       limit: 500
     });
-
-    if (this.searchQuery) {
-      const query = this.searchQuery.toLowerCase();
-      data = data.filter(p =>
-        p.name.toLowerCase().includes(query) ||
-        (p.instagram_url && p.instagram_url.toLowerCase().includes(query))
-      );
-    }
-
     this.people = data;
   }
 
-  async createPerson() {
+  async savePerson() {
     if (this.readOnly) return;
     if (!this.formData.name.trim()) {
       this.error = 'Please enter a name';
       return;
     }
 
+    const payload = {
+      name: this.formData.name.trim(),
+      instagram_url: (this.formData.instagram_url || '').trim(),
+    };
+
     this.loading = true;
     this.error = '';
     try {
       const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
-      await createPerson(tenantId, this.formData);
+      if (this.selectedPersonId) {
+        await updatePerson(tenantId, this.selectedPersonId, payload);
+      } else {
+        await createPerson(tenantId, payload);
+      }
 
       this.formData = { name: '', instagram_url: '' };
+      this.selectedPersonId = null;
       this.view = 'list';
       await this.loadPeople();
     } catch (err) {
@@ -314,6 +351,7 @@ class PersonManager extends LitElement {
 
   async deletePerson(personId) {
     if (this.readOnly) return;
+    if (!personId) return;
     if (!confirm('Delete this person? This will remove all tags.')) return;
 
     this.loading = true;
@@ -321,6 +359,9 @@ class PersonManager extends LitElement {
     try {
       const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
       await deletePerson(tenantId, personId);
+      this.formData = { name: '', instagram_url: '' };
+      this.selectedPersonId = null;
+      this.view = 'list';
       await this.loadPeople();
     } catch (err) {
       this.error = err.message;
@@ -330,30 +371,61 @@ class PersonManager extends LitElement {
   }
 
   getFilteredPeople() {
-    return this.people;
+    const query = (this.searchQuery || '').trim().toLowerCase();
+    if (!query) return this.people;
+    return this.people.filter((person) => {
+      const name = (person.name || '').toLowerCase();
+      const url = (person.instagram_url || '').toLowerCase();
+      return name.includes(query) || url.includes(query);
+    });
+  }
+
+  _formatDate(value) {
+    if (!value) return '—';
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return '—';
+    return dt.toLocaleString();
+  }
+
+  _openCreateEditor() {
+    this.selectedPersonId = null;
+    this.formData = { name: '', instagram_url: '' };
+    this.error = '';
+    this.view = 'editor';
+  }
+
+  _openEditEditor(person) {
+    this.selectedPersonId = person.id;
+    this.formData = {
+      name: person.name || '',
+      instagram_url: person.instagram_url || '',
+    };
+    this.error = '';
+    this.view = 'editor';
   }
 
   render() {
+    const filteredPeople = this.getFilteredPeople();
     return html`
       <div class="container">
         <div class="header">
-          <div class="header-title">👥 People Management</div>
+          <div class="header-title">People and Organizations</div>
           <div class="header-controls">
             ${this.view === 'list' ? html`
               <input
                 type="text"
                 class="search-box"
-                placeholder="Search people..."
+                placeholder="Search people and organizations..."
                 .value="${this.searchQuery}"
-                @input="${(e) => { this.searchQuery = e.target.value; this.loadPeople(); }}"
+                @input="${(e) => { this.searchQuery = e.target.value; }}"
               />
               ${this.readOnly ? html`` : html`
-                <button class="btn-primary" @click="${() => { this.view = 'editor'; this.formData = { name: '', instagram_url: '' }; }}">
+                <button class="btn-primary" @click="${this._openCreateEditor}">
                   + Add Person
                 </button>
               `}
             ` : html`
-              <button class="btn-secondary" @click="${() => { this.view = 'list'; }}">
+              <button class="btn-secondary" @click="${() => { this.view = 'list'; this.error = ''; }}">
                 ← Back to List
               </button>
             `}
@@ -367,53 +439,56 @@ class PersonManager extends LitElement {
 
           ${this.view === 'list' ? html`
             ${this.loading ? html`
-              <div class="loading">Loading people...</div>
-            ` : this.getFilteredPeople().length === 0 ? html`
+              <div class="loading">Loading people and organizations...</div>
+            ` : filteredPeople.length === 0 ? html`
               <div class="empty-state">
                 <div class="empty-state-icon">📭</div>
-                <div style="font-size: 16px; font-weight: 600; color: #111827; margin-bottom: 6px;">No people found</div>
-                <div style="font-size: 13px; color: #6b7280;">Create your first person to get started</div>
+                <div style="font-size: 16px; font-weight: 600; color: #111827; margin-bottom: 6px;">No people or organizations found</div>
+                <div style="font-size: 13px; color: #6b7280;">Create your first entry to get started</div>
               </div>
             ` : html`
-              <div class="list-view">
-                ${this.getFilteredPeople().map(person => html`
-                  <div class="person-card">
-                    <div class="person-card-header">
-                      <div class="person-name">${person.name}</div>
-                    </div>
-                    <div class="person-card-body">
-                      <div class="stat">
-                        <span class="stat-label">Images Tagged:</span>
-                        <span class="stat-value">${person.tag_count || 0}</span>
-                      </div>
-                      ${person.instagram_url ? html`
-                        <a href="${person.instagram_url}" target="_blank" class="instagram-link">
-                          📸 ${new URL(person.instagram_url).hostname}
-                        </a>
-                      ` : ''}
-                      <div style="font-size: 11px; color: #9ca3af;">
-                        Created ${new Date(person.created_at).toLocaleDateString()}
-                      </div>
-                      ${this.readOnly ? html`` : html`
-                        <div class="card-actions">
-                          <button class="btn-small" @click="${() => { this.view = 'editor'; this.selectedPersonId = person.id; this.formData = { ...person }; }}">
-                            Edit
-                          </button>
-                          <button class="btn-small delete" @click="${() => this.deletePerson(person.id)}">
-                            Delete
-                          </button>
-                        </div>
-                      `}
-                    </div>
-                  </div>
-                `)}
+              <div class="table-shell">
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Instagram URL</th>
+                        <th>Images Tagged</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                        ${this.readOnly ? html`` : html`<th>Actions</th>`}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${filteredPeople.map((person) => html`
+                        <tr>
+                          <td class="name-cell">${person.name || '—'}</td>
+                          <td class="url-cell">
+                            ${person.instagram_url ? html`
+                              <a href="${person.instagram_url}" target="_blank" rel="noopener noreferrer">${person.instagram_url}</a>
+                            ` : html`—`}
+                          </td>
+                          <td class="count-cell">${person.tag_count || 0}</td>
+                          <td class="date-cell">${this._formatDate(person.created_at)}</td>
+                          <td class="date-cell">${this._formatDate(person.updated_at)}</td>
+                          ${this.readOnly ? html`` : html`
+                            <td>
+                              <div class="row-actions">
+                                <button class="btn-small" @click="${() => this._openEditEditor(person)}">Edit</button>
+                              </div>
+                            </td>
+                          `}
+                        </tr>
+                      `)}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             `}
           ` : html`
             <div class="editor-form">
-              <h2 style="margin-bottom: 24px; font-size: 18px; font-weight: 600; color: #111827;">
-                ${this.selectedPersonId ? 'Edit Person' : 'Create New Person'}
-              </h2>
+              <h2 class="editor-title">${this.selectedPersonId ? 'Edit Entry' : 'Create New Entry'}</h2>
 
               <div class="form-group">
                 <label class="form-label">Name *</label>
@@ -439,12 +514,21 @@ class PersonManager extends LitElement {
               </div>
 
               <div class="form-actions">
-                <button class="btn-primary" @click="${() => this.createPerson()}" ?disabled="${this.loading}">
-                  ${this.loading ? 'Saving...' : 'Save Person'}
-                </button>
-                <button class="btn-secondary" @click="${() => { this.view = 'list'; }}" ?disabled="${this.loading}">
-                  Cancel
-                </button>
+                <div>
+                  ${!this.readOnly && this.selectedPersonId ? html`
+                    <button class="btn-danger" @click="${() => this.deletePerson(this.selectedPersonId)}" ?disabled="${this.loading}">
+                      ${this.loading ? 'Deleting...' : 'Delete'}
+                    </button>
+                  ` : html``}
+                </div>
+                <div class="form-actions-right">
+                  <button class="btn-secondary" @click="${() => { this.view = 'list'; this.error = ''; }}" ?disabled="${this.loading}">
+                    Cancel
+                  </button>
+                  <button class="btn-primary" @click="${() => this.savePerson()}" ?disabled="${this.loading}">
+                    ${this.loading ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
               </div>
             </div>
           `}

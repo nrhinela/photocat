@@ -39,6 +39,35 @@ function renderCtaIcon(iconKey) {
       </svg>
     `;
   }
+  if (iconKey === 'stats') {
+    return html`
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 18.5h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        <rect x="6.2" y="11.4" width="2.8" height="5.6" rx="0.8" fill="currentColor"></rect>
+        <rect x="10.6" y="8.9" width="2.8" height="8.1" rx="0.8" fill="currentColor"></rect>
+        <rect x="15" y="6.4" width="2.8" height="10.6" rx="0.8" fill="currentColor"></rect>
+      </svg>
+    `;
+  }
+  if (iconKey === 'keywords') {
+    return html`
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.2 7.2h15.6M6.5 12h11M8.6 16.8h6.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+        <circle cx="5.2" cy="7.2" r="1" fill="currentColor"></circle>
+        <circle cx="7.6" cy="12" r="1" fill="currentColor"></circle>
+        <circle cx="9.7" cy="16.8" r="1" fill="currentColor"></circle>
+      </svg>
+    `;
+  }
+  if (iconKey === 'assets') {
+    return html`
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2.4" ry="2.4" fill="none" stroke="currentColor" stroke-width="1.8"></rect>
+        <path d="M7 15.5l3-3.2 2.3 2.4 2.7-2.6 2 1.9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle cx="9.2" cy="9.2" r="1.2" fill="currentColor"></circle>
+      </svg>
+    `;
+  }
   return html`
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 8.2a2.2 2.2 0 0 1 2.2-2.2h4.1l1.9 2h5.8A2.2 2.2 0 0 1 20.2 10v7.8A2.2 2.2 0 0 1 18 20H6.2A2.2 2.2 0 0 1 4 17.8z" fill="none" stroke="currentColor" stroke-width="1.8"></path>
@@ -60,11 +89,19 @@ function renderCtaGlyph(glyphKey) {
   if (glyphKey === 'admin') {
     return html`<span class="home-cta-glyph-char">A</span>`;
   }
+  if (glyphKey === 'stats') {
+    return html`<span class="home-cta-glyph-char">T</span>`;
+  }
+  if (glyphKey === 'keywords') {
+    return html`<span class="home-cta-glyph-char">K</span>`;
+  }
+  if (glyphKey === 'assets') {
+    return html`<span class="home-cta-glyph-char">B</span>`;
+  }
   return html`<span class="home-cta-glyph-char">+</span>`;
 }
 
 export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
-  const tenantRole = host?._appShellState?.getTenantRole?.();
   const ctaCards = [
     {
       key: 'search',
@@ -75,14 +112,6 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
       glyphKey: 'search',
     },
     {
-      key: 'curate',
-      label: 'Curate',
-      subtitle: 'Categorize and rate items, organize lists.',
-      iconKey: 'curate',
-      accentClass: 'home-cta-curate',
-      glyphKey: 'curate',
-    },
-    {
       key: 'lists',
       label: 'Lists',
       subtitle: 'Create and download collections of content',
@@ -91,22 +120,53 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
       glyphKey: 'lists',
     },
     {
-      key: 'library',
-      label: 'Admin',
-      subtitle: tenantRole === 'user'
-        ? 'View asset library and keyword settings. (Read-only)'
-        : 'Manage assets, keywords, and people.',
-      iconKey: 'admin',
-      accentClass: 'home-cta-admin',
-      glyphKey: 'admin',
+      key: 'curate',
+      label: 'Curate',
+      subtitle: 'Categorize and rate items, organize lists.',
+      iconKey: 'curate',
+      accentClass: 'home-cta-curate',
+      glyphKey: 'curate',
     },
-  ].filter((card) => card.key !== 'curate' || host._canCurate());
+    {
+      key: 'tagging-stats',
+      tab: 'curate',
+      subTab: 'home',
+      label: 'Tagging Stats',
+      subtitle: 'View tagging coverage and distribution metrics.',
+      iconKey: 'stats',
+      accentClass: 'home-cta-admin',
+      glyphKey: 'stats',
+      requiresCurate: true,
+    },
+    {
+      key: 'keyword-definitions',
+      tab: 'library',
+      subTab: 'keywords',
+      adminSubTab: 'tagging',
+      label: 'Keyword Definitions',
+      subtitle: 'Define keyword categories and tag vocabulary.',
+      iconKey: 'keywords',
+      accentClass: 'home-cta-keywords',
+      glyphKey: 'keywords',
+    },
+    {
+      key: 'asset-library',
+      tab: 'library',
+      subTab: 'assets',
+      label: 'Asset Library',
+      subtitle: 'Browse and review uploaded and provider-backed files.',
+      iconKey: 'assets',
+      accentClass: 'home-cta-assets',
+      glyphKey: 'assets',
+    },
+  ].filter((card) => !(card.requiresCurate && !host._canCurate()));
 
   const handleNavigate = (card) => {
     host._handleHomeNavigate({
       detail: {
-        tab: card.key,
+        tab: card.tab || card.key,
         subTab: card.subTab,
+        adminSubTab: card.adminSubTab,
       },
     });
   };

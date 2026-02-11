@@ -174,6 +174,12 @@ class AppHeader extends LitElement {
       this.userMenuOpen = false;
       if (value === 'public-site') {
           window.location.href = '/';
+      } else if (value === 'manage-users') {
+          this.dispatchEvent(new CustomEvent('tab-change', {
+              detail: { tab: 'library', subTab: 'users' },
+              bubbles: true,
+              composed: true,
+          }));
       } else if (value === 'admin') {
           this._openAdmin();
       } else if (value === 'logout') {
@@ -199,6 +205,10 @@ class AppHeader extends LitElement {
           return true;
       }
       return role !== 'user';
+  }
+
+  _canManageTenantUsersFromUser() {
+      return this._isAdmin() || this._getTenantRole() === 'admin';
   }
 
   async _handleLogout() {
@@ -318,6 +328,7 @@ class AppHeader extends LitElement {
 
   render() {
     const canCurate = this.canCurate ?? this._canCurateFromUser();
+    const canManageTenantUsers = this._canManageTenantUsersFromUser();
     const libraryActive = this.activeTab === 'library' || this.activeTab === 'admin';
     const selectedTenant = this._getEffectiveTenantId();
     const tenantMissingFromList = !!selectedTenant
@@ -400,6 +411,13 @@ class AppHeader extends LitElement {
                                         class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
                                         @click=${() => this._handleUserMenuAction('public-site')}
                                     >Back to public site</button>
+                                    ${canManageTenantUsers ? html`
+                                        <button
+                                            type="button"
+                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
+                                            @click=${() => this._handleUserMenuAction('manage-users')}
+                                        >Manage users</button>
+                                    ` : html``}
                                     ${this._isAdmin() ? html`
                                         <button
                                             type="button"
