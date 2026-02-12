@@ -52,6 +52,9 @@ export class AppShellStateController extends BaseStateController {
     if (tabName === 'library' && !this.host.activeLibrarySubTab) {
       this.host.activeLibrarySubTab = 'assets';
     }
+    if (tabName === 'search' && !this.host.activeSearchSubTab) {
+      this.host.activeSearchSubTab = 'home';
+    }
     if (tabName === 'curate' && !this.canCurate()) {
       this.host.activeTab = 'home';
       return;
@@ -71,11 +74,18 @@ export class AppShellStateController extends BaseStateController {
       if (tab === 'library' && subTab) {
         this.host.activeLibrarySubTab = subTab;
       }
+      if (tab === 'search') {
+        this.host.activeSearchSubTab = subTab || 'home';
+      }
       if (tab === 'library' && subTab === 'keywords' && adminSubTab) {
         this.host.activeAdminSubTab = adminSubTab;
       }
       this.setActiveTab(tab);
       return;
+    }
+    if (detail === 'search') {
+      this.host.activeSearchSubTab = 'home';
+      this.host.pendingSearchExploreSelection = null;
     }
     this.setActiveTab(detail);
   }
@@ -84,14 +94,21 @@ export class AppShellStateController extends BaseStateController {
     const tab = event?.detail?.tab;
     const subTab = event?.detail?.subTab;
     const adminSubTab = event?.detail?.adminSubTab;
+    const exploreSelection = event?.detail?.exploreSelection || null;
     if (tab === 'library' && subTab) {
       this.host.activeLibrarySubTab = subTab;
+    }
+    if (tab === 'search') {
+      this.host.activeSearchSubTab = subTab || 'home';
     }
     if (tab === 'library' && subTab === 'keywords' && adminSubTab) {
       this.host.activeAdminSubTab = adminSubTab;
     }
     if (tab === 'curate' && subTab) {
       this.host.curateSubTab = subTab;
+    }
+    if (tab === 'search') {
+      this.host.pendingSearchExploreSelection = exploreSelection;
     }
     this.setActiveTab(tab);
   }
@@ -209,6 +226,8 @@ export class AppShellStateController extends BaseStateController {
     // Tenant switch always returns to Home and forces a fresh data pull.
     this.host.activeTab = 'home';
     this.host.homeSubTab = 'overview';
+    this.host.activeSearchSubTab = 'home';
+    this.host.pendingSearchExploreSelection = null;
     this.host._tabBootstrapped = new Set();
     this.initializeTab('home', { force: true });
   }

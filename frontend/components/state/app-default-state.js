@@ -73,6 +73,8 @@ export function initializeAppDefaultState(host) {
   host.searchOrderDirection = 'desc';
   host.searchImages = [];
   host.searchTotal = 0;
+  host.activeSearchSubTab = host.activeSearchSubTab || 'home';
+  host.pendingSearchExploreSelection = null;
   host.currentUser = null;
   host.curateExploreTargets = [
     { id: 1, category: '', keyword: '', action: 'add', count: 0 },

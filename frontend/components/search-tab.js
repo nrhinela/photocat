@@ -96,6 +96,7 @@ export class SearchTab extends LitElement {
     browseByFolderLimit: { type: Number, state: true },
     searchRefreshing: { type: Boolean },
     hideSubtabs: { type: Boolean },
+    initialExploreSelection: { type: Object },
     curateThumbSize: { type: Number },
     tagStatsBySource: { type: Object },
     activeCurateTagSource: { type: String },
@@ -155,6 +156,7 @@ export class SearchTab extends LitElement {
     this.browseByFolderLimit = 100;
     this.searchRefreshing = false;
     this.hideSubtabs = false;
+    this.initialExploreSelection = null;
     this.curateThumbSize = 120;
     this.tagStatsBySource = {};
     this.activeCurateTagSource = 'permatags';
@@ -2050,8 +2052,8 @@ export class SearchTab extends LitElement {
       ${ratingModal}
       <div class="container">
         <!-- Search Tab Header -->
-        <div class="flex items-center justify-between mb-4">
-          ${this.hideSubtabs ? html`` : html`
+        ${this.hideSubtabs ? html`` : html`
+          <div class="flex items-center justify-between mb-4">
             <div class="curate-subtabs">
               <button
                 class="curate-subtab ${this.searchSubTab === 'home' ? 'active' : ''}"
@@ -2078,32 +2080,32 @@ export class SearchTab extends LitElement {
                 Explore
               </button>
             </div>
-          `}
 
-          <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
-            <label class="font-semibold text-gray-600">Thumb</label>
-            <input
-              type="range"
-              min="80"
-              max="220"
-              step="10"
-              .value=${String(this.curateThumbSize)}
-              @input=${this._handleCurateThumbSizeChange}
-              class="w-24"
+            <div class="ml-auto flex items-center gap-4 text-xs text-gray-600 mr-4">
+              <label class="font-semibold text-gray-600">Thumb</label>
+              <input
+                type="range"
+                min="80"
+                max="220"
+                step="10"
+                .value=${String(this.curateThumbSize)}
+                @input=${this._handleCurateThumbSizeChange}
+                class="w-24"
+              >
+              <span class="w-12 text-right text-xs">${this.curateThumbSize}px</span>
+            </div>
+
+            <button
+              class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
+              ?disabled=${this.searchRefreshing}
+              @click=${this._refreshSearch}
+              title="Refresh"
             >
-            <span class="w-12 text-right text-xs">${this.curateThumbSize}px</span>
+              ${this.searchRefreshing ? html`<span class="curate-spinner"></span>` : html`<span aria-hidden="true">↻</span>`}
+              ${this.searchRefreshing ? 'Refreshing' : 'Refresh'}
+            </button>
           </div>
-
-          <button
-            class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
-            ?disabled=${this.searchRefreshing}
-            @click=${this._refreshSearch}
-            title="Refresh"
-          >
-            ${this.searchRefreshing ? html`<span class="curate-spinner"></span>` : html`<span aria-hidden="true">↻</span>`}
-            ${this.searchRefreshing ? 'Refreshing' : 'Refresh'}
-          </button>
-        </div>
+        `}
 
         ${this.searchRefreshing ? html`
           <div class="curate-loading-overlay" aria-label="Loading">
@@ -2404,6 +2406,7 @@ export class SearchTab extends LitElement {
         ${this.searchSubTab === 'chips' ? html`
           <home-chips-tab
             .tenant=${this.tenant}
+            .initialSelection=${this.initialExploreSelection}
             .tagStatsBySource=${this.tagStatsBySource}
             .activeCurateTagSource=${this.activeCurateTagSource}
             .keywords=${this.keywords}

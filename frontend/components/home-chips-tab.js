@@ -29,6 +29,7 @@ export class HomeChipsTab extends LitElement {
     imageStats: { type: Object },
     curateOrderBy: { type: String },
     curateDateOrder: { type: String },
+    initialSelection: { type: Object },
     renderCurateRatingWidget: { type: Object },
     renderCurateRatingStatic: { type: Object },
     formatCurateDate: { type: Object },
@@ -52,12 +53,14 @@ export class HomeChipsTab extends LitElement {
     this.imageStats = null;
     this.curateOrderBy = 'photo_creation';
     this.curateDateOrder = 'desc';
+    this.initialSelection = null;
     this.renderCurateRatingWidget = null;
     this.renderCurateRatingStatic = null;
     this.formatCurateDate = null;
     this.chipMode = 'search';
     this.chipRatingFilter = 'hide-deleted';
     this.ratingOnlyActive = false;
+    this._appliedInitialSelectionKey = '';
 
     this._panelHandlers = null;
     this._setupFilterPanelHandlers();
@@ -66,6 +69,9 @@ export class HomeChipsTab extends LitElement {
   updated(changedProps) {
     if (changedProps.has('tenant') && this.searchFilterPanel) {
       this.searchFilterPanel.setTenant(this.tenant);
+    }
+    if (changedProps.has('initialSelection') || changedProps.has('tenant')) {
+      this._applyInitialSelection();
     }
   }
 
@@ -279,6 +285,27 @@ export class HomeChipsTab extends LitElement {
     const chip = this._getRatingFilterChip();
     if (!chip) return 'All ratings';
     return chip.displayValue || chip.value;
+  }
+
+  _applyInitialSelection() {
+    const category = (this.initialSelection?.category || '').trim();
+    const keyword = (this.initialSelection?.keyword || '').trim();
+    if (!this.tenant || !category || !keyword) {
+      return;
+    }
+    const count = Number(this.initialSelection?.count || 0);
+    const selectionKey = `${this.tenant}::${category}::${keyword}::${count}`;
+    if (this._appliedInitialSelectionKey === selectionKey) {
+      return;
+    }
+    this._appliedInitialSelectionKey = selectionKey;
+    this.chipMode = 'search';
+    this._handleChipSelect(category, keyword, count);
+    this.dispatchEvent(new CustomEvent('explore-selection-applied', {
+      detail: { category, keyword, count },
+      bubbles: true,
+      composed: true,
+    }));
   }
 
   _getDropboxRatingTag(optionId) {
@@ -522,9 +549,6 @@ export class HomeChipsTab extends LitElement {
               @thumb-size-changed=${this._handleThumbSizeChanged}
               @filters-changed=${this._handleSearchFiltersChanged}
             ></search-tab>
-          </div>
-          <div>
-            ${this._renderRatingsPanel()}
           </div>
         </div>
       </div>

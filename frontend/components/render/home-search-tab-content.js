@@ -2,6 +2,7 @@ import { html } from 'lit';
 import { renderCuratePermatagSummary } from './curate-image-fragments.js';
 import { renderCurateRatingWidget, renderCurateRatingStatic } from './curate-rating-widgets.js';
 import { formatStatNumber } from '../shared/formatting.js';
+import { getKeywordsByCategoryFromList } from '../shared/keyword-utils.js';
 
 function renderCtaIcon(iconKey) {
   if (iconKey === 'search') {
@@ -128,6 +129,12 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
       { label: 'Items', value: formatStatNumber(imageStats.image_count) },
     ],
   };
+  const exploreTagCategories = getKeywordsByCategoryFromList(host.keywords || [])
+    .map(([category, keywords]) => [
+      category,
+      (keywords || []).filter((kw) => Number(kw?.count || 0) > 0),
+    ])
+    .filter(([, keywords]) => keywords.length > 0);
 
   const ctaCards = [
     {
@@ -198,6 +205,19 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
       },
     });
   };
+  const handleExploreTagNavigate = (category, keyword, count) => {
+    host._handleHomeNavigate({
+      detail: {
+        tab: 'search',
+        subTab: 'chips',
+        exploreSelection: {
+          category,
+          keyword,
+          count: Number(count || 0),
+        },
+      },
+    });
+  };
 
   return html`
     <div slot="home" class="home-tab-shell">
@@ -241,8 +261,29 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
           </div>
           <div class="home-overview-right">
             <div class="home-recommendations-panel" aria-label="Recommendations panel">
-              <div class="home-recommendations-header">Recommendations</div>
-              <div class="home-recommendations-empty">Coming soon</div>
+              <div class="home-recommendations-body">
+                ${exploreTagCategories.length ? html`
+                  ${exploreTagCategories.map(([category, keywords]) => html`
+                    <section class="home-tag-section">
+                      <div class="home-tag-section-title">${category}</div>
+                      <div class="home-tag-chip-wrap">
+                        ${keywords.map((kw) => html`
+                          <button
+                            type="button"
+                            class="home-tag-chip"
+                            @click=${() => handleExploreTagNavigate(category, kw.keyword, kw.count)}
+                          >
+                            <span class="home-tag-chip-label">${kw.keyword}</span>
+                            <span class="home-tag-chip-count">${formatStatNumber(kw.count)}</span>
+                          </button>
+                        `)}
+                      </div>
+                    </section>
+                  `)}
+                ` : html`
+                  <div class="home-recommendations-empty">No tags available.</div>
+                `}
+              </div>
             </div>
           </div>
         </div>
@@ -264,6 +305,8 @@ export function renderSearchTabContent(host, { formatCurateDate }) {
     <search-tab
       slot="search"
       .tenant=${host.tenant}
+      .searchSubTab=${host.activeSearchSubTab || 'home'}
+      .initialExploreSelection=${host.pendingSearchExploreSelection}
       .searchFilterPanel=${host.searchFilterPanel}
       .searchImages=${host.searchImages}
       .searchTotal=${host.searchTotal}
@@ -279,6 +322,12 @@ export function renderSearchTabContent(host, { formatCurateDate }) {
       .renderCuratePermatagSummary=${renderCuratePermatagSummary}
       .formatCurateDate=${formatCurateDate}
       @sort-changed=${host._handleSearchSortChanged}
+      @search-subtab-changed=${(event) => {
+        host.activeSearchSubTab = event?.detail?.subtab || 'home';
+      }}
+      @explore-selection-applied=${() => {
+        host.pendingSearchExploreSelection = null;
+      }}
       @search-images-optimistic-remove=${host._handleSearchOptimisticRemove}
       @thumb-size-changed=${(e) => host.curateThumbSize = e.detail.size}
       @image-clicked=${(e) => host._handleCurateImageClick(e.detail.event, e.detail.image, e.detail.imageSet)}

@@ -48,6 +48,7 @@ class PhotoCatApp extends LitElement {
       showUploadLibraryModal: { type: Boolean },
       activeTab: { type: String },
       activeLibrarySubTab: { type: String },
+      activeSearchSubTab: { type: String },
       activeAdminSubTab: { type: String },
       activeSystemSubTab: { type: String },
       keywords: { type: Array },
@@ -127,6 +128,7 @@ class PhotoCatApp extends LitElement {
       currentUser: { type: Object },
       _homeLoadingCount: { type: Number },
       assetsRefreshToken: { type: Number },
+      pendingSearchExploreSelection: { type: Object },
   }
 
   constructor() {
@@ -142,10 +144,12 @@ class PhotoCatApp extends LitElement {
       this.showUploadLibraryModal = false;
       this.activeTab = 'home';
       this.homeSubTab = 'overview';
+      this.activeSearchSubTab = 'home';
       this.activeLibrarySubTab = 'assets';
       this.activeAdminSubTab = 'tagging';
       this.activeSystemSubTab = 'cli';
       this.assetsRefreshToken = 0;
+      this.pendingSearchExploreSelection = null;
 
       initializeAppCoreSetup(this);
       bindAppDelegateMethods(this);
