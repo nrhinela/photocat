@@ -49,10 +49,12 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const canDeleteTenantAssets = isSuperAdmin || isTenantAdmin;
   const canEditKeywords = isSuperAdmin || isTenantAdmin || isTenantEditor;
   const canManageTenantUsers = isSuperAdmin || isTenantAdmin;
+  const canManageIntegrations = isSuperAdmin || isTenantAdmin;
   const libraryTabActive = host.activeTab === 'library';
   const defaultLibrarySubTab = 'assets';
   const rawLibrarySubTab = host.activeLibrarySubTab || defaultLibrarySubTab;
   const librarySubTab = (rawLibrarySubTab === 'keywords' || rawLibrarySubTab === 'assets'
+    || (rawLibrarySubTab === 'integrations' && canManageIntegrations)
     || (rawLibrarySubTab === 'users' && canManageTenantUsers))
     ? rawLibrarySubTab
     : defaultLibrarySubTab;
@@ -73,6 +75,14 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
           >
             <i class="fas fa-tags mr-2"></i>Keywords
           </button>
+          ${canManageIntegrations ? html`
+            <button
+              class="admin-subtab ${librarySubTab === 'integrations' ? 'active' : ''}"
+              @click=${() => host.activeLibrarySubTab = 'integrations'}
+            >
+              <i class="fas fa-link mr-2"></i>Integrations
+            </button>
+          ` : html``}
         </div>
         ${librarySubTab === 'assets' ? html`
           <assets-admin
@@ -114,6 +124,13 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               .readOnly=${!canEditKeywords}
             ></person-manager>
           ` : html``}
+        ` : html``}
+        ${librarySubTab === 'integrations' ? html`
+          <div class="mt-2">
+            <library-integrations-admin
+              .tenant=${host.tenant}
+            ></library-integrations-admin>
+          </div>
         ` : html``}
         ${librarySubTab === 'users' ? html`
           <div class="mt-2">

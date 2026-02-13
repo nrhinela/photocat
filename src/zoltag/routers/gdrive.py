@@ -3,12 +3,13 @@
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from zoltag import oauth_state
 from zoltag.dependencies import get_db, get_secret, store_secret
+from zoltag.dropbox_oauth import append_query_params, sanitize_redirect_origin, sanitize_return_path
 from zoltag.metadata import Tenant as TenantModel
 from zoltag.settings import settings
 
@@ -17,9 +18,43 @@ router = APIRouter(
 )
 
 
+def _resolve_redirect_origin(request: Request, explicit_origin: str | None = None) -> str:
+    """Resolve callback origin, preferring explicit caller-provided origin."""
+    candidates: list[str | None] = [
+        explicit_origin,
+        request.headers.get("x-forwarded-origin"),
+        request.headers.get("origin"),
+        settings.app_url,
+    ]
+    x_forwarded_host = request.headers.get("x-forwarded-host")
+    x_forwarded_proto = request.headers.get("x-forwarded-proto")
+    if x_forwarded_host:
+        proto = (x_forwarded_proto or request.url.scheme or "https").split(",")[0].strip()
+        host = x_forwarded_host.split(",")[0].strip()
+        candidates.insert(1, f"{proto}://{host}")
+    host_header = request.headers.get("host")
+    if host_header:
+        candidates.insert(2, f"{request.url.scheme}://{host_header}")
+
+    for candidate in candidates:
+        normalized = sanitize_redirect_origin(candidate)
+        if normalized:
+            return normalized
+    raise HTTPException(status_code=500, detail="Unable to resolve OAuth redirect origin")
+
+
 @router.get("/oauth/gdrive/authorize")
-async def gdrive_authorize(tenant: str, db: Session = Depends(get_db)):
+async def gdrive_authorize(
+    request: Request,
+    tenant: str,
+    flow: str = "popup",
+    redirect_origin: str | None = None,
+    return_to: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Redirect user to Google OAuth consent for Drive access."""
+    flow = "redirect" if flow == "redirect" else "popup"
+    resolved_return_to = sanitize_return_path(return_to)
     tenant_obj = db.query(TenantModel).filter(TenantModel.id == tenant).first()
     if not tenant_obj:
         raise HTTPException(status_code=400, detail="Tenant not found")
@@ -29,8 +64,16 @@ async def gdrive_authorize(tenant: str, db: Session = Depends(get_db)):
     if not client_id:
         raise HTTPException(status_code=400, detail="Google Drive client ID not configured")
 
-    redirect_uri = f"{settings.app_url}/oauth/gdrive/callback"
-    state = oauth_state.generate(tenant)
+    resolved_origin = _resolve_redirect_origin(request, redirect_origin)
+    redirect_uri = f"{resolved_origin}/oauth/gdrive/callback"
+    state = oauth_state.generate_with_context(
+        tenant,
+        {
+            "flow": flow,
+            "return_to": resolved_return_to,
+            "redirect_origin": resolved_origin,
+        },
+    )
     params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
@@ -46,11 +89,22 @@ async def gdrive_authorize(tenant: str, db: Session = Depends(get_db)):
 
 
 @router.get("/oauth/gdrive/callback")
-async def gdrive_callback(code: str, state: str, db: Session = Depends(get_db)):
+async def gdrive_callback(
+    request: Request,
+    code: str,
+    state: str,
+    db: Session = Depends(get_db),
+):
     """Handle Google OAuth callback and persist refresh token."""
-    tenant_id = oauth_state.consume(state)
-    if not tenant_id:
-        raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
+    state_payload = oauth_state.consume_with_context(state)
+    state_context: dict = {}
+    if state_payload:
+        tenant_id = state_payload["tenant_id"]
+        state_context = state_payload.get("context", {}) or {}
+    else:
+        tenant_id = oauth_state.consume(state)
+        if not tenant_id:
+            raise HTTPException(status_code=400, detail="Invalid or expired OAuth state")
 
     tenant_obj = db.query(TenantModel).filter(TenantModel.id == tenant_id).first()
     if not tenant_obj:
@@ -69,7 +123,8 @@ async def gdrive_callback(code: str, state: str, db: Session = Depends(get_db)):
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Google Drive client secret missing: {exc}")
 
-    redirect_uri = f"{settings.app_url}/oauth/gdrive/callback"
+    resolved_origin = _resolve_redirect_origin(request, state_context.get("redirect_origin"))
+    redirect_uri = f"{resolved_origin}/oauth/gdrive/callback"
 
     with httpx.Client(timeout=30) as client:
         response = client.post(
@@ -95,6 +150,18 @@ async def gdrive_callback(code: str, state: str, db: Session = Depends(get_db)):
         )
 
     store_secret(token_secret, refresh_token)
+
+    flow = str(state_context.get("flow") or "").strip().lower()
+    if flow == "redirect":
+        return_to = sanitize_return_path(state_context.get("return_to"))
+        redirect_target = append_query_params(
+            return_to,
+            {
+                "integration": "gdrive",
+                "result": "connected",
+            },
+        )
+        return RedirectResponse(redirect_target)
 
     return HTMLResponse(
         """

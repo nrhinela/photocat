@@ -9,10 +9,12 @@ import './permatag-editor.js';
 import './tagging-admin.js';
 import './assets-admin.js';
 import './tenant-users-admin.js';
+import './library-integrations-admin.js';
 import './ml-training.js';
 import './image-editor.js';
 import './person-manager.js';
 import './people-tagger.js';
+import './admin-modal.js';
 import './shared/widgets/filter-chips.js';
 import './shared/widgets/keyword-dropdown.js';
 
@@ -137,12 +139,7 @@ class ZoltagApp extends LitElement {
 
   constructor() {
       super();
-      let storedTenant = '';
-      try {
-          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
-      } catch (_error) {
-          storedTenant = '';
-      }
+      const storedTenant = this._getStoredTenantFromLocalStorage();
       this.tenant = storedTenant || '';
       this.showUploadModal = false;
       this.showUploadLibraryModal = false;
@@ -157,26 +154,37 @@ class ZoltagApp extends LitElement {
       this.pendingSearchExploreSelection = null;
       this.pendingListSelectionId = null;
       this.pendingListSelectionToken = 0;
+      this._lastTenantRuntimeSignature = '';
 
       initializeAppCoreSetup(this);
       bindAppDelegateMethods(this);
       initializeAppDefaultState(this);
       initializeAppConstructorWiring(this);
+
+      this._handleRuntimeClick = this._handleRuntimeClick.bind(this);
+      this._handleStorageChange = this._handleStorageChange.bind(this);
   }
 
   connectedCallback() {
       super.connectedCallback();
       this._appEventsState.connect();
       this._syncTenantFromStorage();
+      this._applyInitialNavigationFromQuery();
+      document.addEventListener('click', this._handleRuntimeClick, true);
+      window.addEventListener('storage', this._handleStorageChange);
   }
 
   disconnectedCallback() {
+      document.removeEventListener('click', this._handleRuntimeClick, true);
+      window.removeEventListener('storage', this._handleStorageChange);
       this._appEventsState.disconnect();
       super.disconnectedCallback();
   }
 
   render() {
     const canCurate = this._canCurate();
+    const tenantSelectionRequired = this._isTenantSelectionRequired();
+    const availableTenants = tenantSelectionRequired ? this._getAvailableTenantsForUser() : [];
     const navCards = [
       { key: 'search', label: 'Search', subtitle: 'Explore and save results', icon: 'fa-magnifying-glass' },
       { key: 'curate', label: 'Curate', subtitle: 'Build stories and sets', icon: 'fa-star' },
@@ -188,6 +196,7 @@ class ZoltagApp extends LitElement {
     this._curateRightOrder = [];
 
     return html`
+        ${this._renderTenantSelectionModal(tenantSelectionRequired, availableTenants)}
         ${renderRatingModal(this)}
         <app-header
             .tenant=${this.tenant}
@@ -233,6 +242,9 @@ class ZoltagApp extends LitElement {
   }
 
   updated(changedProperties) {
+      if (changedProperties.has('currentUser')) {
+          this._sanitizeTenantSelection();
+      }
       if (changedProperties.has('curateAuditKeyword') || changedProperties.has('curateAuditMode')) {
           this._syncAuditHotspotPrimary();
       }
@@ -240,19 +252,196 @@ class ZoltagApp extends LitElement {
           this._syncAuditHotspotPrimary();
       }
       this._appShellState.handleUpdated(changedProperties);
+      this._lastTenantRuntimeSignature = this._buildTenantRuntimeSignature();
+  }
+
+  _isTenantInAvailableTenants(tenantId, availableTenants = this._getAvailableTenantsForUser()) {
+      const normalizedTenantId = String(tenantId || '').trim();
+      if (!normalizedTenantId || !availableTenants.length) {
+          return false;
+      }
+      return availableTenants.some((tenant) => tenant.id === normalizedTenantId);
+  }
+
+  _getValidStoredTenantId(availableTenants = this._getAvailableTenantsForUser()) {
+      const storedTenant = this._getStoredTenantFromLocalStorage();
+      if (!storedTenant) {
+          return '';
+      }
+      return this._isTenantInAvailableTenants(storedTenant, availableTenants) ? storedTenant : '';
+  }
+
+  _sanitizeTenantSelection() {
+      const availableTenants = this._getAvailableTenantsForUser();
+      if (!availableTenants.length) {
+          return;
+      }
+
+      if (availableTenants.length === 1) {
+          const soleTenantId = availableTenants[0].id;
+          try {
+              localStorage.setItem('tenantId', soleTenantId);
+          } catch (_error) {
+              // ignore localStorage failures
+          }
+          const currentTenant = String(this.tenant || '').trim();
+          if (currentTenant !== soleTenantId) {
+              this._handleTenantChange({ detail: soleTenantId });
+          }
+          return;
+      }
+
+      const storedTenant = this._getStoredTenantFromLocalStorage();
+      const validStoredTenant = this._getValidStoredTenantId(availableTenants);
+      if (storedTenant && !validStoredTenant) {
+          try {
+              localStorage.removeItem('tenantId');
+          } catch (_error) {
+              // ignore localStorage failures
+          }
+      }
+
+      const currentTenant = String(this.tenant || '').trim();
+      if (currentTenant && !this._isTenantInAvailableTenants(currentTenant, availableTenants)) {
+          this.tenant = '';
+      }
+  }
+
+  _getStoredTenantFromLocalStorage() {
+      try {
+          return (localStorage.getItem('tenantId') || '').trim();
+      } catch (_error) {
+          return '';
+      }
+  }
+
+  _getAvailableTenantsForUser() {
+      const memberships = Array.isArray(this.currentUser?.tenants) ? this.currentUser.tenants : [];
+      if (!memberships.length) {
+          return [];
+      }
+      const seen = new Set();
+      const tenants = [];
+      for (const membership of memberships) {
+          const tenantId = String(membership?.tenant_id || '').trim();
+          if (!tenantId || seen.has(tenantId)) {
+              continue;
+          }
+          seen.add(tenantId);
+          const tenantName = String(membership?.tenant_name || '').trim();
+          tenants.push({
+              id: tenantId,
+              name: tenantName || tenantId,
+          });
+      }
+      tenants.sort((a, b) => a.name.localeCompare(b.name));
+      return tenants;
+  }
+
+  _isTenantSelectionRequired() {
+      const availableTenants = this._getAvailableTenantsForUser();
+      if (availableTenants.length <= 1) {
+          return false;
+      }
+
+      return !this._getValidStoredTenantId(availableTenants);
+  }
+
+  _handleTenantSelectionChoice(tenantId) {
+      this._handleTenantChange({ detail: tenantId });
+  }
+
+  _renderTenantSelectionModal(tenantSelectionRequired, availableTenants) {
+      if (!tenantSelectionRequired) {
+          return html``;
+      }
+      return html`
+        <admin-modal
+          title="Select Tenant"
+          .open=${true}
+          .disableDismiss=${true}
+          .showClose=${false}
+          style="--admin-modal-z-index: 5000;"
+        >
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <p style="margin: 0; color: #334155; font-size: 14px;">
+              Multiple tenants are available. Choose a tenant before continuing.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              ${availableTenants.map((tenant) => html`
+                <button
+                  type="button"
+                  style="text-align: left; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; background: #ffffff; font-weight: 600; color: #1f2937; cursor: pointer;"
+                  @click=${() => this._handleTenantSelectionChoice(tenant.id)}
+                >
+                  ${tenant.name}
+                </button>
+              `)}
+            </div>
+          </div>
+        </admin-modal>
+      `;
+  }
+
+  _buildTenantRuntimeSignature() {
+      const storedTenant = this._getStoredTenantFromLocalStorage();
+      const currentTenant = String(this.tenant || '').trim();
+      const tenantIds = this._getAvailableTenantsForUser().map((tenant) => tenant.id).join('|');
+      return `${storedTenant}::${currentTenant}::${tenantIds}`;
+  }
+
+  _reconcileTenantSelectionFromRuntime({ force = false } = {}) {
+      const beforeSignature = this._buildTenantRuntimeSignature();
+      if (!force && beforeSignature === this._lastTenantRuntimeSignature) {
+          return;
+      }
+      this._sanitizeTenantSelection();
+      this._syncTenantFromStorage();
+      const afterSignature = this._buildTenantRuntimeSignature();
+      this._lastTenantRuntimeSignature = afterSignature;
+      if (afterSignature !== beforeSignature) {
+          this.requestUpdate();
+      }
+  }
+
+  _handleRuntimeClick() {
+      this._reconcileTenantSelectionFromRuntime();
+  }
+
+  _handleStorageChange(event) {
+      if (event?.key && event.key !== 'tenantId') {
+          return;
+      }
+      this._reconcileTenantSelectionFromRuntime();
   }
 
   _syncTenantFromStorage() {
-      let storedTenant = '';
-      try {
-          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
-      } catch (_error) {
-          storedTenant = '';
-      }
+      const storedTenant = this._getStoredTenantFromLocalStorage();
       if (!storedTenant || storedTenant === this.tenant) {
           return;
       }
       this._handleTenantChange({ detail: storedTenant });
+  }
+
+  _applyInitialNavigationFromQuery() {
+      try {
+          const params = new URLSearchParams(window.location.search || '');
+          const tab = String(params.get('tab') || '').trim();
+          if (!tab) {
+              return;
+          }
+          const subTab = String(params.get('subTab') || '').trim();
+          const adminSubTab = String(params.get('adminSubTab') || '').trim();
+          this._handleTabChange({
+              detail: {
+                  tab,
+                  subTab: subTab || undefined,
+                  adminSubTab: adminSubTab || undefined,
+              },
+          });
+      } catch (_error) {
+          // ignore malformed URL params
+      }
   }
 
 }

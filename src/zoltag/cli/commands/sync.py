@@ -9,6 +9,7 @@ from zoltag.dependencies import get_secret
 from zoltag.metadata import Tenant as TenantModel, Asset
 from zoltag.tenant import Tenant, TenantContext
 from zoltag.dropbox import DropboxClient
+from zoltag.dropbox_oauth import load_dropbox_oauth_credentials
 from zoltag.image import ImageProcessor
 from zoltag.sync_pipeline import process_dropbox_entry
 from zoltag.cli.base import CliCommand
@@ -76,20 +77,29 @@ class SyncDropboxCommand(CliCommand):
         except Exception as exc:
             click.echo(f"Error: No Dropbox refresh token configured ({exc})", err=True)
             return
-        if not tenant.dropbox_app_key:
-            click.echo("Error: Dropbox app key not configured", err=True)
-            return
+        oauth_mode = str((tenant.settings or {}).get("dropbox_oauth_mode") or "").strip().lower()
+        if oauth_mode == "managed":
+            selection_mode = "managed_only"
+        elif oauth_mode == "legacy_tenant":
+            selection_mode = "tenant_only"
+        else:
+            selection_mode = "tenant_first"
         try:
-            dropbox_app_secret = get_secret(f"dropbox-app-secret-{self.tenant_id}")
-        except Exception as exc:
-            click.echo(f"Error: Dropbox app secret not configured ({exc})", err=True)
+            credentials = load_dropbox_oauth_credentials(
+                tenant_id=tenant.id,
+                tenant_app_key=tenant.dropbox_app_key,
+                get_secret=get_secret,
+                selection_mode=selection_mode,
+            )
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
             return
 
         # Initialize Dropbox client
         dropbox_client = DropboxClient(
             refresh_token=dropbox_token,
-            app_key=tenant.dropbox_app_key,
-            app_secret=dropbox_app_secret,
+            app_key=credentials["app_key"],
+            app_secret=credentials["app_secret"],
         )
 
         # Get sync folders from tenant config or use root

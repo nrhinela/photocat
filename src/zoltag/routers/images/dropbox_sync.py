@@ -18,6 +18,7 @@ from zoltag.tenant import Tenant
 from zoltag.metadata import Asset, ImageMetadata, Permatag
 from zoltag.settings import settings
 from zoltag.storage import create_storage_provider
+from zoltag.dropbox_oauth import load_dropbox_oauth_credentials
 from zoltag.config.db_utils import load_keywords_map
 from zoltag.image import ImageProcessor
 from zoltag.exif import (
@@ -227,16 +228,32 @@ async def propagate_dropbox_tags(
     if not dropbox_ref:
         raise HTTPException(status_code=404, detail="Image not available in Dropbox")
 
-    if not tenant.dropbox_app_key:
-        raise HTTPException(status_code=400, detail="Dropbox app key not configured for tenant")
-    if not tenant.dropbox_token_secret or not tenant.dropbox_app_secret:
+    if not tenant.dropbox_token_secret:
         raise HTTPException(status_code=400, detail="Dropbox secrets not configured for tenant")
 
     try:
-        refresh_token = get_secret(tenant.dropbox_token_secret)
-        app_secret = get_secret(tenant.dropbox_app_secret)
+        refresh_token = str(get_secret(tenant.dropbox_token_secret) or "").strip()
+        oauth_mode = str((tenant.settings or {}).get("dropbox_oauth_mode") or "").strip().lower()
+        if oauth_mode == "managed":
+            selection_mode = "managed_only"
+        elif oauth_mode == "legacy_tenant":
+            selection_mode = "tenant_only"
+        else:
+            selection_mode = "tenant_first"
+        credentials = load_dropbox_oauth_credentials(
+            tenant_id=tenant.id,
+            tenant_app_key=tenant.dropbox_app_key,
+            get_secret=get_secret,
+            selection_mode=selection_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Dropbox secrets missing: {exc}")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Dropbox refresh token is not configured for tenant")
 
     permatags = db.query(Permatag).filter(
         Permatag.asset_id == image.asset_id,
@@ -264,8 +281,8 @@ async def propagate_dropbox_tags(
     try:
         dbx = Dropbox(
             oauth2_refresh_token=refresh_token,
-            app_key=tenant.dropbox_app_key,
-            app_secret=app_secret
+            app_key=credentials["app_key"],
+            app_secret=credentials["app_secret"]
         )
         tags_result = dbx.files_tags_get([dropbox_ref])
         existing_tags = []

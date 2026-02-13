@@ -1,52 +1,107 @@
-"""In-memory OAuth state store for CSRF protection.
+"""Signed OAuth state token helpers for CSRF protection.
 
-Each authorize call generates a cryptographic nonce bound to a tenant ID.
-The callback validates the nonce and retrieves the tenant ID, preventing
-an attacker from forging the `state` parameter to redirect tokens to a
-wrong tenant.
-
-TTL is 10 minutes — enough for any real user flow. Entries are cleaned up
-lazily on each generate/consume call.
-
-Note: In-memory store is appropriate for single-instance Cloud Run.
-If multiple instances are ever deployed, replace with a shared store
-(e.g., Redis or a short-lived DB table).
+State is encoded as a short-lived signed token so it survives:
+- multiple API workers/processes
+- hot reload restarts
+- stateless deployments
 """
 
 import secrets
-import threading
 from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from jose import JWTError, jwt
+
+from zoltag.settings import settings
 
 _STATE_TTL = timedelta(minutes=10)
-_store: dict[str, tuple[str, datetime]] = {}  # nonce -> (tenant_id, expires_at)
-_lock = threading.Lock()
+_STATE_AUDIENCE = "zoltag-oauth-state"
+_STATE_ALGORITHM = "HS256"
 
 
-def _evict_expired() -> None:
+def _state_secret_candidates() -> list[str]:
+    """Resolve candidate signing secrets from most stable/preferred to fallback."""
+    raw_candidates = [
+        settings.oauth_state_secret,
+        settings.database_url,
+        settings.supabase_service_role_key,
+        settings.supabase_anon_key,
+    ]
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for raw in raw_candidates:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        candidates.append(value)
+    return candidates
+
+
+def _state_signing_secret() -> str:
+    candidates = _state_secret_candidates()
+    if not candidates:
+        raise RuntimeError("OAuth state secret is not configured")
+    return candidates[0]
+
+
+def generate_with_context(tenant_id: str, context: dict[str, Any] | None = None) -> str:
+    """Generate signed OAuth state bound to tenant_id + optional context."""
     now = datetime.now(timezone.utc)
-    expired = [k for k, (_, exp) in _store.items() if exp <= now]
-    for k in expired:
-        del _store[k]
+    expires_at = now + _STATE_TTL
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "context": context or {},
+        "nonce": secrets.token_urlsafe(16),
+        "aud": _STATE_AUDIENCE,
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    return jwt.encode(payload, _state_signing_secret(), algorithm=_STATE_ALGORITHM)
+
+
+def consume_with_context(nonce: str) -> dict[str, Any] | None:
+    """Validate signed state token. Returns payload on success, None on failure."""
+    payload = None
+    for secret in _state_secret_candidates():
+        try:
+            payload = jwt.decode(
+                nonce,
+                secret,
+                algorithms=[_STATE_ALGORITHM],
+                audience=_STATE_AUDIENCE,
+                options={
+                    "verify_signature": True,
+                    "verify_aud": True,
+                    "verify_exp": True,
+                },
+            )
+            break
+        except JWTError:
+            continue
+    if payload is None:
+        return None
+
+    tenant_id = str(payload.get("tenant_id") or "").strip()
+    if not tenant_id:
+        return None
+    context = payload.get("context") or {}
+    if not isinstance(context, dict):
+        context = {}
+    return {
+        "tenant_id": tenant_id,
+        "context": context,
+    }
 
 
 def generate(tenant_id: str) -> str:
     """Generate a one-time nonce bound to tenant_id. Returns the nonce."""
-    nonce = secrets.token_urlsafe(32)
-    expires_at = datetime.now(timezone.utc) + _STATE_TTL
-    with _lock:
-        _evict_expired()
-        _store[nonce] = (tenant_id, expires_at)
-    return nonce
+    return generate_with_context(tenant_id, {})
 
 
 def consume(nonce: str) -> str | None:
     """Validate and consume a nonce. Returns tenant_id on success, None on failure."""
-    with _lock:
-        _evict_expired()
-        entry = _store.pop(nonce, None)
-    if entry is None:
+    payload = consume_with_context(nonce)
+    if not payload:
         return None
-    tenant_id, expires_at = entry
-    if datetime.now(timezone.utc) > expires_at:
-        return None
-    return tenant_id
+    return payload["tenant_id"]

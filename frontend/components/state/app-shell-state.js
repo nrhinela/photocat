@@ -45,6 +45,10 @@ export class AppShellStateController extends BaseStateController {
   }
 
   setActiveTab(tabName) {
+    if (this.host._isTenantSelectionRequired?.()) {
+      this.host.activeTab = 'home';
+      return;
+    }
     if (!tabName || !['home', 'search', 'curate', 'library', 'lists'].includes(tabName)) {
       this.host.activeTab = 'home';
       return;
@@ -66,6 +70,10 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleTabChange(event) {
+    if (this.host._isTenantSelectionRequired?.()) {
+      this.host.activeTab = 'home';
+      return;
+    }
     const detail = event?.detail;
     if (detail && typeof detail === 'object') {
       const tab = detail.tab;
@@ -94,6 +102,10 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleHomeNavigate(event) {
+    if (this.host._isTenantSelectionRequired?.()) {
+      this.host.activeTab = 'home';
+      return;
+    }
     const tab = event?.detail?.tab;
     const subTab = event?.detail?.subTab;
     const adminSubTab = event?.detail?.adminSubTab;
@@ -161,6 +173,9 @@ export class AppShellStateController extends BaseStateController {
   }
 
   initializeTab(tab, { force = false } = {}) {
+    if (this.host._isTenantSelectionRequired?.()) {
+      return;
+    }
     if (!tab) return;
     if (!this.host._tabBootstrapped) {
       this.host._tabBootstrapped = new Set();
@@ -211,7 +226,6 @@ export class AppShellStateController extends BaseStateController {
     this.host.tenant = nextTenant;
     try {
       localStorage.setItem('tenantId', nextTenant);
-      localStorage.setItem('currentTenant', nextTenant);
     } catch (error) {
       console.error('Failed to persist tenant selection:', error);
     }

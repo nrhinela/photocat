@@ -31,6 +31,7 @@ from zoltag.routers import (
     admin_people,
     admin_tenants,
     admin_keywords,
+    admin_integrations,
     dropbox,
     gdrive,
     sync,
@@ -90,6 +91,7 @@ app.include_router(people.router)
 app.include_router(admin_people.router)
 app.include_router(admin_tenants.router)
 app.include_router(admin_keywords.router)
+app.include_router(admin_integrations.router)
 app.include_router(dropbox.router)
 app.include_router(gdrive.router)
 app.include_router(sync.router)

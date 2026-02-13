@@ -69,6 +69,9 @@ class AppHeader extends LitElement {
       if (!storedTenant || storedTenant === currentTenant) {
           return;
       }
+      if (this.tenants.length && !this._isKnownTenant(storedTenant)) {
+          return;
+      }
       const reconcileKey = `${storedTenant}::${currentTenant}`;
       if (this._lastTenantReconcileAttempt === reconcileKey) {
           return;
@@ -143,11 +146,18 @@ class AppHeader extends LitElement {
       const storedTenant = this._getStoredTenant();
       const currentTenant = this._normalizeTenantValue(this.tenant);
       if (!storedTenant || storedTenant === currentTenant) return;
+      if (this.tenants.length && !this._isKnownTenant(storedTenant)) return;
       this.dispatchEvent(new CustomEvent('tenant-change', {
           detail: storedTenant,
           bubbles: true,
           composed: true,
       }));
+  }
+
+  _isKnownTenant(tenantId) {
+      const normalizedTenantId = this._normalizeTenantValue(tenantId);
+      if (!normalizedTenantId) return false;
+      return this.tenants.some((tenant) => this._normalizeTenantValue(tenant.id) === normalizedTenantId);
   }
 
   _handleUserMenuAction(value) {
@@ -220,9 +230,7 @@ class AppHeader extends LitElement {
 
   _getStoredTenant() {
       try {
-          return this._normalizeTenantValue(
-              localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || ''
-          );
+          return this._normalizeTenantValue(localStorage.getItem('tenantId') || '');
       } catch (_error) {
           return '';
       }

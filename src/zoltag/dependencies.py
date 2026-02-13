@@ -1,5 +1,7 @@
 """Shared dependencies for FastAPI endpoints."""
 
+from functools import lru_cache
+
 from fastapi import Header, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from google.cloud import secretmanager
@@ -10,6 +12,12 @@ from zoltag.metadata import Tenant as TenantModel
 from zoltag.settings import settings
 from zoltag.auth.dependencies import get_current_user
 from zoltag.auth.models import UserProfile, UserTenant
+
+
+@lru_cache(maxsize=1)
+def _secret_manager_client() -> secretmanager.SecretManagerServiceClient:
+    """Reuse one Secret Manager client per process."""
+    return secretmanager.SecretManagerServiceClient()
 
 
 async def get_tenant(
@@ -74,13 +82,14 @@ async def get_tenant(
         gdrive_client_secret=tenant_settings.get("gdrive_client_secret") or f"gdrive-client-secret-{tenant_row.id}",
         storage_bucket=tenant_row.storage_bucket,
         thumbnail_bucket=tenant_row.thumbnail_bucket,
+        settings=tenant_settings,
     )
     return tenant
 
 
 def get_secret(secret_id: str) -> str:
     """Get secret from Google Cloud Secret Manager."""
-    client = secretmanager.SecretManagerServiceClient()
+    client = _secret_manager_client()
     name = f"projects/{settings.gcp_project_id}/secrets/{secret_id}/versions/latest"
     response = client.access_secret_version(request={"name": name})
     return response.payload.data.decode('UTF-8')
@@ -88,7 +97,7 @@ def get_secret(secret_id: str) -> str:
 
 def store_secret(secret_id: str, value: str) -> None:
     """Store secret in Google Cloud Secret Manager."""
-    client = secretmanager.SecretManagerServiceClient()
+    client = _secret_manager_client()
     parent = f"projects/{settings.gcp_project_id}"
 
     try:
@@ -112,6 +121,19 @@ def store_secret(secret_id: str, value: str) -> None:
             "payload": {"data": value.encode('UTF-8')},
         }
     )
+
+
+def delete_secret(secret_id: str) -> None:
+    """Delete a secret from Google Cloud Secret Manager if it exists."""
+    client = _secret_manager_client()
+    name = f"projects/{settings.gcp_project_id}/secrets/{secret_id}"
+    try:
+        client.delete_secret(request={"name": name})
+    except Exception as exc:
+        message = str(exc).lower()
+        if "not found" in message or "404" in message:
+            return
+        raise
 
 
 def get_tenant_setting(db: Session, tenant_id: str, key: str, default=None):

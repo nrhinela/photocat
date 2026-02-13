@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     supabase_url: Optional[str] = None
     supabase_anon_key: Optional[str] = None
     supabase_service_role_key: Optional[str] = None
+    oauth_state_secret: Optional[str] = None
 
     # Gemini API (Natural language search)
     gemini_api_key: Optional[str] = None

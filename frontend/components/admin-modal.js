@@ -7,7 +7,9 @@ import { LitElement, html, css } from 'lit';
 export class AdminModal extends LitElement {
   static properties = {
     title: { type: String },
-    open: { type: Boolean }
+    open: { type: Boolean },
+    disableDismiss: { type: Boolean },
+    showClose: { type: Boolean },
   };
 
   static styles = css`
@@ -23,7 +25,7 @@ export class AdminModal extends LitElement {
       width: 100%;
       height: 100%;
       background: rgba(0, 0, 0, 0.5);
-      z-index: 1000;
+      z-index: var(--admin-modal-z-index, 1000);
     }
 
     .modal.active {
@@ -80,9 +82,14 @@ export class AdminModal extends LitElement {
     super();
     this.title = '';
     this.open = false;
+    this.disableDismiss = false;
+    this.showClose = true;
   }
 
   handleClose() {
+    if (this.disableDismiss) {
+      return;
+    }
     this.open = false;
     this.dispatchEvent(
       new CustomEvent('modal-closed', {
@@ -93,6 +100,9 @@ export class AdminModal extends LitElement {
   }
 
   handleBackdropClick(e) {
+    if (this.disableDismiss) {
+      return;
+    }
     if (e.target === e.currentTarget) {
       this.handleClose();
     }
@@ -105,7 +115,9 @@ export class AdminModal extends LitElement {
           ${this.title
             ? html`<div class="modal-header">
                 <h2>${this.title}</h2>
-                <button class="close" @click="${this.handleClose}">×</button>
+                ${this.showClose
+                  ? html`<button class="close" @click="${this.handleClose}">×</button>`
+                  : html``}
               </div>`
             : ''}
           <div class="modal-body">

@@ -35,12 +35,15 @@ async def trigger_sync(
     db: Session = Depends(get_db),
     model: str = Query("siglip", description="'clip' or 'siglip'"),
     reprocess_existing: bool = Query(False, description="Reprocess entries even if already ingested"),
-    provider: str = Query("dropbox", description="Storage provider: dropbox or gdrive"),
+    provider: str | None = Query(None, description="Storage provider: dropbox or gdrive"),
 ):
     """Trigger one-item sync for the requested storage provider."""
     try:
         _ = model  # Legacy query param retained for backward compatibility.
-        provider_name = _normalize_provider(provider)
+        tenant_row = db.query(TenantModel).filter(TenantModel.id == tenant.id).first()
+        tenant_settings = tenant_row.settings if tenant_row and tenant_row.settings else {}
+        configured_provider = str(tenant_settings.get("sync_source_provider") or "dropbox").strip().lower()
+        provider_name = _normalize_provider(provider or configured_provider)
 
         try:
             storage_provider = create_storage_provider(provider_name, tenant=tenant, get_secret=get_secret)
@@ -48,9 +51,6 @@ async def trigger_sync(
             raise HTTPException(status_code=400, detail=str(exc))
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Unable to initialize {provider_name} provider: {exc}")
-
-        tenant_row = db.query(TenantModel).filter(TenantModel.id == tenant.id).first()
-        tenant_settings = tenant_row.settings if tenant_row and tenant_row.settings else {}
 
         sync_folder_key = "dropbox_sync_folders" if storage_provider.provider_name == "dropbox" else "gdrive_sync_folders"
         sync_folders = tenant_settings.get(sync_folder_key, [])
