@@ -1,7 +1,7 @@
 """Tenant management and isolation."""
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -10,6 +10,7 @@ class Tenant:
 
     id: str
     name: str
+    tenant_uuid: Optional[str] = None
     active: bool = True
     dropbox_token_secret: Optional[str] = None  # Secret Manager reference
     dropbox_app_key: Optional[str] = None  # Dropbox app key (public, stored in DB)
@@ -19,6 +20,7 @@ class Tenant:
     gdrive_client_secret: Optional[str] = None  # Secret Manager reference
     storage_bucket: Optional[str] = None  # GCS bucket for full-size images
     thumbnail_bucket: Optional[str] = None  # GCS bucket for thumbnails
+    settings: Optional[dict[str, Any]] = None  # Tenant-level settings JSON
     
     def __post_init__(self) -> None:
         """Validate tenant data."""

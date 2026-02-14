@@ -27,6 +27,7 @@ async def list_tenants(
         tenants = db.query(TenantModel).all()
         return [{
             "id": t.id,
+            "tenant_uuid": str(getattr(t, "tenant_uuid", "") or ""),
             "name": t.name,
             "active": t.active,
             "dropbox_app_key": t.dropbox_app_key,
@@ -40,6 +41,7 @@ async def list_tenants(
 
     rows = db.query(
         TenantModel.id,
+        TenantModel.tenant_uuid,
         TenantModel.name,
         TenantModel.active,
         TenantModel.dropbox_app_key,
@@ -51,6 +53,7 @@ async def list_tenants(
 
     return [{
         "id": row.id,
+        "tenant_uuid": str(getattr(row, "tenant_uuid", "") or ""),
         "name": row.name,
         "active": row.active,
         "dropbox_configured": bool(row.dropbox_app_key),
@@ -73,6 +76,7 @@ async def get_tenant(
 
     return {
         "id": tenant.id,
+        "tenant_uuid": str(getattr(tenant, "tenant_uuid", "") or ""),
         "name": tenant.name,
         "active": tenant.active,
         "dropbox_app_key": tenant.dropbox_app_key,
@@ -115,6 +119,7 @@ async def create_tenant(
 
     return {
         "id": tenant.id,
+        "tenant_uuid": str(getattr(tenant, "tenant_uuid", "") or ""),
         "name": tenant.name,
         "active": tenant.active,
         "created_at": tenant.created_at.isoformat()
@@ -152,6 +157,7 @@ async def update_tenant(
 
     return {
         "id": tenant.id,
+        "tenant_uuid": str(getattr(tenant, "tenant_uuid", "") or ""),
         "name": tenant.name,
         "active": tenant.active,
         "updated_at": tenant.updated_at.isoformat()

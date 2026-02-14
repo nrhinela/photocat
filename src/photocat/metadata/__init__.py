@@ -29,6 +29,7 @@ class Tenant(Base):
     __tablename__ = "tenants"
     
     id = Column(String(255), primary_key=True)  # Tenant identifier (e.g., "demo")
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=False, unique=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)  # Display name
     active = Column(Boolean, default=True, nullable=False, index=True)
     
@@ -59,6 +60,7 @@ class Person(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(255), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     # Core attributes
     name = Column(String(255), nullable=False, index=True)
@@ -86,6 +88,7 @@ class ImageMetadata(Base):
     id = Column(Integer, primary_key=True)
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="SET NULL"), nullable=False)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     
     # File information
@@ -150,6 +153,7 @@ class Permatag(Base):
     id = Column(Integer, primary_key=True)
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="SET NULL"), nullable=False)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     # Note: keyword_id FK not declared here (keywords table is in different declarative base)
     # Database enforces FK constraint; use db.query(Keyword).filter(Keyword.id == permatag.keyword_id)
     keyword_id = Column(Integer, nullable=False, index=True)
@@ -180,6 +184,7 @@ class DetectedFace(Base):
     id = Column(Integer, primary_key=True)
     image_id = Column(Integer, ForeignKey("image_metadata.id"), nullable=False)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     person_id = Column(Integer, ForeignKey("people.id", ondelete="SET NULL"), nullable=True)
     person_name = Column(String(255), index=True)  # Fallback for unmatched faces
@@ -212,6 +217,7 @@ class DropboxCursor(Base):
     __tablename__ = "dropbox_cursors"
     
     tenant_id = Column(String(255), primary_key=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     cursor = Column(Text, nullable=False)
     last_sync = Column(DateTime, default=datetime.utcnow)
 
@@ -224,6 +230,7 @@ class ImageEmbedding(Base):
     id = Column(Integer, primary_key=True)
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="SET NULL"), nullable=False)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     
     embedding = Column(ARRAY(Float), nullable=False)  # Vector embedding
     model_name = Column(String(100))  # e.g., "clip-vit-base"
@@ -244,6 +251,7 @@ class KeywordModel(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     # Note: keyword_id FK not declared here (keywords table is in different declarative base)
     # Database enforces FK constraint; use db.query(Keyword).filter(Keyword.id == model.keyword_id)
     keyword_id = Column(Integer, nullable=False, index=True)
@@ -291,6 +299,7 @@ class MachineTag(Base):
     id = Column(Integer, primary_key=True)
     asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="SET NULL"), nullable=False)
     tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     # Tag content (normalized via keyword_id)
     # Note: keyword_id FK not declared here (keywords table is in different declarative base)
@@ -344,6 +353,7 @@ class Asset(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(String(255), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     filename = Column(String(1024), nullable=False)
 
     source_provider = Column(String(64), nullable=False)

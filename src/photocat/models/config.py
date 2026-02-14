@@ -21,6 +21,7 @@ class KeywordCategory(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(50), nullable=False, index=True)
+    tenant_uuid = Column(sa.UUID(as_uuid=True), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     slug = Column(String(60), nullable=True)
     parent_id = Column(Integer, ForeignKey('keyword_categories.id', ondelete='CASCADE'), nullable=True)
@@ -49,6 +50,7 @@ class Keyword(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(50), nullable=False, index=True)  # For tenant isolation and direct queries
+    tenant_uuid = Column(sa.UUID(as_uuid=True), nullable=True, index=True)
     category_id = Column(Integer, ForeignKey('keyword_categories.id', ondelete='CASCADE'), nullable=False, index=True)
     keyword = Column(String(100), nullable=False)
     prompt = Column(Text, nullable=True)  # Optional custom prompt for tagging
@@ -88,6 +90,7 @@ class PhotoList(Base):
 
     id = Column(Integer, primary_key=True)
     tenant_id = Column(String(50), nullable=False, index=True)
+    tenant_uuid = Column(sa.UUID(as_uuid=True), nullable=True, index=True)
     title = Column(String(255), nullable=False)
     notebox = Column(Text, nullable=True)
     created_by_uid = Column(sa.UUID, nullable=True, index=True)  # Foreign key to user_profiles.supabase_uid

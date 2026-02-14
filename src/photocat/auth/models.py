@@ -91,6 +91,7 @@ class UserTenant(Base):
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False
     )
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
 
     role = Column(String(50), nullable=False, default="user")
 
@@ -169,6 +170,7 @@ class Invitation(Base):
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False
     )
+    tenant_uuid = Column(UUID(as_uuid=True), nullable=True, index=True)
     role = Column(String(50), nullable=False, default="user")
 
     invited_by = Column(

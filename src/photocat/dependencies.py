@@ -65,6 +65,7 @@ async def get_tenant(
     tenant = Tenant(
         id=tenant_row.id,
         name=tenant_row.name,
+        tenant_uuid=str(getattr(tenant_row, "tenant_uuid", "") or ""),
         active=tenant_row.active,
         dropbox_token_secret=f"dropbox-token-{tenant_row.id}",
         dropbox_app_key=tenant_row.dropbox_app_key,
@@ -74,6 +75,7 @@ async def get_tenant(
         gdrive_client_secret=tenant_settings.get("gdrive_client_secret") or f"gdrive-client-secret-{tenant_row.id}",
         storage_bucket=tenant_row.storage_bucket,
         thumbnail_bucket=tenant_row.thumbnail_bucket,
+        settings=tenant_settings,
     )
     return tenant
 
