@@ -80,6 +80,10 @@ export function initializeAppDefaultState(host) {
   host.pendingListSelectionId = null;
   host.pendingListSelectionToken = host.pendingListSelectionToken || 0;
   host.currentUser = null;
+  host.providerAdminTenant = null;
+  host.providerAdminSystemSettings = null;
+  host.providerAdminLoading = false;
+  host.providerAdminError = '';
   host.curateExploreTargets = [
     { id: 1, category: '', keyword: '', action: 'add', count: 0 },
   ];

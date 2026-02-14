@@ -591,6 +591,86 @@ export async function updateTenantSettings(tenantId, settings) {
 }
 
 /**
+ * Get integration status/config for current tenant (tenant admin scope)
+ * @param {string} tenantId - Tenant ID
+ * @returns {Promise<Object>} Integration status payload
+ */
+export async function getIntegrationStatus(tenantId) {
+  return fetchWithAuth('/admin/integrations/status', {
+    tenantId,
+  });
+}
+
+/**
+ * Start provider OAuth connection for current tenant (tenant admin scope)
+ * @param {string} tenantId - Tenant ID
+ * @param {'dropbox'|'gdrive'} provider - Provider id
+ * @param {string} returnTo - Same-origin return path after OAuth
+ * @param {string} redirectOrigin - Browser origin for callback
+ * @returns {Promise<Object>} OAuth authorize URL payload
+ */
+export async function startIntegrationConnect(
+  tenantId,
+  provider,
+  returnTo = '/app?tab=library&subTab=providers',
+  redirectOrigin = ''
+) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!normalizedProvider || !['dropbox', 'gdrive'].includes(normalizedProvider)) {
+    throw new Error('Invalid provider');
+  }
+  return fetchWithAuth(`/admin/integrations/${normalizedProvider}/connect`, {
+    method: 'POST',
+    tenantId,
+    body: JSON.stringify({
+      return_to: returnTo,
+      redirect_origin: redirectOrigin,
+    }),
+  });
+}
+
+/**
+ * Disconnect provider integration for current tenant (tenant admin scope)
+ * @param {string} tenantId - Tenant ID
+ * @param {'dropbox'|'gdrive'} provider - Provider id
+ * @returns {Promise<Object>} Disconnect result
+ */
+export async function disconnectIntegration(tenantId, provider) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!normalizedProvider || !['dropbox', 'gdrive'].includes(normalizedProvider)) {
+    throw new Error('Invalid provider');
+  }
+  return fetchWithAuth(`/admin/integrations/${normalizedProvider}/connection`, {
+    method: 'DELETE',
+    tenantId,
+  });
+}
+
+/**
+ * Update integration config for tenant-admin provider settings
+ * @param {string} tenantId - Tenant ID
+ * @param {{provider?: string, syncFolders?: string[], defaultSourceProvider?: string}} payload
+ * @returns {Promise<Object>} Updated config
+ */
+export async function updateIntegrationConfig(tenantId, payload = {}) {
+  const body = {};
+  if (payload.provider !== undefined) {
+    body.provider = payload.provider;
+  }
+  if (payload.syncFolders !== undefined) {
+    body.sync_folders = payload.syncFolders;
+  }
+  if (payload.defaultSourceProvider !== undefined) {
+    body.default_source_provider = payload.defaultSourceProvider;
+  }
+  return fetchWithAuth('/admin/integrations/dropbox/config', {
+    method: 'PATCH',
+    tenantId,
+    body: JSON.stringify(body),
+  });
+}
+
+/**
  * Get tenant photo count (for deletion validation)
  * @param {string} tenantId - Tenant ID
  * @returns {Promise<number>} Number of photos owned by tenant

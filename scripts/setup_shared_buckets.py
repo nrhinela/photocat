@@ -3,8 +3,8 @@
 Setup shared GCS buckets for DEV and PROD environments.
 
 This script:
-1. Creates photocat-483622-DEV-shared bucket (public for thumbnails)
-2. Creates photocat-483622-PROD-shared bucket (public for thumbnails)
+1. Creates <project>-dev-shared bucket (public for thumbnails)
+2. Creates <project>-prod-shared bucket (public for thumbnails)
 3. Configures appropriate permissions and lifecycle policies
 
 Usage:
@@ -20,12 +20,14 @@ Usage:
 
 import argparse
 import sys
+from pathlib import Path
 from google.cloud import storage
 
-# Add parent directory to path to import photocat
-sys.path.insert(0, '/Users/ned.rhinelander/Developer/photocat/src')
+# Add parent directory to path to import zoltag
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR / "src"))
 
-from photocat.settings import settings
+from zoltag.settings import settings
 
 
 def create_shared_bucket(storage_client, project_id: str, env: str):
@@ -116,7 +118,7 @@ def main():
 
     args = parser.parse_args()
 
-    print("=== PhotoCat Shared Bucket Setup ===")
+    print("=== Zoltag Shared Bucket Setup ===")
     print(f"Project: {settings.gcp_project_id}")
     print(f"Region: {settings.gcp_region}")
     print()

@@ -1,10 +1,10 @@
 # LLM Integration Guide
 
-This document explains how PhotoCat ensures consistent architectural patterns across different LLM tools (Claude Code, Continue.dev, Cursor, Copilot, etc.).
+This document explains how Zoltag ensures consistent architectural patterns across different LLM tools (Claude Code, Continue.dev, Cursor, Copilot, etc.).
 
 ## Documentation Ecosystem
 
-PhotoCat maintains a **multi-layered documentation strategy** to support different LLM tools:
+Zoltag maintains a **multi-layered documentation strategy** to support different LLM tools:
 
 ### Layer 1: Core Documentation (All LLMs)
 - **[CLAUDE.md](../CLAUDE.md)**: Comprehensive architectural guidelines

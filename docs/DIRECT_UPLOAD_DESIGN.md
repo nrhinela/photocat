@@ -1,7 +1,7 @@
 # Direct Upload Design (No External Provider)
 
 ## Goal
-Enable users to upload photos directly from the browser into PhotoCat without Dropbox/Drive, while storing:
+Enable users to upload photos directly from the browser into Zoltag without Dropbox/Drive, while storing:
 
 - Original files (full resolution)
 - Thumbnails
@@ -12,11 +12,11 @@ The upload UX must support efficient multi-file uploads with progress and retrie
 ## Current System Fit
 The design intentionally reuses existing components:
 
-- Ingestion pipeline: `src/photocat/sync_pipeline.py`
-- Storage key helpers: `src/photocat/tenant/__init__.py`
-- Provider abstraction: `src/photocat/storage/providers.py`
+- Ingestion pipeline: `src/zoltag/sync_pipeline.py`
+- Storage key helpers: `src/zoltag/tenant/__init__.py`
+- Provider abstraction: `src/zoltag/storage/providers.py`
 - Existing upload UI surface: `frontend/components/upload-modal.js`
-- Current analyze-only endpoint: `src/photocat/routers/images/tagging.py` (`POST /images/upload`)
+- Current analyze-only endpoint: `src/zoltag/routers/images/tagging.py` (`POST /images/upload`)
 
 <!-- REVIEW: sync_pipeline.py expects a ProviderEntry + StorageProvider instance. For Phase 1
      (server multipart), you can bypass the pipeline entirely and call ImageProcessor directly,
@@ -41,7 +41,7 @@ Introduce a new storage provider identity:
 - `source_provider = "managed"`
 - `source_key = <GCS object key for original file>`
 
-`managed` means "PhotoCat-owned object in tenant storage bucket."
+`managed` means "Zoltag-owned object in tenant storage bucket."
 
 <!-- REVIEW: "managed" is a reasonable name. Alternatives: "web-upload", "direct". The main
      constraint is that once you pick a value it's in the DB forever; make sure it's added to
@@ -90,7 +90,7 @@ For each uploaded file:
      key generation. -->
 
 ### 3) Reuse provider abstraction for reads
-Implement `ManagedStorageProvider` in `src/photocat/storage/providers.py` so existing full-image routes can fetch managed originals through the same provider mechanism used by Dropbox/Drive.
+Implement `ManagedStorageProvider` in `src/zoltag/storage/providers.py` so existing full-image routes can fetch managed originals through the same provider mechanism used by Dropbox/Drive.
 
 <!-- REVIEW: This is the right call. The existing full-image serving routes
      (GET /images/{id}/full, GET /images/{id}/download) use resolve_image_storage() to dispatch

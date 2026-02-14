@@ -38,8 +38,19 @@ export function renderRatingModal(host) {
 }
 
 export function renderAuxTabContent(host, { formatCurateDate }) {
+  const selectedTenant = String(host.tenant || '').trim();
   const tenantMembership = (host.currentUser?.tenants || []).find(
-    (membership) => String(membership.tenant_id) === String(host.tenant)
+    (membership) => {
+      const membershipTenantId = String(membership?.tenant_id || '').trim();
+      const membershipIdentifier = String(membership?.tenant_identifier || '').trim();
+      return (
+        selectedTenant !== ''
+        && (
+          selectedTenant === membershipTenantId
+          || (membershipIdentifier && selectedTenant === membershipIdentifier)
+        )
+      );
+    }
   );
   const isSuperAdmin = !!host.currentUser?.user?.is_super_admin;
   const tenantRole = tenantMembership?.role || '';
@@ -49,11 +60,13 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const canDeleteTenantAssets = isSuperAdmin || isTenantAdmin;
   const canEditKeywords = isSuperAdmin || isTenantAdmin || isTenantEditor;
   const canManageTenantUsers = isSuperAdmin || isTenantAdmin;
+  const canManageProviders = isSuperAdmin || isTenantAdmin;
   const libraryTabActive = host.activeTab === 'library';
   const defaultLibrarySubTab = 'assets';
   const rawLibrarySubTab = host.activeLibrarySubTab || defaultLibrarySubTab;
   const librarySubTab = (rawLibrarySubTab === 'keywords' || rawLibrarySubTab === 'assets'
-    || (rawLibrarySubTab === 'users' && canManageTenantUsers))
+    || (rawLibrarySubTab === 'users' && canManageTenantUsers)
+    || (rawLibrarySubTab === 'providers' && canManageProviders))
     ? rawLibrarySubTab
     : defaultLibrarySubTab;
 
@@ -73,6 +86,14 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
           >
             <i class="fas fa-tags mr-2"></i>Keywords
           </button>
+          ${canManageProviders ? html`
+            <button
+              class="admin-subtab ${librarySubTab === 'providers' ? 'active' : ''}"
+              @click=${() => host.activeLibrarySubTab = 'providers'}
+            >
+              <i class="fas fa-database mr-2"></i>Providers
+            </button>
+          ` : html``}
         </div>
         ${librarySubTab === 'assets' ? html`
           <assets-admin
@@ -122,6 +143,13 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               .canManage=${canManageTenantUsers}
               .isSuperAdmin=${isSuperAdmin}
             ></tenant-users-admin>
+          </div>
+        ` : html``}
+        ${librarySubTab === 'providers' ? html`
+          <div class="mt-2">
+            <library-integrations-admin
+              .tenant=${host.tenant}
+            ></library-integrations-admin>
           </div>
         ` : html``}
       </div>

@@ -16,7 +16,7 @@ Optimize token usage when working with this codebase.
 Read({ file_path: "file.js", offset: 100, limit: 50 })
 
 // ❌ BAD - Read entire large file when you only need a section
-Read({ file_path: "photocat-app.js" }) // 4,425 lines!
+Read({ file_path: "zoltag-app.js" }) // 4,425 lines!
 ```
 
 ## Searching Code
@@ -54,9 +54,9 @@ Task({ subagent_type: "Explore", prompt: "find state stuff" })
 
 Know these to avoid searching:
 
-- **Frontend**: `frontend/main.js` → `frontend/components/photocat-app.js`
-- **Backend API**: `src/photocat/api.py`
-- **Database models**: `src/photocat/models.py`
+- **Frontend**: `frontend/main.js` → `frontend/components/zoltag-app.js`
+- **Backend API**: `src/zoltag/api.py`
+- **Database models**: `src/zoltag/models.py`
 - **State controllers**: `frontend/components/state/`
 - **Shared utilities**: `frontend/components/shared/`
 
@@ -67,13 +67,13 @@ Know where to look:
 - Components: `frontend/components/*.js`
 - State: `frontend/components/state/*.js`
 - Shared: `frontend/components/shared/`
-- Backend routers: `src/photocat/routers/`
-- Models: `src/photocat/models.py`
-- Config: `src/photocat/settings.py`
+- Backend routers: `src/zoltag/routers/`
+- Models: `src/zoltag/models.py`
+- Config: `src/zoltag/settings.py`
 
 ## Anti-Patterns
 
-❌ Reading photocat-app.js without line ranges
+❌ Reading zoltag-app.js without line ranges
 ❌ Using Explore agent for simple lookups
 ❌ Reading multiple files without searching first
 ❌ Not using Grep's `output_mode: "files_with_matches"`

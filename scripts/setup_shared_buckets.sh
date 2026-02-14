@@ -4,10 +4,16 @@
 
 set -e
 
-PROJECT_ID="photocat-483622"
+PROJECT_ID="${PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
 REGION="us-central1"
 
-echo "=== PhotoCat Shared Bucket Setup ==="
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+    echo "ERROR: PROJECT_ID is not set."
+    echo "Set PROJECT_ID env var or run: gcloud config set project <project-id>"
+    exit 1
+fi
+
+echo "=== Zoltag Shared Bucket Setup ==="
 echo "Project: $PROJECT_ID"
 echo "Region: $REGION"
 echo ""

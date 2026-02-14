@@ -3,6 +3,11 @@ import { getCurrentUser } from '../../services/auth.js';
 import { getImageStats } from '../../services/api.js';
 import { shouldAutoRefreshCurateStats } from '../shared/curate-stats.js';
 
+function normalizeTenantValue(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
 /**
  * App Shell State Controller
  *
@@ -19,19 +24,48 @@ export class AppShellStateController extends BaseStateController {
 
   async loadCurrentUser() {
     try {
-      this.host.currentUser = await getCurrentUser();
+      this.host.currentUser = await getCurrentUser({ force: true });
+      const canonicalTenant = this.resolveTenantRef(this.host.tenant);
+      if (canonicalTenant && canonicalTenant !== this.host.tenant) {
+        this.host.tenant = canonicalTenant;
+        try {
+          localStorage.setItem('tenantId', canonicalTenant);
+          localStorage.setItem('currentTenant', canonicalTenant);
+        } catch (_error) {
+          // no-op; persistence failures should not block UI
+        }
+        this.host.searchFilterPanel.setTenant(this.host.tenant);
+        this.host.curateHomeFilterPanel.setTenant(this.host.tenant);
+        this.host.curateAuditFilterPanel.setTenant(this.host.tenant);
+      }
     } catch (error) {
       console.error('Error fetching current user:', error);
       this.host.currentUser = null;
     }
   }
 
+  resolveTenantRef(rawTenantRef) {
+    const tenantRef = normalizeTenantValue(rawTenantRef);
+    if (!tenantRef) return '';
+    const memberships = Array.isArray(this.host.currentUser?.tenants)
+      ? this.host.currentUser.tenants
+      : [];
+    for (const membership of memberships) {
+      const membershipTenantId = normalizeTenantValue(String(membership?.tenant_id ?? ''));
+      const membershipIdentifier = normalizeTenantValue(membership?.tenant_identifier || '');
+      if (tenantRef === membershipTenantId || (membershipIdentifier && tenantRef === membershipIdentifier)) {
+        return membershipTenantId || tenantRef;
+      }
+    }
+    return tenantRef;
+  }
+
   getTenantRole() {
-    const tenantId = this.host.tenant;
+    const tenantId = this.resolveTenantRef(this.host.tenant);
     if (!tenantId) return null;
     const memberships = this.host.currentUser?.tenants || [];
     const match = memberships.find(
-      (membership) => String(membership.tenant_id) === String(tenantId)
+      (membership) => normalizeTenantValue(String(membership?.tenant_id ?? '')) === tenantId
     );
     return match?.role || null;
   }
@@ -195,6 +229,7 @@ export class AppShellStateController extends BaseStateController {
         break;
       }
       case 'library':
+        break;
       default:
         break;
     }
@@ -203,7 +238,8 @@ export class AppShellStateController extends BaseStateController {
   }
 
   handleTenantChange(event) {
-    const nextTenant = (typeof event?.detail === 'string' ? event.detail : '').trim();
+    const rawTenant = normalizeTenantValue(typeof event?.detail === 'string' ? event.detail : '');
+    const nextTenant = this.resolveTenantRef(rawTenant);
     if (!nextTenant || nextTenant === this.host.tenant) {
       return;
     }
@@ -219,6 +255,8 @@ export class AppShellStateController extends BaseStateController {
     this.host.searchFilterPanel.setTenant(this.host.tenant);
     this.host.curateHomeFilterPanel.setTenant(this.host.tenant);
     this.host.curateAuditFilterPanel.setTenant(this.host.tenant);
+    this.host.providerAdminTenant = null;
+    this.host.providerAdminError = '';
 
     this.host._curateHomeState.resetForTenantChange();
     this.host.curateSubTab = 'main';

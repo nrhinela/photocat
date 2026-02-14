@@ -1,4 +1,4 @@
-# PhotoCat Modularization Plan
+# Zoltag Modularization Plan
 
 **Status**: Phase 1 Complete, Phase 2 Pending
 **Date**: 2026-02-09
@@ -6,17 +6,17 @@
 
 ## Executive Summary
 
-The PhotoCat codebase had two critical files that violated the project's "small files for LLM compatibility" principle:
+The Zoltag codebase had two critical files that violated the project's "small files for LLM compatibility" principle:
 
-- **`frontend/components/photocat-app.js`**: 4,602 lines, 135 methods (baseline) -> 215 lines (current)
-- **`src/photocat/routers/images/core.py`**: 1,893 lines, 26 endpoints
+- **`frontend/components/zoltag-app.js`**: 4,602 lines, 135 methods (baseline) -> 215 lines (current)
+- **`src/zoltag/routers/images/core.py`**: 1,893 lines, 26 endpoints
 
 This plan outlines a systematic refactoring to reduce these files to manageable sizes (~400-800 lines each) while maintaining functionality and test coverage.
 
 ## Latest Status Update (2026-02-09)
 
 - Phase 1 frontend modularization is complete.
-- `photocat-app.js` has been reduced to 215 lines and now acts as an orchestrator.
+- `zoltag-app.js` has been reduced to 215 lines and now acts as an orchestrator.
 - State and wiring code has been extracted into:
   - `frontend/components/state/app-core-setup.js`
   - `frontend/components/state/app-default-state.js`
@@ -24,7 +24,7 @@ This plan outlines a systematic refactoring to reduce these files to manageable 
   - `frontend/components/state/app-delegate-methods.js`
   - Plus previously extracted tab/domain controllers under `frontend/components/state/`.
 - Build validation passed after extraction (`npm run build`).
-- Phase 2 (`src/photocat/routers/images/core.py`) remains pending.
+- Phase 2 (`src/zoltag/routers/images/core.py`) remains pending.
 
 ## Refactoring Principles
 
@@ -39,7 +39,7 @@ This plan outlines a systematic refactoring to reduce these files to manageable 
 
 ### Current State Analysis
 
-**File**: `frontend/components/photocat-app.js` (4,602 baseline, 215 current)
+**File**: `frontend/components/zoltag-app.js` (4,602 baseline, 215 current)
 
 **Method Breakdown by Feature**:
 - Curate Home: 47 methods (filters, sorting, selection, loading)
@@ -60,7 +60,7 @@ This plan outlines a systematic refactoring to reduce these files to manageable 
 
 ```
 frontend/components/
-├── photocat-app.js (800 lines - orchestrator only)
+├── zoltag-app.js (800 lines - orchestrator only)
 │   ├── Tab routing and rendering
 │   ├── Global state (user, tenant, keywords)
 │   ├── Modal coordination (editor, upload, list-editor)
@@ -101,7 +101,7 @@ frontend/components/
 ```
 
 **State Directory Ownership Rules**:
-- **`components/state/`**: Tab-specific state controllers that are tightly coupled to `photocat-app.js`. These manage the lifecycle and behavior of individual tabs (curate, audit, explore, search). One-to-one relationship with tabs.
+- **`components/state/`**: Tab-specific state controllers that are tightly coupled to `zoltag-app.js`. These manage the lifecycle and behavior of individual tabs (curate, audit, explore, search). One-to-one relationship with tabs.
 - **`shared/state/`**: Reusable state utilities used by MULTIPLE tabs or components (e.g., `image-filter-panel.js` used by search, curate, and audit). Must have 2+ consumers before moving to shared.
 - **Rule**: State starts in `components/state/`. Only move to `shared/state/` when a third component needs it (not sooner, to avoid premature abstraction).
 
@@ -237,9 +237,9 @@ export class CurateHomeStateController extends BaseStateController {
 
 **Migration Path**:
 1. Create `curate-home-state.js` with class skeleton
-2. Copy methods from `photocat-app.js` (lines ~1646-2600)
+2. Copy methods from `zoltag-app.js` (lines ~1646-2600)
 3. Update method signatures to use `this.host` for property access
-4. In `photocat-app.js`, instantiate controller in constructor:
+4. In `zoltag-app.js`, instantiate controller in constructor:
    ```javascript
    this._curateHomeState = new CurateHomeStateController(this);
    ```
@@ -335,9 +335,9 @@ Simpler than Audit - fewer hotspot options, no complex modes.
 - Apply rating to selected images
 - Handle modal click outside to close
 
-#### Step 1.6: Update PhotoCat App
+#### Step 1.6: Update Zoltag App
 
-**File**: `frontend/components/photocat-app.js` (reduced to 215 lines)
+**File**: `frontend/components/zoltag-app.js` (reduced to 215 lines)
 
 **Remaining Responsibilities**:
 - Component lifecycle (constructor, connectedCallback, disconnectedCallback)
@@ -479,7 +479,7 @@ This avoids allocating new lambdas on every render while still delegating to sta
   - ✅ Slice 2: Sorting (orderBy, orderDirection, quickSort)
   - ✅ Slice 3: State Management (getDefaultState, snapshotState, restoreState)
   - ✅ Slice 4: Selection & Loading (removeImagesByIds, flashSelection, loading indicators, fetchCurateHomeImages)
-- ✅ Update `photocat-app.js` integration (complete - all slices wired)
+- ✅ Update `zoltag-app.js` integration (complete - all slices wired)
 - ✅ Bug fixes completed:
   - Fixed multi-keyword selection bug in curate->explore
   - Fixed rating hotspot dialog bug (event bubbling issue)
@@ -497,7 +497,7 @@ This avoids allocating new lambdas on every render while still delegating to sta
     - State Management (3 methods)
 - ✅ Update audit tab integration (COMPLETE)
   - ✅ Delegated methods: `_removeAuditImagesByIds`, `_handleCurateAuditModeChange`, `_handleCurateAuditAiEnabledChange`, `_handleCurateAuditAiModelChange`, `_handleCurateAuditKeywordChange`, `_handleCurateAuditMinRating`, `_handleCurateAuditHideDeletedChange`, `_handleCurateAuditNoPositivePermatagsChange`, `_fetchCurateAuditImages`, `_handleCurateAuditHotspotChanged`
-  - ✅ photocat-app.js reduced to 4,475 lines (from 4,602)
+  - ✅ zoltag-app.js reduced to 4,475 lines (from 4,602)
 - ✅ Run golden workflow 2 (PASSED)
 - **✅ CHECKPOINT PASSED**: All audit functionality verified → **PROCEEDING TO M3**
 
@@ -510,7 +510,7 @@ This avoids allocating new lambdas on every render while still delegating to sta
   - Manages modal visibility for both explore and audit
   - Handles rating application with proper image removal delegation
   - Methods: `showExploreRatingDialog`, `showAuditRatingDialog`, `closeRatingModal`, `handleEscapeKey`, `handleRatingModalClick`, `applyExploreRating`, `applyAuditRating`
-- ✅ Delegated 7 rating modal methods in `photocat-app.js`:
+- ✅ Delegated 7 rating modal methods in `zoltag-app.js`:
   - `_showExploreRatingDialog` (5 lines → 2 lines)
   - `_showAuditRatingDialog` (5 lines → 2 lines)
   - `_handleRatingModalClick` (11 lines → 2 lines)
@@ -518,18 +518,18 @@ This avoids allocating new lambdas on every render while still delegating to sta
   - `_handleEscapeKey` (4 lines → 2 lines)
   - `_applyExploreRating` (14 lines → 2 lines)
   - `_applyAuditRating` (14 lines → 2 lines)
-- ✅ photocat-app.js reduced to 4,425 lines (from 4,475)
+- ✅ zoltag-app.js reduced to 4,425 lines (from 4,475)
 - ✅ Verify rating dialogs work in both explore and audit (VALIDATED)
 - **✅ CHECKPOINT PASSED**: Rating flows validated → **PROCEEDING TO M4**
 
 **Milestone 4: Search + Cleanup** (~1 week) — **✅ COMPLETE**
 - ⏭️ Extract `SearchStateController` (SKIPPED - minimal state, well-contained in search-tab.js)
   - Note: Search functionality already well-encapsulated in search-tab.js component
-  - Search state in photocat-app.js is minimal (list draft only)
+  - Search state in zoltag-app.js is minimal (list draft only)
   - ImageFilterPanel handles all search filter logic
   - Creating state controller would provide minimal value
 - ✅ Final assessment and documentation
-  - photocat-app.js: 4,602 → 215 lines (4,387 lines removed, 95.3% reduction)
+  - zoltag-app.js: 4,602 → 215 lines (4,387 lines removed, 95.3% reduction)
   - State/wiring extracted into dedicated `components/state` modules
   - Successful extraction of core curate functionality
   - All golden workflows validated (1, 2, 4, 5)
@@ -576,7 +576,7 @@ This avoids allocating new lambdas on every render while still delegating to sta
 
 ### Current State Analysis
 
-**File**: `src/photocat/routers/images/core.py` (1,893 lines)
+**File**: `src/zoltag/routers/images/core.py` (1,893 lines)
 
 **Endpoint Breakdown**:
 1. **Listing & Stats** (5 endpoints, ~600 lines):
@@ -620,7 +620,7 @@ This avoids allocating new lambdas on every render while still delegating to sta
 ### Proposed Architecture
 
 ```
-src/photocat/routers/images/
+src/zoltag/routers/images/
 ├── _shared.py (NEW - cross-router utilities)
 │   ├── _get_image_and_asset_or_409
 │   ├── _resolve_storage_or_409
@@ -664,7 +664,7 @@ src/photocat/routers/images/
 ```
 
 ```
-src/photocat/routers/images/
+src/zoltag/routers/images/
 ├── _shared.py (NEW - cross-router utilities)
 │   ├── _get_image_and_asset_or_409
 │   ├── _resolve_storage_or_409
@@ -682,7 +682,7 @@ src/photocat/routers/images/
 
 #### Step 2.1: Extract Asset Variants Router
 
-**File**: `src/photocat/routers/images/asset_variants.py` (400 lines)
+**File**: `src/zoltag/routers/images/asset_variants.py` (400 lines)
 
 **Contents**:
 - All asset derivative CRUD endpoints
@@ -702,7 +702,7 @@ src/photocat/routers/images/
 **Compatibility Shim Pattern** (for one release cycle):
 ```python
 # In core.py (after moving functions to asset_variants.py)
-from photocat.routers.images.asset_variants import (
+from zoltag.routers.images.asset_variants import (
     list_asset_variants as _list_asset_variants,
     upload_asset_variant as _upload_asset_variant,
 )
@@ -712,7 +712,7 @@ import warnings
 def list_asset_variants(*args, **kwargs):
     warnings.warn(
         "Importing list_asset_variants from core.py is deprecated. "
-        "Import from photocat.routers.images.asset_variants instead.",
+        "Import from zoltag.routers.images.asset_variants instead.",
         DeprecationWarning,
         stacklevel=2
     )
@@ -726,7 +726,7 @@ def list_asset_variants(*args, **kwargs):
 
 #### Step 2.2: Extract File Serving Router
 
-**File**: `src/photocat/routers/images/file_serving.py` (300 lines)
+**File**: `src/zoltag/routers/images/file_serving.py` (300 lines)
 
 **Contents**:
 - `get_thumbnail` - Serve thumbnail from GCS or Dropbox
@@ -741,7 +741,7 @@ def list_asset_variants(*args, **kwargs):
 
 #### Step 2.3: Extract Dropbox Sync Router
 
-**File**: `src/photocat/routers/images/dropbox_sync.py` (500 lines)
+**File**: `src/zoltag/routers/images/dropbox_sync.py` (500 lines)
 
 **Contents**:
 - `list_dropbox_folders` - List folders from Dropbox
@@ -757,7 +757,7 @@ def list_asset_variants(*args, **kwargs):
 
 #### Step 2.4: Extract Stats Router
 
-**File**: `src/photocat/routers/images/stats.py` (250 lines)
+**File**: `src/zoltag/routers/images/stats.py` (250 lines)
 
 **Contents**:
 - `get_image_stats` - Complex aggregation query
@@ -771,7 +771,7 @@ def list_asset_variants(*args, **kwargs):
 
 #### Step 2.5: Extract Rating Router
 
-**File**: `src/photocat/routers/images/rating.py` (100 lines)
+**File**: `src/zoltag/routers/images/rating.py` (100 lines)
 
 **Contents**:
 - `update_image_rating` - Update rating (currently 18 lines, room to grow)
@@ -780,7 +780,7 @@ def list_asset_variants(*args, **kwargs):
 
 #### Step 2.6: Simplify Core Router
 
-**File**: `src/photocat/routers/images/core.py` (reduced to 400 lines)
+**File**: `src/zoltag/routers/images/core.py` (reduced to 400 lines)
 
 **Remaining Contents**:
 - `list_images` - Main image listing (may need refactoring to use query_builder)
@@ -814,15 +814,15 @@ This order minimizes risk by tackling the most complex/critical endpoint last.
 
 #### Step 2.7: Update API Registration
 
-**File**: `src/photocat/api.py`
+**File**: `src/zoltag/api.py`
 
 ```python
 # Before
-from photocat.routers.images import core, tagging, ml_training, people_tagging, permatags
+from zoltag.routers.images import core, tagging, ml_training, people_tagging, permatags
 app.include_router(core.router)
 
 # After
-from photocat.routers.images import (
+from zoltag.routers.images import (
     core,
     stats,
     asset_variants,
@@ -894,7 +894,7 @@ diff <(jq 'del(.tags)' openapi_before.json) \
 
 ### Other Large Files to Consider
 
-1. **`src/photocat/cli.py`** (1,239 lines, 54 commands)
+1. **`src/zoltag/cli.py`** (1,239 lines, 54 commands)
    - Already has `cli/commands/` subfolder
    - Move remaining commands to appropriate modules
    - Reduce to ~200 lines (just CLI group registration)
@@ -908,7 +908,7 @@ diff <(jq 'del(.tags)' openapi_before.json) \
    - Extract search query builder → shared module
    - Keep image rendering pattern intact
 
-4. **`src/photocat/routers/filtering.py`** (1,006 lines)
+4. **`src/zoltag/routers/filtering.py`** (1,006 lines)
    - Split into: `filter_parser.py`, `filter_query.py`, `filter_validation.py`
 
 ---
@@ -916,12 +916,12 @@ diff <(jq 'del(.tags)' openapi_before.json) \
 ## Success Metrics
 
 ### Before Refactoring
-- `photocat-app.js`: 4,602 lines, 135 methods
+- `zoltag-app.js`: 4,602 lines, 135 methods
 - `routers/images/core.py`: 1,893 lines, 26 endpoints
 - **Total "problematic" lines**: 6,495
 
 ### After Refactoring (Target)
-- `photocat-app.js`: 800 lines, ~25 methods
+- `zoltag-app.js`: 800 lines, ~25 methods
 - `routers/images/core.py`: 400 lines, 4 endpoints
 - **Total refactored into**: ~10-12 focused modules averaging 300-600 lines each
 - **Reduction**: 6,495 → ~5,000 total lines (but distributed for LLM compatibility)
@@ -1052,7 +1052,7 @@ Based on CLAUDE.md principle of "small files for LLM compatibility":
 
 ## Appendix B: Method Distribution Example
 
-**Current photocat-app.js** (135 methods):
+**Current zoltag-app.js** (135 methods):
 ```
 Curate Home:     47 methods (35%)
 Curate Audit:    28 methods (21%)
@@ -1066,9 +1066,9 @@ Hotspot:          1 method  (1%)
 Queue:            6 methods (4%)
 ```
 
-**After refactoring** (25 methods in photocat-app.js):
+**After refactoring** (25 methods in zoltag-app.js):
 ```
-photocat-app.js:      25 methods (navigation, modals, global state)
+zoltag-app.js:      25 methods (navigation, modals, global state)
 curate-home-state:    47 methods (moved)
 curate-audit-state:   28 methods (moved)
 curate-explore-state:  9 methods (moved)
@@ -1114,7 +1114,7 @@ Utilities:            16 methods (shared/moved)
 
 3. ✅ Bug Fix: Rating hotspot dialog appearing incorrectly
    - **Issue**: Dragging image to 1-star rating hotspot showed "prompt for rating" dialog
-   - **Root Cause**: Event bubbling - the original `rating-drop` event from `rating-target-panel` was bubbling up to `photocat-app` after being transformed by `curate-explore-tab`, causing double handler invocation
+   - **Root Cause**: Event bubbling - the original `rating-drop` event from `rating-target-panel` was bubbling up to `zoltag-app` after being transformed by `curate-explore-tab`, causing double handler invocation
    - **Fix**: Added `event.stopPropagation()` in `curate-explore-tab.js:1317` to prevent original event from bubbling
    - **Impact**: Rating hotspots now correctly apply ratings without showing dialog
    - **Location**: `frontend/components/curate-explore-tab.js:1315-1321`
@@ -1123,7 +1123,7 @@ Utilities:            16 methods (shared/moved)
    - **Methods Added**:
      - `removeImagesByIds(ids)` - Remove images from curate list and selection
      - `flashSelection(imageId)` - Flash animation on image for visual feedback
-   - **Delegated Methods** in `photocat-app.js`:
+   - **Delegated Methods** in `zoltag-app.js`:
      - `_removeCurateImagesByIds()` → `_curateHomeState.removeImagesByIds()`
      - `_flashCurateSelection()` → `_curateHomeState.flashSelection()`
      - `_startCurateLoading()` → `_curateHomeState.startLoading()`
@@ -1144,7 +1144,7 @@ Utilities:            16 methods (shared/moved)
 **Files Modified**:
 - `frontend/components/state/curate-home-state.js` (new file, 522 lines - COMPLETE)
 - `frontend/components/curate-explore-tab.js` (bug fixes)
-- `frontend/components/photocat-app.js` (delegated methods to state controller)
+- `frontend/components/zoltag-app.js` (delegated methods to state controller)
 
 ---
 
@@ -1160,7 +1160,7 @@ Utilities:            16 methods (shared/moved)
    - Loading & Data Fetching: `startLoading`, `finishLoading`, `fetchCurateAuditImages`
    - State Management: `getDefaultState`, `snapshotState`, `restoreState`
 
-2. ✅ Delegated 10 audit methods in `photocat-app.js`:
+2. ✅ Delegated 10 audit methods in `zoltag-app.js`:
    - `_removeAuditImagesByIds` (5 lines → 2 lines)
    - `_handleCurateAuditModeChange` (15 lines → 4 lines)
    - `_handleCurateAuditAiEnabledChange` (12 lines → 2 lines)
@@ -1173,7 +1173,7 @@ Utilities:            16 methods (shared/moved)
    - `_handleCurateAuditHotspotChanged` (15 lines → 7 lines)
 
 3. ✅ File size reduction:
-   - `photocat-app.js`: 4,602 → 4,475 lines (127 lines removed)
+   - `zoltag-app.js`: 4,602 → 4,475 lines (127 lines removed)
    - Total extraction across M1+M2: ~730 lines moved to state controllers
 
 4. ✅ Golden Workflow 2 validated (Curate Audit → Apply Hotspot → Rate Multiple)
@@ -1195,7 +1195,7 @@ Utilities:            16 methods (shared/moved)
 
 **Files Modified**:
 - `frontend/components/state/curate-audit-state.js` (new file, 511 lines)
-- `frontend/components/photocat-app.js` (delegated audit methods)
+- `frontend/components/zoltag-app.js` (delegated audit methods)
 
 ---
 
@@ -1208,7 +1208,7 @@ Utilities:            16 methods (shared/moved)
    - Rating Application: `applyExploreRating`, `applyAuditRating`
    - State Management: `getDefaultState`, `snapshotState`, `restoreState`
 
-2. ✅ Delegated 7 rating modal methods in `photocat-app.js`:
+2. ✅ Delegated 7 rating modal methods in `zoltag-app.js`:
    - `_showExploreRatingDialog` (5 lines → 2 lines)
    - `_showAuditRatingDialog` (5 lines → 2 lines)
    - `_handleRatingModalClick` (11 lines → 2 lines)
@@ -1223,7 +1223,7 @@ Utilities:            16 methods (shared/moved)
    - Factory pattern provides clean separation and reusability
 
 4. ✅ File size reduction:
-   - `photocat-app.js`: 4,475 → 4,425 lines (50 lines removed)
+   - `zoltag-app.js`: 4,475 → 4,425 lines (50 lines removed)
    - Total extraction across M1+M2+M3: ~780 lines moved to state controllers
 
 5. ✅ Rating dialog validation
@@ -1242,7 +1242,7 @@ Utilities:            16 methods (shared/moved)
 
 **Files Modified**:
 - `frontend/components/state/rating-modal-state.js` (new file, 204 lines)
-- `frontend/components/photocat-app.js` (delegated rating modal methods, added import and instantiation)
+- `frontend/components/zoltag-app.js` (delegated rating modal methods, added import and instantiation)
 
 ---
 
@@ -1259,7 +1259,7 @@ Utilities:            16 methods (shared/moved)
    - Modal visibility, rating application for both explore and audit
 
 **File Size Metrics**:
-- **photocat-app.js**: 4,602 → 4,425 lines
+- **zoltag-app.js**: 4,602 → 4,425 lines
   - **Reduction**: 177 lines removed (3.8%)
   - **Methods delegated**: 28 methods across 3 milestones
 - **State controllers**: 1,237 total lines extracted
@@ -1298,7 +1298,7 @@ Utilities:            16 methods (shared/moved)
 - `frontend/components/state/curate-home-state.js` (new file, 522 lines)
 - `frontend/components/state/curate-audit-state.js` (new file, 511 lines)
 - `frontend/components/state/rating-modal-state.js` (new file, 204 lines)
-- `frontend/components/photocat-app.js` (reduced from 4,602 to 4,425 lines)
+- `frontend/components/zoltag-app.js` (reduced from 4,602 to 4,425 lines)
 - `docs/MODULARIZATION_PLAN.md` (updated with all milestone progress and session notes)
 - `CLAUDE.md` (added State Controller Architecture section)
 - `docs/STATE_CONTROLLER_MIGRATION.md` (new comprehensive migration guide)
@@ -1354,7 +1354,7 @@ Created 400+ line comprehensive guide including:
 
 **Section 6: Phase 1 Examples**
 - Documented all 3 state controller extractions with line counts and method counts
-- Total impact: 1,237 lines extracted, 59 methods, photocat-app.js reduced by 177 lines
+- Total impact: 1,237 lines extracted, 59 methods, zoltag-app.js reduced by 177 lines
 
 #### 3. MODULARIZATION_PLAN.md Updates
 - Marked Milestone 5 as ✅ COMPLETE

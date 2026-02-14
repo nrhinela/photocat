@@ -36,7 +36,11 @@ class AppHeader extends LitElement {
   connectedCallback() {
       super.connectedCallback();
       this.fetchEnvironment();
-      this.fetchCurrentUser();
+      if (this.currentUser) {
+          this._syncTenantsForCurrentUser();
+      } else {
+          this.fetchCurrentUser();
+      }
       document.addEventListener('click', this._handleDocumentClick);
   }
 
@@ -45,18 +49,17 @@ class AppHeader extends LitElement {
       super.disconnectedCallback();
   }
 
+  willUpdate(changedProperties) {
+      if (changedProperties.has('currentUser')) {
+          this._syncTenantsForCurrentUser();
+      }
+  }
+
   async fetchCurrentUser() {
       try {
-          const user = await getCurrentUser();
+          const user = await getCurrentUser({ force: true });
           this.currentUser = user;
-          const membershipTenants = this._getTenantsFromMemberships();
-          if (membershipTenants.length) {
-              this.tenants = membershipTenants;
-              this._reconcileTenantWithStoredSelection();
-          }
-          if (this._isAdmin()) {
-              await this.fetchTenants();
-          }
+          this._syncTenantsForCurrentUser();
       } catch (error) {
           console.error('Error fetching current user:', error);
           this.currentUser = null;
@@ -132,11 +135,25 @@ class AppHeader extends LitElement {
           seen.add(tenantId);
           tenants.push({
               id: tenantId,
+              identifier: this._normalizeTenantValue(membership?.tenant_identifier),
               name: this._normalizeTenantValue(membership?.tenant_name) || tenantId,
               active: true,
           });
       }
       return tenants;
+  }
+
+  _syncTenantsForCurrentUser() {
+      const membershipTenants = this._getTenantsFromMemberships();
+      if (membershipTenants.length) {
+          this.tenants = membershipTenants;
+      } else if (!this._isAdmin()) {
+          this.tenants = [];
+      }
+      this._reconcileTenantWithStoredSelection();
+      if (this._isAdmin()) {
+          this.fetchTenants();
+      }
   }
 
   _reconcileTenantWithStoredSelection() {
@@ -171,11 +188,30 @@ class AppHeader extends LitElement {
       return this.currentUser?.user?.is_super_admin || false;
   }
 
+  _resolveMembershipTenantId(tenantRef) {
+      const normalizedRef = this._normalizeTenantValue(tenantRef);
+      if (!normalizedRef) return '';
+      const memberships = this.currentUser?.tenants || [];
+      for (const membership of memberships) {
+          const membershipTenantId = this._normalizeTenantValue(membership?.tenant_id);
+          const membershipIdentifier = this._normalizeTenantValue(membership?.tenant_identifier);
+          if (
+              normalizedRef === membershipTenantId
+              || (membershipIdentifier && normalizedRef === membershipIdentifier)
+          ) {
+              return membershipTenantId || normalizedRef;
+          }
+      }
+      return normalizedRef;
+  }
+
   _getTenantRole() {
-      const tenantId = this.tenant;
+      const tenantId = this._resolveMembershipTenantId(this._getEffectiveTenantId());
       if (!tenantId) return null;
       const memberships = this.currentUser?.tenants || [];
-      const match = memberships.find((membership) => String(membership.tenant_id) === String(tenantId));
+      const match = memberships.find(
+          (membership) => this._normalizeTenantValue(membership?.tenant_id) === tenantId
+      );
       return match?.role || null;
   }
 
@@ -191,10 +227,19 @@ class AppHeader extends LitElement {
       return this._isAdmin() || this._getTenantRole() === 'admin';
   }
 
+  _hasAnyTenantAdminMembership() {
+      const memberships = this.currentUser?.tenants || [];
+      return memberships.some((membership) => this._normalizeTenantValue(membership?.role) === 'admin');
+  }
+
+  _canOpenSystemAdmin() {
+      return this._isAdmin() || this._hasAnyTenantAdminMembership();
+  }
+
   async _handleLogout() {
       try {
           await supabase.auth.signOut();
-          localStorage.removeItem('photocat_user');
+          localStorage.removeItem('zoltag_user');
           window.location.href = '/login';
       } catch (error) {
           console.error('Logout error:', error);
@@ -309,6 +354,7 @@ class AppHeader extends LitElement {
   render() {
     const canCurate = this.canCurate ?? this._canCurateFromUser();
     const canManageTenantUsers = this._canManageTenantUsersFromUser();
+    const canOpenSystemAdmin = this._canOpenSystemAdmin();
     const libraryActive = this.activeTab === 'library';
     const selectedTenant = this._getEffectiveTenantId();
     const tenantMissingFromList = !!selectedTenant
@@ -319,7 +365,7 @@ class AppHeader extends LitElement {
                 <div class="flex justify-between items-start">
                     <div class="flex items-center space-x-2">
                         <i class="fas fa-camera text-blue-600 text-2xl"></i>
-                        <h1 class="text-2xl font-bold text-gray-800">PhotoCat</h1>
+                        <h1 class="text-2xl font-bold text-gray-800">Zoltag</h1>
                         <span class="text-sm px-3 py-1 rounded font-semibold text-white" style="background-color: ${this.environment === 'PROD' ? '#b91c1c' : '#16a34a'}">${this.environment}</span>
                     </div>
                     <div class="flex items-start space-x-4">
@@ -398,7 +444,7 @@ class AppHeader extends LitElement {
                                             @click=${() => this._handleUserMenuAction('manage-users')}
                                         >Manage users</button>
                                     ` : html``}
-                                    ${this._isAdmin() ? html`
+                                    ${canOpenSystemAdmin ? html`
                                         <button
                                             type="button"
                                             class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"

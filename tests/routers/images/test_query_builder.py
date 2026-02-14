@@ -5,10 +5,10 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from photocat.metadata import Asset, ImageMetadata, MachineTag
-from photocat.models.config import Keyword, KeywordCategory
-from photocat.routers.images.query_builder import QueryBuilder
-from photocat.tenant import Tenant
+from zoltag.metadata import Asset, ImageMetadata, MachineTag
+from zoltag.models.config import Keyword, KeywordCategory
+from zoltag.routers.images.query_builder import QueryBuilder
+from zoltag.tenant import Tenant
 
 
 def _create_asset_image(

@@ -5,9 +5,9 @@ import uuid
 import pytest
 from sqlalchemy.orm import Session
 
-from photocat.metadata import Asset, ImageMetadata, MachineTag, Permatag
-from photocat.models.config import Keyword, KeywordCategory, PhotoList, PhotoListItem
-from photocat.routers.filtering import (
+from zoltag.metadata import Asset, ImageMetadata, MachineTag, Permatag
+from zoltag.models.config import Keyword, KeywordCategory, PhotoList, PhotoListItem
+from zoltag.routers.filtering import (
     apply_hide_zero_rating_filter,
     apply_hide_zero_rating_filter_subquery,
     apply_list_filter,
@@ -20,7 +20,7 @@ from photocat.routers.filtering import (
     apply_reviewed_filter_subquery,
     build_image_query_with_subqueries,
 )
-from photocat.tenant import Tenant
+from zoltag.tenant import Tenant
 
 
 def _create_asset_image(

@@ -9,6 +9,12 @@ REGION="${REGION:-us-central1}"
 IMAGE="gcr.io/${PROJECT_ID}/photocat"
 RUN="${RUN:-0}"
 
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+  echo "ERROR: PROJECT_ID is not set."
+  echo "Set PROJECT_ID env var or run: gcloud config set project <project-id>"
+  exit 1
+fi
+
 services=(photocat-api photocat-worker photocat)
 
 echo "Project: ${PROJECT_ID}"

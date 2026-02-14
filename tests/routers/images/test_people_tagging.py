@@ -11,9 +11,9 @@ import pytest
 import uuid
 from sqlalchemy.orm import Session
 
-from photocat.tenant import Tenant, TenantContext
-from photocat.metadata import Asset, Person, ImageMetadata, MachineTag
-from photocat.models.config import Keyword, KeywordCategory
+from zoltag.tenant import Tenant, TenantContext
+from zoltag.metadata import Asset, Person, ImageMetadata, MachineTag
+from zoltag.models.config import Keyword, KeywordCategory
 
 
 TEST_TENANT_IDENTIFIER = "test_tenant"

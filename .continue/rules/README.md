@@ -1,4 +1,4 @@
-# Continue.dev Rules for PhotoCat
+# Continue.dev Rules for Zoltag
 
 This directory contains coding standards and architectural guidelines that Continue.dev (and other LLM-based tools) will automatically apply when working with this codebase.
 
@@ -44,7 +44,7 @@ This directory contains coding standards and architectural guidelines that Conti
 
 ## For Other LLM Tools
 
-These rules document the core architectural patterns of PhotoCat. Other LLM tools (Cursor, Copilot, etc.) can reference these files to maintain consistency:
+These rules document the core architectural patterns of Zoltag. Other LLM tools (Cursor, Copilot, etc.) can reference these files to maintain consistency:
 
 - **Architecture**: State controllers, Light DOM, image rendering
 - **File Organization**: Where to find components, state, shared utilities

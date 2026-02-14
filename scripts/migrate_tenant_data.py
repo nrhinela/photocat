@@ -21,13 +21,15 @@ Usage:
 
 import argparse
 import sys
+from pathlib import Path
 from google.cloud import storage
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-sys.path.insert(0, '/Users/ned.rhinelander/Developer/photocat/src')
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT_DIR / "src"))
 
-from photocat.settings import settings
+from zoltag.settings import settings
 
 
 def migrate_tenant_data(tenant_ref: str, dry_run: bool = False, delete_source: bool = False):

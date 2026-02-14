@@ -1,4 +1,4 @@
-# Makefile for PhotoCat development and deployment
+# Makefile for Zoltag development and deployment
 
 .PHONY: help install test lint format clean deploy migrate dev worker dev-backend dev-frontend dev-css dev-clean
 .PHONY: db-dev db-prod db-migrate-prod db-migrate-dev db-create-migration
@@ -12,7 +12,7 @@ REGION = us-central1
 DEV_PID_FILE = .dev-pids
 
 help:
-	@echo "PhotoCat - Make targets"
+	@echo "Zoltag - Make targets"
 	@echo ""
 	@echo "Development:"
 	@echo "  install            Install dependencies"
@@ -60,7 +60,7 @@ install:
 	npm install
 
 test:
-	pytest -v --cov=photocat --cov-report=term-missing
+	pytest -v --cov=zoltag --cov-report=term-missing
 
 lint:
 	ruff check src tests
@@ -97,7 +97,7 @@ dev-clean:
 		pids="$$pids $$(cat $(DEV_PID_FILE) 2>/dev/null || true)"; \
 		rm -f $(DEV_PID_FILE); \
 	fi; \
-	for pattern in "uvicorn photocat.api:app" "photocat.api:app" "npm run dev" "npm run build:css" "node .*vite" "node .*tailwindcss" "tailwindcss"; do \
+	for pattern in "uvicorn zoltag.api:app" "zoltag.api:app" "npm run dev" "npm run build:css" "node .*vite" "node .*tailwindcss" "tailwindcss"; do \
 		if command -v pgrep >/dev/null 2>&1; then \
 			found="$$(pgrep -f "$$pattern" 2>/dev/null || true)"; \
 			if [ -n "$$found" ]; then \
@@ -144,7 +144,7 @@ dev-backend:
 		exit 1; \
 	fi
 	set -a && . ./.env && set +a && \
-	TOKENIZERS_PARALLELISM=false python3 -m uvicorn photocat.api:app --reload --host 0.0.0.0 --port 8000
+	TOKENIZERS_PARALLELISM=false python3 -m uvicorn zoltag.api:app --reload --host 0.0.0.0 --port 8000
 
 dev-frontend:
 	@echo "Starting frontend development server..."
@@ -157,7 +157,7 @@ dev-css:
 
 worker:
 	@echo "Starting background worker..."
-	WORKER_MODE=true python3 -m photocat.worker
+	WORKER_MODE=true python3 -m zoltag.worker
 
 # ============================================================================
 # Database Management
@@ -220,12 +220,12 @@ migrate-create: db-create-migration
 # ============================================================================
 
 deploy-all:
-	@echo "Deploying PhotoCat to production..."
+	@echo "Deploying Zoltag to production..."
 	@echo "Project: $(PROJECT_ID)"
 	@echo "Region: $(REGION)"
 	@echo ""
 	COMMIT_SHA=$$(git rev-parse --short HEAD) ; \
-	gcloud builds submit --config=cloudbuild.yaml --substitutions=_COMMIT_SHA=$$COMMIT_SHA
+	gcloud builds submit --project $(PROJECT_ID) --config=cloudbuild.yaml --substitutions=_COMMIT_SHA=$$COMMIT_SHA
 
 # Alias for backward compatibility
 deploy: deploy-all
@@ -233,6 +233,7 @@ deploy: deploy-all
 deploy-api:
 	@echo "Deploying API service only..."
 	gcloud run deploy photocat-api \
+		--project $(PROJECT_ID) \
 		--image gcr.io/$(PROJECT_ID)/photocat:latest \
 		--region $(REGION) \
 		--platform managed \
@@ -247,6 +248,7 @@ deploy-api:
 deploy-worker:
 	@echo "Deploying worker service only..."
 	gcloud run deploy photocat-worker \
+		--project $(PROJECT_ID) \
 		--image gcr.io/$(PROJECT_ID)/photocat:latest \
 		--region $(REGION) \
 		--platform managed \
@@ -260,14 +262,15 @@ deploy-worker:
 status:
 	@echo "Cloud Run Services Status:"
 	@echo ""
-	gcloud run services list --platform managed --region $(REGION)
+	gcloud run services list --project $(PROJECT_ID) --platform managed --region $(REGION)
 	@echo ""
 	@echo "Recent builds:"
-	gcloud builds list --limit 5
+	gcloud builds list --project $(PROJECT_ID) --limit 5
 
 logs-api:
 	@echo "Tailing API service logs..."
 	gcloud run services logs read photocat-api \
+		--project $(PROJECT_ID) \
 		--region $(REGION) \
 		--limit 50 \
 		--format "table(severity,timestamp.date('%Y-%m-%d %H:%M:%S'),textPayload)"
@@ -275,6 +278,7 @@ logs-api:
 logs-worker:
 	@echo "Tailing worker service logs..."
 	gcloud run services logs read photocat-worker \
+		--project $(PROJECT_ID) \
 		--region $(REGION) \
 		--limit 50 \
 		--format "table(severity,timestamp.date('%Y-%m-%d %H:%M:%S'),textPayload)"
@@ -284,14 +288,14 @@ logs-worker:
 # ============================================================================
 
 docker-build:
-	docker build -t photocat:local .
+	docker build -t zoltag:local .
 
 docker-run:
-	docker run -p 8080:8080 --env-file .env photocat:local
+	docker run -p 8080:8080 --env-file .env zoltag:local
 
 docker-test:
-	docker build -t photocat:test . && \
-	docker run --rm photocat:test pytest
+	docker build -t zoltag:test . && \
+	docker run --rm zoltag:test pytest
 
 # ============================================================================
 # Utilities
@@ -313,11 +317,11 @@ train-and-recompute:
 		exit 1; \
 	fi
 	@echo "Training keyword models for tenant: $(TENANT_ID)..."
-	photocat train-keyword-models --tenant-id $(TENANT_ID)
+	zoltag train-keyword-models --tenant-id $(TENANT_ID)
 	@echo "Recomputing trained tags..."
-	photocat recompute-trained-tags --tenant-id $(TENANT_ID) --replace
+	zoltag recompute-trained-tags --tenant-id $(TENANT_ID) --replace
 	@echo "Recomputing SigLIP tags..."
-	photocat recompute-siglip-tags --replace --tenant-id $(TENANT_ID)
+	zoltag recompute-siglip-tags --replace --tenant-id $(TENANT_ID)
 	@echo "Done!"
 
 daily:
@@ -327,6 +331,6 @@ daily:
 		exit 1; \
 	fi
 	@echo "Syncing Dropbox for tenant: $(TENANT_ID)..."
-	photocat sync-dropbox --tenant-id $(TENANT_ID)
+	zoltag sync-dropbox --tenant-id $(TENANT_ID)
 	@echo "Running train-and-recompute..."
 	$(MAKE) train-and-recompute TENANT_ID=$(TENANT_ID)

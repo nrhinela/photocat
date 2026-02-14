@@ -6,7 +6,7 @@ alwaysApply: true
 
 # State Controller Architecture
 
-Complex state management in PhotoCat uses Lit's `ReactiveController` pattern to extract state logic from large components.
+Complex state management in Zoltag uses Lit's `ReactiveController` pattern to extract state logic from large components.
 
 ## When to Use State Controllers
 
@@ -75,7 +75,7 @@ export class MyStateController extends BaseStateController {
 ```javascript
 import { MyStateController } from './state/my-state-controller.js';
 
-export class PhotocatApp extends LitElement {
+export class ZoltagApp extends LitElement {
   constructor() {
     super();
     this._myState = new MyStateController(this);

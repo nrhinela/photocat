@@ -4,7 +4,8 @@ const path = require('path');
 module.exports = defineConfig({
   root: 'frontend',
   build: {
-    outDir: '../src/photocat/static/dist',
+    outDir: '../src/zoltag/static/dist',
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'frontend/index.html'),

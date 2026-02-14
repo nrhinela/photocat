@@ -20,7 +20,7 @@ alwaysApply: true
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 ```
 
-## Required Props from Parent (photocat-app.js)
+## Required Props from Parent (zoltag-app.js)
 
 ```javascript
 .renderCurateRatingWidget=${this._renderCurateRatingWidget}

@@ -37,12 +37,12 @@ If a file exceeds these limits, consider:
 ## Current Modularization Status
 
 ### Frontend
-- ✅ `photocat-app.js`: 4,425 lines (down from 4,602)
+- ✅ `zoltag-app.js`: 4,425 lines (down from 4,602)
   - State extracted to 3 controllers (1,237 lines)
   - Target: Further reduction through component extraction
 
 ### Backend
-- ⚠️ `src/photocat/routers/images/core.py`: 1,893 lines
+- ⚠️ `src/zoltag/routers/images/core.py`: 1,893 lines
   - Target: Split into 6 feature routers (~300 lines each)
   - See Phase 2 in `docs/MODULARIZATION_PLAN.md`
 

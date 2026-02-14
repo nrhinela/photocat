@@ -16,8 +16,8 @@ Implement Phase 1 direct uploads (no external provider) based on `DIRECT_UPLOAD_
 ## Progress Log
 
 - 2026-02-10: Started implementation. Creating milestone plan and beginning backend work.
-- 2026-02-10: Implemented backend endpoint `POST /api/v1/images/upload-and-ingest` in `src/photocat/routers/images/tagging.py`.
-- 2026-02-10: Added managed provider support in `src/photocat/storage/providers.py` and exports in `src/photocat/storage/__init__.py`.
+- 2026-02-10: Implemented backend endpoint `POST /api/v1/images/upload-and-ingest` in `src/zoltag/routers/images/tagging.py`.
+- 2026-02-10: Added managed provider support in `src/zoltag/storage/providers.py` and exports in `src/zoltag/storage/__init__.py`.
 - 2026-02-10: Added `frontend/components/upload-library-modal.js` and wired events through tagging admin and app overlays.
 - 2026-02-10: Verified changes with `py_compile` on changed Python modules and `npm run build`.
 
