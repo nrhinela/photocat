@@ -232,9 +232,9 @@ deploy: deploy-all
 
 deploy-api:
 	@echo "Deploying API service only..."
-	gcloud run deploy photocat-api \
+	gcloud run deploy zoltag-api \
 		--project $(PROJECT_ID) \
-		--image gcr.io/$(PROJECT_ID)/photocat:latest \
+		--image gcr.io/$(PROJECT_ID)/zoltag:latest \
 		--region $(REGION) \
 		--platform managed \
 		--allow-unauthenticated \
@@ -247,9 +247,9 @@ deploy-api:
 
 deploy-worker:
 	@echo "Deploying worker service only..."
-	gcloud run deploy photocat-worker \
+	gcloud run deploy zoltag-worker \
 		--project $(PROJECT_ID) \
-		--image gcr.io/$(PROJECT_ID)/photocat:latest \
+		--image gcr.io/$(PROJECT_ID)/zoltag:latest \
 		--region $(REGION) \
 		--platform managed \
 		--no-allow-unauthenticated \
@@ -269,7 +269,7 @@ status:
 
 logs-api:
 	@echo "Tailing API service logs..."
-	gcloud run services logs read photocat-api \
+	gcloud run services logs read zoltag-api \
 		--project $(PROJECT_ID) \
 		--region $(REGION) \
 		--limit 50 \
@@ -277,7 +277,7 @@ logs-api:
 
 logs-worker:
 	@echo "Tailing worker service logs..."
-	gcloud run services logs read photocat-worker \
+	gcloud run services logs read zoltag-worker \
 		--project $(PROJECT_ID) \
 		--region $(REGION) \
 		--limit 50 \
