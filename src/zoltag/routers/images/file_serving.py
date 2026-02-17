@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from google.cloud import storage
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from zoltag.dependencies import get_db, get_secret, get_tenant
 from zoltag.integrations import TenantIntegrationRepository
@@ -86,6 +87,16 @@ def _parse_single_range_header(range_header: str, total_size: int) -> tuple[int,
 
     end = min(end, total_size - 1)
     return start, end
+
+
+def _convert_heic_bytes_to_jpeg(file_bytes: bytes) -> bytes:
+    """Blocking HEIC/HEIF decode+encode helper (run in threadpool)."""
+    processor = ImageProcessor()
+    pil_image = processor.load_image(file_bytes)
+    pil_image_rgb = pil_image.convert("RGB") if pil_image.mode != "RGB" else pil_image
+    buffer = io.BytesIO()
+    pil_image_rgb.save(buffer, format="JPEG", quality=95, optimize=False)
+    return buffer.getvalue()
 
 
 def _build_expiry_timestamp(ttl_seconds: int) -> str:
@@ -198,14 +209,21 @@ async def get_full_image(
         raise HTTPException(status_code=404, detail=f"Image not available in {provider_name}")
 
     try:
-        provider = create_storage_provider(provider_name, tenant=tenant, get_secret=get_secret)
+        provider = await run_in_threadpool(
+            create_storage_provider,
+            provider_name,
+            tenant=tenant,
+            get_secret=get_secret,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initialize {provider_name} provider: {exc}")
 
     try:
-        file_bytes = provider.download_file(source_ref)
+        # Provider SDK download is blocking IO; run in threadpool so the event loop
+        # can continue serving other requests while high-res content is fetched.
+        file_bytes = await run_in_threadpool(provider.download_file, source_ref)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Error fetching {provider_name} image: {exc}")
 
@@ -216,12 +234,8 @@ async def get_full_image(
     # Convert HEIC to JPEG for browser compatibility
     if filename.lower().endswith((".heic", ".heif")):
         try:
-            processor = ImageProcessor()
-            pil_image = processor.load_image(file_bytes)
-            pil_image_rgb = pil_image.convert("RGB") if pil_image.mode != "RGB" else pil_image
-            buffer = io.BytesIO()
-            pil_image_rgb.save(buffer, format="JPEG", quality=95, optimize=False)
-            file_bytes = buffer.getvalue()
+            # PIL decode/encode is CPU-bound; run in threadpool.
+            file_bytes = await run_in_threadpool(_convert_heic_bytes_to_jpeg, file_bytes)
             filename = filename.rsplit(".", 1)[0] + ".jpg"
             content_type = "image/jpeg"
         except Exception as exc:

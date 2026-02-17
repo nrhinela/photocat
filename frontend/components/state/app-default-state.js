@@ -31,6 +31,8 @@ export function initializeAppDefaultState(host) {
   host.curatePageOffset = 0;
   host.curateTotal = null;
   host.curateLoading = false;
+  host.curatePinnedImageId = null;
+  host.curateSimilarityAssetUuid = null;
   host.curateDragSelection = [];
   host.curateDragSelecting = false;
   host.curateDragStartIndex = null;
@@ -77,6 +79,8 @@ export function initializeAppDefaultState(host) {
   host.searchOrderDirection = 'desc';
   host.searchImages = [];
   host.searchTotal = 0;
+  host.searchPinnedImageId = null;
+  host.searchSimilarityAssetUuid = null;
   host.activeSearchSubTab = host.activeSearchSubTab || 'home';
   host.pendingSearchExploreSelection = null;
   host.pendingListSelectionId = null;

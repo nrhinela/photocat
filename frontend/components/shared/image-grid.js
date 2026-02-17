@@ -112,7 +112,13 @@ export function renderImageGrid(config) {
     showAiScore = false,
     emptyMessage = 'No images available.',
     renderItemFooter,
+    pinnedImageIds = null,
+    pinnedLabel = 'Source',
   } = options;
+
+  const pinnedIdSet = pinnedImageIds instanceof Set
+    ? pinnedImageIds
+    : new Set(Array.isArray(pinnedImageIds) ? pinnedImageIds : []);
 
   const safeImages = (images || []).filter((image) => {
     if (!image) return false;
@@ -134,13 +140,14 @@ export function renderImageGrid(config) {
         const imageId = Number(image.id);
         const isSelected = selection.includes(imageId) || selection.includes(image.id);
         const isFlashing = flashSelectionIds?.has(image.id);
+        const isPinned = pinnedIdSet.has(imageId) || pinnedIdSet.has(image.id);
         const mediaType = inferMediaType(image);
         const isVideo = mediaType === 'video';
         const videoDuration = isVideo ? formatDurationMs(image?.duration_ms) : '';
         const hasRating = !(image?.rating === null || image?.rating === undefined || image?.rating === '');
         const thumb = html`
           <div
-            class="curate-thumb-wrapper ${isSelected ? 'selected' : ''}"
+            class="curate-thumb-wrapper ${isSelected ? 'selected' : ''} ${isPinned ? 'pinned-source' : ''}"
             data-image-id="${imageId}"
             draggable="true"
             @dragstart=${(event) => onDragStart?.(event, image)}
@@ -157,6 +164,11 @@ export function renderImageGrid(config) {
               @pointermove=${(event) => onPointerMove?.(event)}
               @pointerenter=${() => onPointerEnter?.(index)}
             >
+            ${isPinned ? html`
+              <span class="curate-thumb-pin-badge" aria-label="${pinnedLabel} image">
+                ${pinnedLabel}
+              </span>
+            ` : html``}
             ${isVideo ? html`
               <span class="curate-thumb-play-overlay" aria-hidden="true">
                 <svg

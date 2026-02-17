@@ -71,7 +71,7 @@ export class CurateAuditStateController extends BaseStateController {
    * @param {string} model - Model identifier
    */
   handleAiModelChange(model) {
-    this.host.curateAuditAiModel = this.host.curateAuditAiModel === model ? '' : model;
+    this.host.curateAuditAiModel = model;
     this.host.curateAuditOffset = 0;
     this.host.curateAuditTotal = null;
     this.host.curateAuditLoadAll = false;
@@ -735,6 +735,7 @@ export class CurateAuditStateController extends BaseStateController {
       const total = Array.isArray(result)
         ? null
         : (Number.isFinite(result?.total) ? result.total : null);
+      const mlEffectiveThreshold = Array.isArray(result) ? null : (result?.ml_effective_threshold ?? null);
 
       if (append) {
         this.host.curateAuditImages = [...(existingImages || []), ...images];
@@ -750,6 +751,7 @@ export class CurateAuditStateController extends BaseStateController {
         this.host.curateAuditOffset = images.length;
         this.host.curateAuditTotal = images.length;
       }
+      this.host.curateAuditMlThreshold = mlEffectiveThreshold;
       this.host._curateAuditLastFetchKey = fetchKey;
       this.requestUpdate();
     } catch (error) {

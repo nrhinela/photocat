@@ -1,12 +1,14 @@
 """Core image endpoints: list, get, asset."""
 
 import json
+import logging
 import threading
 import time
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, distinct, and_, case, cast, Text, literal
+from sqlalchemy import func, distinct, and_, case, cast, Text, literal, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, load_only
 from google.cloud import storage
 import numpy as np
@@ -37,6 +39,7 @@ from zoltag.routers.images._shared import (
 
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Columns required by /images list response + ordering logic.
 LIST_IMAGES_LOAD_ONLY_COLUMNS = (
@@ -70,6 +73,7 @@ SIMILARITY_CACHE_TTL_SECONDS = 300
 SIMILARITY_CACHE_MAX_ENTRIES = 12
 _similarity_cache_lock = threading.Lock()
 _similarity_index_cache = {}
+_pgvector_capability_cache: Dict[str, bool] = {}
 
 
 def _build_similarity_index(
@@ -165,6 +169,171 @@ def _get_similarity_index(
             if oldest_key != key:
                 _similarity_index_cache.pop(oldest_key, None)
     return built
+
+
+def _pgvector_cache_key(db: Session) -> str:
+    bind = db.get_bind()
+    return str(bind.engine.url)
+
+
+def _set_pgvector_capability(db: Session, can_use: bool) -> None:
+    _pgvector_capability_cache[_pgvector_cache_key(db)] = bool(can_use)
+
+
+def _is_pgvector_ready(db: Session) -> bool:
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        return False
+
+    cache_key = _pgvector_cache_key(db)
+    cached = _pgvector_capability_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        row = db.execute(
+            text(
+                """
+                SELECT
+                    EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') AS has_extension,
+                    EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'image_embeddings'
+                          AND column_name = 'embedding_vec'
+                    ) AS has_embedding_vec
+                """
+            )
+        ).mappings().first()
+        can_use = bool(row and row["has_extension"] and row["has_embedding_vec"])
+        _pgvector_capability_cache[cache_key] = can_use
+        return can_use
+    except SQLAlchemyError:
+        db.rollback()
+        _pgvector_capability_cache[cache_key] = False
+        return False
+
+
+def _to_pgvector_literal(values: np.ndarray) -> str:
+    return "[" + ",".join(f"{float(value):.10g}" for value in values.tolist()) + "]"
+
+
+def _fetch_similar_ids_with_pgvector(
+    db: Session,
+    tenant: Tenant,
+    source_image_id: int,
+    source_asset_id,
+    source_vector: np.ndarray,
+    limit: int,
+    min_score: Optional[float],
+    media_type: Optional[str],
+) -> Optional[Tuple[List[int], Dict[int, float]]]:
+    if not _is_pgvector_ready(db):
+        return None
+
+    query_vector = _to_pgvector_literal(source_vector)
+    media_filter = media_type.lower() if media_type else None
+    params = {
+        "tenant_id": tenant.id,
+        "source_image_id": int(source_image_id),
+        "source_asset_id": source_asset_id,
+        "query_vec": query_vector,
+        "min_score": float(min_score) if min_score is not None else None,
+    }
+
+    try:
+        # Phase 1: true KNN candidate fetch (index-friendly ORDER BY <=> on image_embeddings only).
+        initial_candidate_limit = min(max(int(limit) * 4, 120), 800)
+        max_candidate_limit = min(max(int(limit) * 20, 3000), 12000)
+        candidate_limit = initial_candidate_limit
+        top_image_ids: List[int] = []
+        score_by_image_id: Dict[int, float] = {}
+
+        while True:
+            candidate_rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        ie.asset_id,
+                        1 - (ie.embedding_vec <=> CAST(:query_vec AS vector)) AS similarity_score
+                    FROM image_embeddings ie
+                    WHERE ie.asset_id IS NOT NULL
+                      AND ie.asset_id <> :source_asset_id
+                      AND ie.embedding_vec IS NOT NULL
+                    ORDER BY ie.embedding_vec <=> CAST(:query_vec AS vector)
+                    LIMIT :candidate_limit
+                    """
+                ),
+                {**params, "candidate_limit": int(candidate_limit)},
+            ).mappings().all()
+
+            if not candidate_rows:
+                break
+
+            candidate_asset_ids = [row["asset_id"] for row in candidate_rows if row.get("asset_id") is not None]
+            if not candidate_asset_ids:
+                break
+
+            # Phase 2: hydrate image ids/media types for candidates and apply tenant/media/min-score filters.
+            image_rows = db.query(
+                ImageMetadata.id.label("image_id"),
+                ImageMetadata.asset_id.label("asset_id"),
+                func.lower(func.coalesce(Asset.media_type, "image")).label("media_type"),
+            ).outerjoin(
+                Asset,
+                and_(
+                    Asset.id == ImageMetadata.asset_id,
+                    tenant_column_filter(Asset, tenant),
+                ),
+            ).filter(
+                tenant_column_filter(ImageMetadata, tenant),
+                ImageMetadata.asset_id.in_(candidate_asset_ids),
+            ).all()
+
+            image_by_asset = {
+                row.asset_id: (int(row.image_id), str(row.media_type or "image").lower())
+                for row in image_rows
+                if row.asset_id is not None
+            }
+
+            for row in candidate_rows:
+                asset_id = row.get("asset_id")
+                if asset_id is None:
+                    continue
+                image_info = image_by_asset.get(asset_id)
+                if not image_info:
+                    continue
+                image_id, candidate_media_type = image_info
+                if image_id == int(source_image_id):
+                    continue
+                if media_filter and candidate_media_type != media_filter:
+                    continue
+                score = float(row.get("similarity_score") or 0.0)
+                if min_score is not None and score < float(min_score):
+                    continue
+                if image_id in score_by_image_id:
+                    continue
+                top_image_ids.append(image_id)
+                score_by_image_id[image_id] = round(score, 4)
+                if len(top_image_ids) >= int(limit):
+                    break
+
+            if len(top_image_ids) >= int(limit):
+                break
+            if len(candidate_rows) < int(candidate_limit):
+                break
+            if candidate_limit >= max_candidate_limit:
+                break
+
+            candidate_limit = min(candidate_limit * 2, max_candidate_limit)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        _set_pgvector_capability(db, False)
+        logger.warning("pgvector similarity query failed; falling back to in-memory index: %s", exc)
+        return None
+
+    return top_image_ids, score_by_image_id
 
 
 @router.get("/images", response_model=dict, operation_id="list_images")
@@ -280,6 +449,7 @@ async def list_images(
         return max(int(rn) - 1, 0)
 
     total = 0
+    ml_effective_threshold = None
 
     # Handle per-category filters if provided
     if order_by_value == "processed":
@@ -603,13 +773,27 @@ async def list_images(
 
         if order_by_value == "ml_score" and ml_keyword_id:
             # Apply ML score ordering and require matching ML-tag rows for this keyword.
-            query, ml_scores = builder.apply_ml_score_ordering(
+            query, ml_scores, ml_effective_threshold = builder.apply_ml_score_ordering(
                 query,
                 ml_keyword_id,
                 ml_tag_type,
                 require_match=True,
             )
             total = builder.get_total_count(query)
+            if total == 0 and ml_effective_threshold is None:
+                # If no threshold is configured and there are no ML matches,
+                # fall back to showing the underlying filtered result set
+                # ordered by ML score (nulls last) so users still see results.
+                query = base_query
+                query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
+                query = query.options(load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS))
+                query, ml_scores, ml_effective_threshold = builder.apply_ml_score_ordering(
+                    query,
+                    ml_keyword_id,
+                    ml_tag_type,
+                    require_match=False,
+                )
+                total = builder.get_total_count(query)
             # Build order clauses with ML score priority
             if order_by_value == "processed":
                 order_by_date_clause = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
@@ -768,7 +952,8 @@ async def list_images(
         "images": images_list,
         "total": total,
         "limit": limit,
-        "offset": offset
+        "offset": offset,
+        "ml_effective_threshold": ml_effective_threshold,
     }
 
 
@@ -1010,69 +1195,57 @@ def get_similar_images(
     source_media_type = ((source_storage_info.asset.media_type if source_storage_info.asset else None) or "image").lower()
     similarity_media_type = source_media_type if same_media_type else None
 
-    index = _get_similarity_index(
+    pgvector_ranked = _fetch_similar_ids_with_pgvector(
         db=db,
         tenant=tenant,
+        source_image_id=int(source_image.id),
+        source_asset_id=source_image.asset_id,
+        source_vector=source_unit_vector,
+        limit=requested_limit,
+        min_score=min_score,
         media_type=similarity_media_type,
-        embedding_dim=int(source_vector.size),
     )
-    matrix = index["matrix"]
-    candidate_ids = index["image_ids"]
-    if matrix.size == 0 or candidate_ids.size == 0:
-        return {
-            "tenant_id": tenant.id,
-            "source_image_id": source_image.id,
-            "source_asset_id": str(source_image.asset_id),
-            "source_media_type": source_media_type,
-            "same_media_type": bool(same_media_type),
-            "images": [],
-            "count": 0,
-            "limit": requested_limit,
-        }
 
-    scores = np.dot(matrix, source_unit_vector)
-    keep_mask = candidate_ids != int(source_image.id)
-    filtered_ids = candidate_ids[keep_mask]
-    filtered_scores = scores[keep_mask]
-    if filtered_ids.size == 0:
-        return {
-            "tenant_id": tenant.id,
-            "source_image_id": source_image.id,
-            "source_asset_id": str(source_image.asset_id),
-            "source_media_type": source_media_type,
-            "same_media_type": bool(same_media_type),
-            "images": [],
-            "count": 0,
-            "limit": requested_limit,
-        }
-
-    if min_score is not None:
-        score_mask = filtered_scores >= float(min_score)
-        filtered_scores = filtered_scores[score_mask]
-        filtered_ids = filtered_ids[score_mask]
-        if filtered_ids.size == 0:
-            return {
-                "tenant_id": tenant.id,
-                "source_image_id": source_image.id,
-                "source_asset_id": str(source_image.asset_id),
-                "source_media_type": source_media_type,
-                "same_media_type": bool(same_media_type),
-                "images": [],
-                "count": 0,
-                "limit": requested_limit,
-            }
-
-    if requested_limit < filtered_scores.size:
-        top_unsorted = np.argpartition(filtered_scores, -requested_limit)[-requested_limit:]
-        ordered_indices = top_unsorted[np.argsort(filtered_scores[top_unsorted])[::-1]]
+    if pgvector_ranked is not None:
+        top_image_ids, score_by_image_id = pgvector_ranked
     else:
-        ordered_indices = np.argsort(filtered_scores)[::-1]
+        index = _get_similarity_index(
+            db=db,
+            tenant=tenant,
+            media_type=similarity_media_type,
+            embedding_dim=int(source_vector.size),
+        )
+        matrix = index["matrix"]
+        candidate_ids = index["image_ids"]
+        if matrix.size == 0 or candidate_ids.size == 0:
+            top_image_ids = []
+            score_by_image_id = {}
+        else:
+            scores = np.dot(matrix, source_unit_vector)
+            keep_mask = candidate_ids != int(source_image.id)
+            filtered_ids = candidate_ids[keep_mask]
+            filtered_scores = scores[keep_mask]
 
-    top_image_ids = [int(filtered_ids[int(idx)]) for idx in ordered_indices]
-    score_by_image_id = {
-        int(filtered_ids[int(idx)]): round(float(filtered_scores[int(idx)]), 4)
-        for idx in ordered_indices
-    }
+            if min_score is not None and filtered_ids.size > 0:
+                score_mask = filtered_scores >= float(min_score)
+                filtered_scores = filtered_scores[score_mask]
+                filtered_ids = filtered_ids[score_mask]
+
+            if filtered_ids.size == 0:
+                top_image_ids = []
+                score_by_image_id = {}
+            else:
+                if requested_limit < filtered_scores.size:
+                    top_unsorted = np.argpartition(filtered_scores, -requested_limit)[-requested_limit:]
+                    ordered_indices = top_unsorted[np.argsort(filtered_scores[top_unsorted])[::-1]]
+                else:
+                    ordered_indices = np.argsort(filtered_scores)[::-1]
+
+                top_image_ids = [int(filtered_ids[int(idx)]) for idx in ordered_indices]
+                score_by_image_id = {
+                    int(filtered_ids[int(idx)]): round(float(filtered_scores[int(idx)]), 4)
+                    for idx in ordered_indices
+                }
 
     if not top_image_ids:
         return {

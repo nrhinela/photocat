@@ -758,6 +758,24 @@ class ImageEditor extends LitElement {
       font-size: 12px;
       color: #4b5563;
     }
+    .similar-header-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .similar-open-search {
+      border: 1px solid #2563eb;
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .similar-open-search:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
     .similar-refresh {
       border: 1px solid #d1d5db;
       border-radius: 8px;
@@ -1257,6 +1275,7 @@ class ImageEditor extends LitElement {
     fullscreenZoom: { type: Number },
     fullscreenFitMode: { type: Boolean },
     canEditTags: { type: Boolean },
+    canCurate: { type: Boolean },
     marketingNote: { type: String },
     marketingNoteSaving: { type: Boolean },
     marketingNoteError: { type: String },
@@ -1317,6 +1336,7 @@ class ImageEditor extends LitElement {
     this.fullscreenZoom = 50;
     this.fullscreenFitMode = false;
     this.canEditTags = true;
+    this.canCurate = false;
     this.marketingNote = '';
     this.marketingNoteSaving = false;
     this.marketingNoteError = '';
@@ -2837,8 +2857,46 @@ class ImageEditor extends LitElement {
     }));
   }
 
+  _handleOpenSimilarInSearch() {
+    if (this.similarLoading) return;
+    const images = Array.isArray(this.similarImages)
+      ? this.similarImages.filter((image) => image?.id !== undefined && image?.id !== null)
+      : [];
+    if (!images.length) return;
+    this.dispatchEvent(new CustomEvent('open-similar-in-search', {
+      detail: {
+        sourceImageId: this.details?.id ?? null,
+        sourceAssetUuid: this.details?.asset_id || this.details?.asset_uuid || null,
+        sourceImage: this.details ? { ...this.details } : null,
+        images: images.map((image) => ({ ...image })),
+      },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
+  _handleOpenSimilarInCurate() {
+    if (this.similarLoading) return;
+    const images = Array.isArray(this.similarImages)
+      ? this.similarImages.filter((image) => image?.id !== undefined && image?.id !== null)
+      : [];
+    if (!images.length) return;
+    this.dispatchEvent(new CustomEvent('open-similar-in-curate', {
+      detail: {
+        sourceImageId: this.details?.id ?? null,
+        sourceAssetUuid: this.details?.asset_id || this.details?.asset_uuid || null,
+        sourceImage: this.details ? { ...this.details } : null,
+        images: images.map((image) => ({ ...image })),
+      },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
   _renderSimilarTab() {
     const hasError = !!this.similarError;
+    const canOpenInSearch = !this.similarLoading && Array.isArray(this.similarImages) && this.similarImages.length > 0;
+    const canOpenInCurate = this.canCurate && canOpenInSearch;
     const emptyMessage = this.similarLoading
       ? 'Finding similar images...'
       : hasError
@@ -2848,14 +2906,34 @@ class ImageEditor extends LitElement {
       <div class="similar-fullscreen">
         <div class="similar-header">
           <span>Top visual matches for this image.</span>
-          <button
-            type="button"
-            class="similar-refresh"
-            @click=${() => this._loadSimilarImages(true)}
-            ?disabled=${this.similarLoading}
-          >
-            ${this.similarLoading ? 'Refreshing...' : 'Refresh'}
-          </button>
+          <div class="similar-header-actions">
+            <button
+              type="button"
+              class="similar-open-search"
+              @click=${this._handleOpenSimilarInSearch}
+              ?disabled=${!canOpenInSearch}
+            >
+              Open in Search
+            </button>
+            ${this.canCurate ? html`
+              <button
+                type="button"
+                class="similar-open-search"
+                @click=${this._handleOpenSimilarInCurate}
+                ?disabled=${!canOpenInCurate}
+              >
+                Open in Curate
+              </button>
+            ` : html``}
+            <button
+              type="button"
+              class="similar-refresh"
+              @click=${() => this._loadSimilarImages(true)}
+              ?disabled=${this.similarLoading}
+            >
+              ${this.similarLoading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
         </div>
         <div class="similar-grid-wrap">
           ${renderImageGrid({

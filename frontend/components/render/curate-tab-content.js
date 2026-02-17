@@ -131,6 +131,8 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .offset=${host.curatePageOffset}
             .total=${host.curateTotal}
             .loading=${host.curateLoading}
+            .curatePinnedImageId=${host.curatePinnedImageId}
+            .curateSimilarityAssetUuid=${host.curateSimilarityAssetUuid}
             .mediaType=${host.curateMediaType}
             .dragSelection=${host.curateDragSelection}
             .dragSelecting=${host.curateDragSelecting}
@@ -175,6 +177,9 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             @selection-changed=${(e) => { host.curateDragSelection = e.detail.selection; }}
             @rating-drop=${(e) => host._handleCurateExploreRatingDrop(e.detail.event, e.detail.rating)}
             @curate-filters-changed=${host._handleCurateChipFiltersChanged}
+            @curate-similarity-context-changed=${(e) => {
+              host.curateSimilarityAssetUuid = e?.detail?.assetUuid || null;
+            }}
             @list-filter-exclude=${host._handleCurateListExcludeFromRightPanel}
           ></curate-explore-tab>
         </div>
@@ -212,6 +217,7 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .mode=${host.curateAuditMode}
             .aiEnabled=${host.curateAuditAiEnabled}
             .aiModel=${host.curateAuditAiModel}
+            .mlThreshold=${host.curateAuditMlThreshold ?? null}
             .images=${host.curateAuditImages}
             .thumbSize=${host.curateThumbSize}
             .minRating=${host.curateAuditMinRating}

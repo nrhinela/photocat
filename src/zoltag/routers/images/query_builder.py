@@ -146,7 +146,7 @@ class QueryBuilder:
         ml_keyword_id: int,
         ml_tag_type: Optional[str] = None,
         require_match: bool = False,
-    ) -> Tuple[Query, Selectable]:
+    ) -> Tuple[Query, Selectable, Optional[float]]:
         """Add ML score ordering to a query via join with scoring subquery.
 
         This consolidates the ML score query construction (lines 373-402) that
@@ -160,9 +160,10 @@ class QueryBuilder:
             require_match: If True, only include rows with a matching ML score
 
         Returns:
-            Tuple of (modified_query, ml_scores_subquery) where:
+            Tuple of (modified_query, ml_scores_subquery, effective_threshold) where:
             - modified_query: Query with ML score join applied
             - ml_scores_subquery: The subquery for use in order clauses
+            - effective_threshold: The COALESCE(manual, calc) threshold applied, or None
         """
         # Get active tag type if not specified
         if ml_tag_type is None:
@@ -223,7 +224,7 @@ class QueryBuilder:
         else:
             query = query.outerjoin(ml_scores, ml_scores.c.asset_id == ImageMetadata.asset_id)
 
-        return query, ml_scores
+        return query, ml_scores, _effective_threshold
 
     def apply_pagination(self, query: Query, offset: int, limit: Optional[int]) -> List:
         """Apply SQL-based pagination to a SQLAlchemy query and execute.

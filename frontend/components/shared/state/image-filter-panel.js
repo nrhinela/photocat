@@ -144,6 +144,9 @@ export class ImageFilterPanel {
 
       const images = Array.isArray(result) ? result : (result.images || []);
       const total = Array.isArray(result) ? null : (result.total || 0);
+      const payload = Array.isArray(result)
+        ? { images, total }
+        : { ...result, images, total };
 
       this._emit('images-loaded', {
         tabId: this.tabId,
@@ -151,7 +154,7 @@ export class ImageFilterPanel {
         total,
       });
 
-      return { images, total };
+      return payload;
     } catch (error) {
       this._emit('error', {
         tabId: this.tabId,

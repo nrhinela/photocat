@@ -151,6 +151,8 @@ function wireFilterPanelListeners(host) {
     if (detail.tabId === 'search') {
       host.searchImages = [...detail.images];
       host.searchTotal = detail.total || 0;
+      host.searchPinnedImageId = null;
+      host.searchSimilarityAssetUuid = null;
     }
   });
 
@@ -162,6 +164,8 @@ function wireFilterPanelListeners(host) {
     if (detail.tabId === 'curate-home') {
       host.curateImages = [...detail.images];
       host.curateTotal = detail.total || 0;
+      host.curatePinnedImageId = null;
+      host.curateSimilarityAssetUuid = null;
     }
   });
 

@@ -729,6 +729,16 @@ export const zoltagAppStyles = css`
     .curate-pane-header-row--audit .curate-pane-header-actions {
         margin-left: auto;
     }
+    .curate-pane-header-row--view-toggle {
+        justify-content: flex-start;
+    }
+    .curate-pane-header-row--view-actions {
+        justify-content: flex-end;
+    }
+    .curate-pane-header-row--view-actions .curate-pane-header-actions {
+        margin-left: auto;
+        justify-content: flex-end;
+    }
     .curate-pane-action {
         border: 1px solid #2563eb;
         background: #2563eb;
@@ -873,6 +883,32 @@ export const zoltagAppStyles = css`
         position: relative;
         border-radius: 10px;
         transition: box-shadow 0.15s ease, transform 0.15s ease;
+    }
+    .curate-thumb-wrapper.pinned-source:not(.selected) {
+        box-shadow:
+            0 0 0 3px #ef4444,
+            0 0 0 8px rgba(239, 68, 68, 0.34),
+            0 8px 20px rgba(185, 28, 28, 0.35);
+    }
+    .curate-thumb-pin-badge {
+        position: absolute;
+        top: 6px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(8, 47, 73, 0.86);
+        border: 1px solid rgba(186, 230, 253, 0.9);
+        color: #e0f2fe;
+        font-size: 10px;
+        line-height: 1;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        z-index: 12;
+        pointer-events: none;
     }
     .curate-thumb-play-overlay {
         position: absolute;

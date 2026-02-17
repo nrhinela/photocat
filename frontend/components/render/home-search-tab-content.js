@@ -361,6 +361,8 @@ export function renderSearchTabContent(host, { formatCurateDate }) {
       .searchFilterPanel=${host.searchFilterPanel}
       .searchImages=${host.searchImages}
       .searchTotal=${host.searchTotal}
+      .searchPinnedImageId=${host.searchPinnedImageId}
+      .searchSimilarityAssetUuid=${host.searchSimilarityAssetUuid}
       .curateThumbSize=${host.curateThumbSize}
       .tagStatsBySource=${host.tagStatsBySource}
       .activeCurateTagSource=${host.activeCurateTagSource}
@@ -378,6 +380,9 @@ export function renderSearchTabContent(host, { formatCurateDate }) {
       }}
       @explore-selection-applied=${() => {
         host.pendingSearchExploreSelection = null;
+      }}
+      @search-similarity-context-changed=${(event) => {
+        host.searchSimilarityAssetUuid = event?.detail?.assetUuid || null;
       }}
       @search-images-optimistic-remove=${host._handleSearchOptimisticRemove}
       @thumb-size-changed=${(e) => host.curateThumbSize = e.detail.size}

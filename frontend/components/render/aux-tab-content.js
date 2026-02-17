@@ -265,6 +265,7 @@ export function renderGlobalOverlays(host, { canCurate }) {
         .imageSet=${host.curateEditorImageSet}
         .currentImageIndex=${host.curateEditorImageIndex}
         .canEditTags=${canCurate}
+        .canCurate=${canCurate}
         @close=${host._handleCurateEditorClose}
         @image-rating-updated=${host._handleImageRatingUpdated}
         @image-selected=${(e) => {
@@ -278,6 +279,8 @@ export function renderGlobalOverlays(host, { canCurate }) {
         }}
         @zoom-to-photo=${host._handleZoomToPhoto}
         @image-navigate=${host._handleImageNavigate}
+        @open-similar-in-search=${host._handleOpenSimilarInSearch}
+        @open-similar-in-curate=${host._handleOpenSimilarInCurate}
       ></image-editor>
     ` : html``}
   `;

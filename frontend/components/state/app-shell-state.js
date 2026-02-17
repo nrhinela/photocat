@@ -260,6 +260,8 @@ export class AppShellStateController extends BaseStateController {
 
     this.host._curateHomeState.resetForTenantChange();
     this.host.curateSubTab = 'main';
+    this.host.curatePinnedImageId = null;
+    this.host.curateSimilarityAssetUuid = null;
     this.host._curateAuditState.resetForTenantChange();
     this.host._curateAuditLastFetchKey = null;
     this.host._curateHomeLastFetchKey = null;

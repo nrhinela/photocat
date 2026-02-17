@@ -16,6 +16,7 @@ import {
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
 import { renderSelectableImageGrid } from './shared/selectable-image-grid.js';
+import { renderSimilarityModeHeader } from './shared/similarity-mode-header.js';
 import {
   buildHotspotHistorySessionKey,
   createHotspotHistoryBatch,
@@ -90,6 +91,8 @@ export class SearchTab extends LitElement {
     searchImages: { type: Array },
     searchSelectedImages: { type: Object },
     searchTotal: { type: Number },
+    searchPinnedImageId: { type: Number },
+    searchSimilarityAssetUuid: { type: String },
     searchLists: { type: Array },
     searchListId: { type: String, state: true },  // Internal state - not controlled by parent
     searchListTitle: { type: String, state: true },  // Internal state - not controlled by parent
@@ -153,6 +156,8 @@ export class SearchTab extends LitElement {
     this.searchImages = [];
     this.searchSelectedImages = new Set();
     this.searchTotal = 0;
+    this.searchPinnedImageId = null;
+    this.searchSimilarityAssetUuid = null;
     this.searchLists = [];
     this.searchListId = null;
     this.searchListTitle = '';
@@ -472,6 +477,10 @@ export class SearchTab extends LitElement {
       } else if (!this._searchInitialLoadComplete && (this.searchImages || []).length > 0) {
         this._searchInitialLoadComplete = true;
       }
+    }
+
+    if (changedProps.has('searchSimilarityAssetUuid')) {
+      this._syncChipFiltersFromFilterPanel();
     }
 
     if (changedProps.has('browseByFolderAppliedSelection')) {
@@ -1572,6 +1581,16 @@ export class SearchTab extends LitElement {
       });
     }
 
+    const similarityAssetUuid = String(this.searchSimilarityAssetUuid || '').trim();
+    if (similarityAssetUuid) {
+      nextChips.push({
+        type: 'similarity',
+        value: similarityAssetUuid,
+        displayLabel: 'Similarity',
+        displayValue: similarityAssetUuid,
+      });
+    }
+
     this.searchChipFilters = nextChips;
   }
 
@@ -1766,10 +1785,20 @@ export class SearchTab extends LitElement {
   }
 
   _handleChipFiltersChanged(event) {
-    const chips = event.detail.filters;
+    const chips = event.detail.filters || [];
 
     // Store the chip filters for UI state
     this.searchChipFilters = chips;
+    const similarityChip = chips.find((chip) => chip?.type === 'similarity');
+    const nextSimilarityAssetUuid = String(similarityChip?.value || '').trim() || null;
+    if ((this.searchSimilarityAssetUuid || null) !== nextSimilarityAssetUuid) {
+      this.searchSimilarityAssetUuid = nextSimilarityAssetUuid;
+      this.dispatchEvent(new CustomEvent('search-similarity-context-changed', {
+        detail: { assetUuid: nextSimilarityAssetUuid },
+        bubbles: true,
+        composed: true,
+      }));
+    }
 
     // Build filter object from chip filters
     const searchFilters = {
@@ -1840,6 +1869,8 @@ export class SearchTab extends LitElement {
         case 'media':
           searchFilters.mediaType = chip.value === 'video' ? 'video' : (chip.value === 'image' ? 'image' : 'all');
           break;
+        case 'similarity':
+          break;
       }
     });
 
@@ -1850,6 +1881,13 @@ export class SearchTab extends LitElement {
       this.searchFilterPanel.updateFilters(searchFilters);
       this.searchFilterPanel.fetchImages();
     }
+  }
+
+  _continueFromSimilarityMode() {
+    const nextChips = (this.searchChipFilters || []).filter((chip) => chip?.type !== 'similarity');
+    this.searchPinnedImageId = null;
+    this.searchSimilarityAssetUuid = null;
+    this._handleChipFiltersChanged({ detail: { filters: nextChips } });
   }
 
   _handleSearchListsRequested() {
@@ -2363,33 +2401,38 @@ export class SearchTab extends LitElement {
               .keywords=${this.keywords}
               .imageStats=${this.imageStats}
               .activeFilters=${this.searchChipFilters}
+              .hideFiltersSection=${Boolean(this.searchSimilarityAssetUuid)}
               .dropboxFolders=${this.searchDropboxOptions || []}
               .lists=${this.searchLists}
-              .renderSortControls=${() => html`
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-semibold text-gray-700">Sort:</span>
-                  <div class="curate-audit-toggle">
-                    <button
-                      class=${this.searchOrderBy === 'rating' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('rating')}
-                    >
-                      Rating ${this._getCurateQuickSortArrow('rating')}
-                    </button>
-                    <button
-                      class=${this.searchOrderBy === 'photo_creation' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('photo_creation')}
-                    >
-                      Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                    </button>
-                    <button
-                      class=${this.searchOrderBy === 'processed' ? 'active' : ''}
-                      @click=${() => this._handleCurateQuickSort('processed')}
-                    >
-                      Process Date ${this._getCurateQuickSortArrow('processed')}
-                    </button>
+              .renderSortControls=${() => this.searchSimilarityAssetUuid
+                ? renderSimilarityModeHeader({
+                  onContinue: () => this._continueFromSimilarityMode(),
+                })
+                : html`
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                    <div class="curate-audit-toggle">
+                      <button
+                        class=${this.searchOrderBy === 'rating' ? 'active' : ''}
+                        @click=${() => this._handleCurateQuickSort('rating')}
+                      >
+                        Rating ${this._getCurateQuickSortArrow('rating')}
+                      </button>
+                      <button
+                        class=${this.searchOrderBy === 'photo_creation' ? 'active' : ''}
+                        @click=${() => this._handleCurateQuickSort('photo_creation')}
+                      >
+                        Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                      </button>
+                      <button
+                        class=${this.searchOrderBy === 'processed' ? 'active' : ''}
+                        @click=${() => this._handleCurateQuickSort('processed')}
+                      >
+                        Process Date ${this._getCurateQuickSortArrow('processed')}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              `}
+                `}
               @filters-changed=${this._handleChipFiltersChanged}
               @folder-search=${this._handleSearchDropboxInput}
               @lists-requested=${this._handleSearchListsRequested}
@@ -2444,6 +2487,10 @@ export class SearchTab extends LitElement {
                           enableReordering: false,
                           showPermatags: true,
                           showAiScore: false,
+                          pinnedImageIds: Number.isFinite(Number(this.searchPinnedImageId))
+                            ? new Set([Number(this.searchPinnedImageId)])
+                            : null,
+                          pinnedLabel: 'Source',
                           emptyMessage: 'No images found. Adjust filters to search.',
                         },
                       })}
