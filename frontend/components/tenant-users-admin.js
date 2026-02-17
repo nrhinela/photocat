@@ -552,8 +552,9 @@ class TenantUsersAdmin extends LitElement {
     try {
       this.inviteLink = '';
       const result = await createTenantInvitation(this.tenant, email, this.inviteRole || 'user');
-      const token = result?.token || '';
-      this.inviteLink = token ? this._buildInvitationLink(token) : '';
+      const token = String(result?.token || '').trim();
+      const apiInvitationLink = String(result?.invitation_link || '').trim();
+      this.inviteLink = apiInvitationLink || (token ? this._buildInvitationLink(token) : '');
       this._closeInviteModal();
       await this._loadData();
       if (this.inviteLink) {
@@ -607,7 +608,7 @@ class TenantUsersAdmin extends LitElement {
               <tr>
                 <td><span class="email">${invitation.email}</span></td>
                 <td>
-                  <span class="badge ${this._roleBadgeClass(invitation.role)}>
+                  <span class="badge ${this._roleBadgeClass(invitation.role)}">
                     ${this._roleLabel(invitation.role)}
                   </span>
                 </td>

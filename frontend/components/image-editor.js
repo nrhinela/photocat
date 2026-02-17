@@ -1815,13 +1815,14 @@ class ImageEditor extends LitElement {
   }
 
   async _handleVariantUpload() {
-    if (!this.canEditTags || !this.details?.id || !this.tenant || !this._variantUploadFile) return;
+    const variantLabel = String(this.variantUploadLabel || '').trim();
+    if (!this.canEditTags || !this.details?.id || !this.tenant || !variantLabel || !this._variantUploadFile) return;
     this.variantUploading = true;
     this.assetVariantsError = '';
     try {
       await uploadAssetVariant(this.tenant, this.details.id, {
         file: this._variantUploadFile,
-        variant: this.variantUploadLabel,
+        variant: variantLabel,
       });
       this.variantUploadLabel = '';
       this._variantUploadFile = null;
@@ -3018,6 +3019,7 @@ class ImageEditor extends LitElement {
 
   _renderVariantsTab() {
     const variants = this.assetVariants || [];
+    const hasUploadLabel = String(this.variantUploadLabel || '').trim().length > 0;
     return html`
       <div class="variants-fullscreen">
         ${renderPropertySection({
@@ -3054,7 +3056,7 @@ class ImageEditor extends LitElement {
                   <button
                     type="button"
                     class="variants-action primary"
-                    ?disabled=${this.variantUploading || !this._variantUploadFile}
+                    ?disabled=${this.variantUploading || !hasUploadLabel}
                     @click=${this._handleVariantUpload}
                   >
                     ${this.variantUploading ? 'Uploading...' : 'Upload'}

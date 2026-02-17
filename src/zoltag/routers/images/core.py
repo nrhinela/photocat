@@ -42,6 +42,7 @@ from zoltag.routers.images._shared import (
 # Sub-router with no prefix/tags (inherits from parent)
 router = APIRouter()
 logger = logging.getLogger(__name__)
+access_logger = logging.getLogger("uvicorn.error")
 
 # Columns required by /images list response + ordering logic.
 LIST_IMAGES_LOAD_ONLY_COLUMNS = (
@@ -86,7 +87,7 @@ HYBRID_TEXT_PREFILTER_BASE = 800
 HYBRID_TEXT_PREFILTER_MAX = 4000
 HYBRID_TRIGRAM_THRESHOLD = 0.12
 TEXT_INDEX_SEMANTIC_BLEND = 0.35
-TEXT_INDEX_LEXICAL_BLEND = 0.6
+LEGACY_LEXICAL_SCORING_MAX_CANDIDATES = 250
 
 
 def _build_similarity_index(
@@ -344,19 +345,18 @@ def _fetch_text_index_seed_image_ids(
 
     safe_limit = max(1, int(max_rows or HYBRID_TEXT_PREFILTER_BASE))
     text_value = func.lower(func.coalesce(AssetTextIndex.search_text, ""))
+    asset_ids_ordered = []
+    seen_asset_ids = set()
 
-    query = db.query(
-        ImageMetadata.id.label("image_id"),
-    ).join(
-        AssetTextIndex,
-        and_(
-            AssetTextIndex.asset_id == ImageMetadata.asset_id,
-            tenant_column_filter(AssetTextIndex, tenant),
-        ),
-    ).filter(
-        tenant_column_filter(ImageMetadata, tenant),
-        ImageMetadata.asset_id.is_not(None),
-    )
+    def _append_asset_ids(rows) -> None:
+        for row in rows or []:
+            asset_id = getattr(row, "asset_id", None)
+            if asset_id is None or asset_id in seen_asset_ids:
+                continue
+            seen_asset_ids.add(asset_id)
+            asset_ids_ordered.append(asset_id)
+            if len(asset_ids_ordered) >= safe_limit:
+                return
 
     dialect_name = getattr(getattr(db, "bind", None), "dialect", None)
     dialect_name = getattr(dialect_name, "name", "")
@@ -366,53 +366,57 @@ def _fetch_text_index_seed_image_ids(
             tsvector = func.to_tsvector("english", func.coalesce(AssetTextIndex.search_text, ""))
             tsquery = func.websearch_to_tsquery("english", normalized_query)
             full_match_expr = tsvector.op("@@")(tsquery)
-            full_rank_expr = func.ts_rank_cd(tsvector, tsquery)
             token_terms = [token for token in query_tokens[:8] if token]
             token_match_exprs = []
-            token_match_count_expr = literal(0)
-            token_rank_sum_expr = literal(0.0)
             for token in token_terms:
                 token_tsquery = func.plainto_tsquery("english", token)
                 token_match_expr = tsvector.op("@@")(token_tsquery)
                 token_match_exprs.append(token_match_expr)
-                token_match_count_expr = token_match_count_expr + case((token_match_expr, 1), else_=0)
-                token_rank_sum_expr = token_rank_sum_expr + func.ts_rank_cd(tsvector, token_tsquery)
             any_token_match_expr = or_(*token_match_exprs) if token_match_exprs else full_match_expr
-            if _is_pg_trgm_ready(db):
-                trigram_expr = func.similarity(text_value, normalized_query)
-                query = query.filter(
+            rows = (
+                db.query(AssetTextIndex.asset_id.label("asset_id"))
+                .filter(
+                    tenant_column_filter(AssetTextIndex, tenant),
+                    AssetTextIndex.asset_id.is_not(None),
                     or_(
                         full_match_expr,
                         any_token_match_expr,
-                        trigram_expr >= HYBRID_TRIGRAM_THRESHOLD,
-                    )
-                ).order_by(
-                    case((full_match_expr, 1), else_=0).desc(),
-                    token_match_count_expr.desc(),
-                    full_rank_expr.desc(),
-                    token_rank_sum_expr.desc(),
-                    trigram_expr.desc(),
-                    ImageMetadata.id.desc(),
+                    ),
                 )
-            else:
-                query = query.filter(
-                    or_(
-                        full_match_expr,
-                        any_token_match_expr,
-                    )
-                ).order_by(
-                    case((full_match_expr, 1), else_=0).desc(),
-                    token_match_count_expr.desc(),
-                    full_rank_expr.desc(),
-                    token_rank_sum_expr.desc(),
-                    ImageMetadata.id.desc(),
-                )
-            rows = query.limit(safe_limit).all()
+                .limit(safe_limit)
+                .all()
+            )
+            _append_asset_ids(rows)
         except SQLAlchemyError as exc:
             db.rollback()
             logger.debug("FTS seed query fallback to basic lexical matching: %s", exc)
 
-    if not rows:
+    if (
+        normalized_query
+        and len(asset_ids_ordered) < safe_limit
+        and dialect_name == "postgresql"
+        and _is_pg_trgm_ready(db)
+    ):
+        try:
+            remaining = max(1, safe_limit - len(asset_ids_ordered))
+            trigram_query = (
+                db.query(AssetTextIndex.asset_id.label("asset_id"))
+                .filter(
+                    tenant_column_filter(AssetTextIndex, tenant),
+                    AssetTextIndex.asset_id.is_not(None),
+                    func.similarity(text_value, normalized_query) >= HYBRID_TRIGRAM_THRESHOLD,
+                )
+                .limit(remaining)
+            )
+            if seen_asset_ids:
+                trigram_query = trigram_query.filter(~AssetTextIndex.asset_id.in_(list(seen_asset_ids)))
+            trigram_rows = trigram_query.all()
+            _append_asset_ids(trigram_rows)
+        except SQLAlchemyError as exc:
+            db.rollback()
+            logger.debug("Trigram seed query fallback to basic lexical matching: %s", exc)
+
+    if not asset_ids_ordered:
         clauses = []
         if normalized_query:
             clauses.append(text_value.contains(normalized_query))
@@ -421,23 +425,48 @@ def _fetch_text_index_seed_image_ids(
                 clauses.append(text_value.contains(token))
         if not clauses:
             return []
-        query = query.filter(or_(*clauses))
-        if normalized_query:
-            query = query.order_by(
-                case((text_value.contains(normalized_query), 1), else_=0).desc(),
-                ImageMetadata.id.desc(),
+        rows = (
+            db.query(AssetTextIndex.asset_id.label("asset_id"))
+            .filter(
+                tenant_column_filter(AssetTextIndex, tenant),
+                AssetTextIndex.asset_id.is_not(None),
+                or_(*clauses),
             )
-        else:
-            query = query.order_by(ImageMetadata.id.desc())
-        rows = query.limit(safe_limit).all()
+            .limit(safe_limit)
+            .all()
+        )
+        _append_asset_ids(rows)
+
+    if not asset_ids_ordered:
+        return []
+
+    image_rows = (
+        db.query(
+            ImageMetadata.id.label("image_id"),
+            ImageMetadata.asset_id.label("asset_id"),
+        )
+        .filter(
+            tenant_column_filter(ImageMetadata, tenant),
+            ImageMetadata.asset_id.in_(asset_ids_ordered),
+        )
+        .all()
+    )
+
+    image_id_by_asset = {}
+    for row in image_rows:
+        if row.asset_id is not None and row.asset_id not in image_id_by_asset:
+            image_id_by_asset[row.asset_id] = int(row.image_id)
+
     ordered_ids: List[int] = []
-    seen = set()
-    for row in rows:
-        image_id = int(row.image_id)
-        if image_id in seen:
+    seen_image_ids = set()
+    for asset_id in asset_ids_ordered:
+        image_id = image_id_by_asset.get(asset_id)
+        if image_id is None or image_id in seen_image_ids:
             continue
-        seen.add(image_id)
+        seen_image_ids.add(image_id)
         ordered_ids.append(image_id)
+        if len(ordered_ids) >= safe_limit:
+            break
     return ordered_ids
 
 
@@ -864,13 +893,7 @@ def _rank_candidates_with_hybrid_scores(
 
     normalized_query, query_tokens = _tokenize_text_query(text_query)
     semantic_scores: Dict[int, float] = {}
-    lexical_scores: Dict[int, float] = _compute_lexical_scores_for_candidates(
-        db=db,
-        tenant=tenant,
-        candidate_rows=candidate_rows,
-        normalized_query=normalized_query,
-        query_tokens=query_tokens,
-    )
+    lexical_scores: Dict[int, float] = {}
     text_index_semantic_scores: Dict[int, float] = {}
     if vector_weight > 1e-6:
         try:
@@ -903,10 +926,18 @@ def _rank_candidates_with_hybrid_scores(
         query_tokens=query_tokens,
         query_vector=query_vector if vector_weight > 1e-6 else None,
     )
-    for image_id, extra_lexical in text_index_lexical_scores.items():
-        base_lexical = float(lexical_scores.get(image_id, 0.0))
-        lexical_scores[image_id] = float(
-            min(1.0, base_lexical + (TEXT_INDEX_LEXICAL_BLEND * float(extra_lexical)))
+    if text_index_lexical_scores:
+        lexical_scores = {
+            int(image_id): float(min(1.0, max(0.0, score)))
+            for image_id, score in text_index_lexical_scores.items()
+        }
+    elif len(candidate_rows) <= LEGACY_LEXICAL_SCORING_MAX_CANDIDATES:
+        lexical_scores = _compute_lexical_scores_for_candidates(
+            db=db,
+            tenant=tenant,
+            candidate_rows=candidate_rows,
+            normalized_query=normalized_query,
+            query_tokens=query_tokens,
         )
 
     hybrid_scores: Dict[int, float] = {}
@@ -1145,6 +1176,41 @@ async def list_images(
         build_image_query_with_subqueries
     )
 
+    timing_enabled = bool(getattr(settings, "images_timing_logs", False))
+    _timing_points: List[Tuple[str, float]] = []
+
+    def _timing_mark(label: str) -> None:
+        if timing_enabled:
+            _timing_points.append((label, time.perf_counter()))
+
+    def _timing_log(result_count: int, total_count: int) -> None:
+        if not timing_enabled or not _timing_points:
+            return
+        points = _timing_points[:]
+        points.append(("done", time.perf_counter()))
+        stage_parts = []
+        prev_ts = points[0][1]
+        for label, ts in points[1:]:
+            stage_parts.append(f"{label}={(ts - prev_ts) * 1000:.1f}ms")
+            prev_ts = ts
+        overall_ms = (points[-1][1] - points[0][1]) * 1000
+        message = (
+            "list_images_timing tenant=%s text_query=%s media_type=%s total=%s returned=%s overall=%.1fms stages=[%s]"
+        )
+        args = (
+            str(tenant.id),
+            bool(str(text_query or "").strip()),
+            (media_type or "all"),
+            int(total_count or 0),
+            int(result_count or 0),
+            overall_ms,
+            ", ".join(stage_parts),
+        )
+        logger.info(message, *args)
+        access_logger.info(message, *args)
+
+    _timing_mark("start")
+
     ml_keyword_id = None
     if ml_keyword:
         normalized_keyword = ml_keyword.strip().lower()
@@ -1174,6 +1240,7 @@ async def list_images(
         hybrid_vector_weight,
         hybrid_lexical_weight,
     )
+    lexical_only_mode = lexical_weight_value >= 0.999 and vector_weight_value <= 0.001
     text_query_vector: Optional[np.ndarray] = None
     if text_query_value and vector_weight_value > 1e-6:
         try:
@@ -1181,6 +1248,7 @@ async def list_images(
         except Exception as exc:  # noqa: BLE001 - keep query flow resilient.
             logger.warning("Text query embedding unavailable during candidate seeding; continuing lexical-only: %s", exc)
             text_query_vector = None
+    _timing_mark("params")
 
     base_query, subqueries_list, exclude_subqueries_list, has_empty_filter = build_image_query_with_subqueries(
         db,
@@ -1205,16 +1273,20 @@ async def list_images(
         ml_tag_type=ml_tag_type,
         apply_ml_tag_filter=not constrain_to_ml_matches,
     )
+    _timing_mark("base_query")
 
     # If any filter resulted in empty set, return empty response
     if has_empty_filter:
-        return {
+        result = {
             "tenant_id": tenant.id,
             "images": [],
             "total": 0,
             "limit": limit,
             "offset": offset
         }
+        _timing_mark("early_empty")
+        _timing_log(result_count=0, total_count=0)
+        return result
 
     def resolve_anchor_offset(query, current_offset):
         if anchor_id is None or limit is None:
@@ -1382,6 +1454,9 @@ async def list_images(
                         return (0, score)
                     if text_query_value:
                         prefilter_limit = _compute_hybrid_text_prefilter_limit(limit, offset)
+                        if lexical_only_mode:
+                            requested_upper_bound = max(1, int(limit or 100)) + max(0, int(offset or 0))
+                            prefilter_limit = min(prefilter_limit, max(200, requested_upper_bound * 2))
                         lexical_seed_limit, vector_seed_limit, fallback_seed_limit = _compute_hybrid_seed_limits(
                             limit=limit,
                             offset=offset,
@@ -1395,6 +1470,7 @@ async def list_images(
                             query_tokens=text_query_tokens,
                             max_rows=lexical_seed_limit,
                         )
+                        _timing_mark("cat_text_lexical_seed")
                         lexical_seed_ids = [image_id for image_id in lexical_seed_ids if image_id in unique_ids_lookup]
                         vector_seed_ids: List[int] = []
                         if vector_weight_value > 1e-6 and text_query_vector is not None:
@@ -1404,26 +1480,31 @@ async def list_images(
                                 query_vector=text_query_vector,
                                 max_rows=vector_seed_limit,
                             )
+                            _timing_mark("cat_text_vector_seed")
                             vector_seed_ids = [image_id for image_id in raw_vector_seed_ids if image_id in unique_ids_lookup]
-                        fallback_rows = build_candidate_rows_from_ids(
-                            unique_image_ids,
-                            max_rows=fallback_seed_limit,
-                        )
-                        fallback_seed_ids = [int(row.image_id) for row in fallback_rows]
                         seed_candidate_ids = _merge_seed_image_ids(
-                            [lexical_seed_ids, vector_seed_ids, fallback_seed_ids],
+                            [lexical_seed_ids, vector_seed_ids],
                             max_rows=prefilter_limit,
                         )
+                        if not lexical_only_mode and len(seed_candidate_ids) < prefilter_limit:
+                            fallback_rows = build_candidate_rows_from_ids(
+                                unique_image_ids,
+                                max_rows=fallback_seed_limit,
+                            )
+                            _timing_mark("cat_text_fallback_seed")
+                            fallback_seed_ids = [int(row.image_id) for row in fallback_rows]
+                            seed_candidate_ids = _merge_seed_image_ids(
+                                [seed_candidate_ids, fallback_seed_ids],
+                                max_rows=prefilter_limit,
+                            )
                         if seed_candidate_ids:
                             candidate_rows = build_candidate_rows_from_ids(
                                 seed_candidate_ids,
                                 max_rows=prefilter_limit,
                             )
+                            _timing_mark("cat_text_candidate_rows")
                         else:
-                            candidate_rows = build_candidate_rows_from_ids(
-                                unique_image_ids,
-                                max_rows=prefilter_limit,
-                            )
+                            candidate_rows = []
                         sorted_ids, _, _, lexical_scores = _rank_candidates_with_hybrid_scores(
                             db=db,
                             tenant=tenant,
@@ -1435,6 +1516,7 @@ async def list_images(
                             lexical_weight=lexical_weight_value,
                             query_vector=text_query_vector,
                         )
+                        _timing_mark("cat_text_rank")
                         if lexical_weight_value >= 0.999 and vector_weight_value <= 0.001:
                             sorted_ids = [
                                 image_id
@@ -1491,6 +1573,7 @@ async def list_images(
 
                     # Now fetch full ImageMetadata objects in order
                     images = load_images_by_ordered_ids(paginated_ids)
+                    _timing_mark("cat_images_loaded")
                 else:
                     images = []
                     total = 0
@@ -1509,6 +1592,7 @@ async def list_images(
             query = query.order_by(*order_by_clauses)
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+            _timing_mark("cat_exception_fallback")
 
     # Apply keyword filtering if provided (legacy support)
     elif keywords:
@@ -1659,6 +1743,9 @@ async def list_images(
 
         if text_query_value:
             prefilter_limit = _compute_hybrid_text_prefilter_limit(limit, offset)
+            if lexical_only_mode:
+                requested_upper_bound = max(1, int(limit or 100)) + max(0, int(offset or 0))
+                prefilter_limit = min(prefilter_limit, max(200, requested_upper_bound * 2))
             ordered_candidate_query = query.order_by(*order_by_clauses)
             lexical_seed_limit, vector_seed_limit, fallback_seed_limit = _compute_hybrid_seed_limits(
                 limit=limit,
@@ -1672,6 +1759,7 @@ async def list_images(
                 query_tokens=text_query_tokens,
                 max_rows=lexical_seed_limit,
             )
+            _timing_mark("text_lexical_seed")
             vector_seed_ids: List[int] = []
             if vector_weight_value > 1e-6 and text_query_vector is not None:
                 vector_seed_ids = _fetch_text_index_vector_seed_image_ids(
@@ -1680,23 +1768,31 @@ async def list_images(
                     query_vector=text_query_vector,
                     max_rows=vector_seed_limit,
                 )
-            fallback_rows = build_candidate_rows_from_query(
-                ordered_candidate_query,
-                max_rows=fallback_seed_limit,
-            )
-            fallback_seed_ids = [int(row.image_id) for row in fallback_rows]
+                _timing_mark("text_vector_seed")
             seed_candidate_ids = _merge_seed_image_ids(
-                [lexical_seed_ids, vector_seed_ids, fallback_seed_ids],
+                [lexical_seed_ids, vector_seed_ids],
                 max_rows=prefilter_limit,
             )
+            if not lexical_only_mode and len(seed_candidate_ids) < prefilter_limit:
+                fallback_rows = build_candidate_rows_from_query(
+                    ordered_candidate_query,
+                    max_rows=fallback_seed_limit,
+                )
+                _timing_mark("text_fallback_seed")
+                fallback_seed_ids = [int(row.image_id) for row in fallback_rows]
+                seed_candidate_ids = _merge_seed_image_ids(
+                    [seed_candidate_ids, fallback_seed_ids],
+                    max_rows=prefilter_limit,
+                )
             if seed_candidate_ids:
                 seeded_candidate_query = ordered_candidate_query.filter(ImageMetadata.id.in_(seed_candidate_ids))
                 candidate_rows = build_candidate_rows_from_query(
                     seeded_candidate_query,
                     max_rows=prefilter_limit,
                 )
+                _timing_mark("text_candidate_rows")
             else:
-                candidate_rows = fallback_rows
+                candidate_rows = []
             if candidate_rows:
                 sorted_ids, _, _, lexical_scores = _rank_candidates_with_hybrid_scores(
                     db=db,
@@ -1709,6 +1805,7 @@ async def list_images(
                     lexical_weight=lexical_weight_value,
                     query_vector=text_query_vector,
                 )
+                _timing_mark("text_rank")
                 if lexical_weight_value >= 0.999 and vector_weight_value <= 0.001:
                     sorted_ids = [
                         image_id
@@ -1722,6 +1819,7 @@ async def list_images(
                 offset = resolve_anchor_offset_for_sorted_ids(sorted_ids, offset)
             paginated_ids = sorted_ids[offset: offset + limit] if limit else sorted_ids[offset:]
             images = load_images_by_ordered_ids(paginated_ids)
+            _timing_mark("text_images_loaded")
         elif order_by_value == "ml_score" and ml_keyword_id:
             # Apply ML score ordering and require matching ML-tag rows for this keyword.
             query, ml_scores, ml_effective_threshold = builder.apply_ml_score_ordering(
@@ -1762,12 +1860,14 @@ async def list_images(
             query = query.order_by(*order_clauses)
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+            _timing_mark("ml_score_query")
         else:
             total = builder.get_total_count(query)
             order_by_clauses = builder.build_order_clauses()
             query = query.order_by(*order_by_clauses)
             offset = resolve_anchor_offset(query, offset)
             images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+            _timing_mark("default_query")
 
     # Get tags for all images
     image_ids = [img.id for img in images]
@@ -1798,6 +1898,7 @@ async def list_images(
             ).group_by(AssetDerivative.asset_id).all() if asset_ids else []
         )
     }
+    _timing_mark("decorations_loaded")
 
     # Load all keywords to avoid N+1 queries
     keyword_ids = set()
@@ -1897,8 +1998,9 @@ async def list_images(
             "permatags": image_permatags,
             "calculated_tags": calculated_tags
         })
+    _timing_mark("serialize")
 
-    return {
+    result = {
         "tenant_id": tenant.id,
         "images": images_list,
         "total": total,
@@ -1909,6 +2011,8 @@ async def list_images(
         "hybrid_vector_weight": vector_weight_value if text_query_value else None,
         "hybrid_lexical_weight": lexical_weight_value if text_query_value else None,
     }
+    _timing_log(result_count=len(images_list), total_count=total)
+    return result
 
 
 @router.get("/images/duplicates", response_model=dict, operation_id="list_duplicate_images")

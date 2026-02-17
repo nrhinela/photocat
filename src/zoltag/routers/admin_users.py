@@ -775,11 +775,12 @@ async def create_invitation(
     db.commit()
     db.refresh(invitation)
 
-    invitation_link = f"{settings.app_url}/accept-invitation?token={token}"
+    invitation_link = f"{settings.app_url}/signup?invitation_token={token}"
 
     return {
         "message": "Invitation created",
         "invitation_id": str(invitation.id),
+        "token": token,
         "invitation_link": invitation_link,
         "expires_at": invitation.expires_at.isoformat(),
         "invitation_created": True,

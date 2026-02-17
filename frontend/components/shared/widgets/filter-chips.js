@@ -545,13 +545,13 @@ class FilterChips extends LitElement {
                     class=${`px-2 py-0.5 border rounded-full text-[10px] ${keywordOperator === 'OR' ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-600 border-gray-300'}`}
                     @click=${(e) => { e.stopPropagation(); if (keywordOperator !== 'OR') this._toggleKeywordOperator(); }}
                   >
-                    Any
+                    OR
                   </button>
                   <button
                     class=${`px-2 py-0.5 border rounded-full text-[10px] ${keywordOperator === 'AND' ? 'bg-gray-900 text-white border-gray-900' : 'text-gray-600 border-gray-300'}`}
                     @click=${(e) => { e.stopPropagation(); if (keywordOperator !== 'AND') this._toggleKeywordOperator(); }}
                   >
-                    All
+                    AND
                   </button>
                 </div>
               ` : html``}
@@ -959,7 +959,7 @@ class FilterChips extends LitElement {
                           @click=${(e) => { e.stopPropagation(); this._toggleKeywordOperator(); }}
                           title="Toggle match mode"
                         >
-                          ${keywordOperator === 'AND' ? 'All' : 'Any'}
+                          ${keywordOperator === 'AND' ? 'AND' : 'OR'}
                         </button>
                       ` : html``}
                       ${keywordState.untagged ? html`
