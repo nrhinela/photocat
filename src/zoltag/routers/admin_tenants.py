@@ -11,7 +11,13 @@ from sqlalchemy.orm.attributes import flag_modified
 from zoltag.dependencies import get_db, get_secret
 from zoltag.integrations import TenantIntegrationRepository
 from zoltag.auth.dependencies import get_current_user, get_effective_membership_permissions
-from zoltag.auth.models import UserProfile, UserTenant
+from zoltag.auth.models import (
+    PermissionCatalog,
+    TenantRole,
+    TenantRolePermission,
+    UserProfile,
+    UserTenant,
+)
 from zoltag.metadata import Tenant as TenantModel
 from zoltag.tenant_scope import tenant_reference_filter, tenant_column_filter_for_values
 
@@ -32,6 +38,78 @@ LEGACY_PROVIDER_SETTINGS_KEYS = frozenset({
     "gdrive_sync_folders",
     "default_source_provider",
 })
+
+SYSTEM_ROLE_TEMPLATES = {
+    "user": {
+        "label": "User",
+        "description": "Default end-user access",
+    },
+    "editor": {
+        "label": "Editor",
+        "description": "Can edit ratings, tags, notes, and curate content",
+    },
+    "admin": {
+        "label": "Admin",
+        "description": "Full tenant administration access",
+    },
+}
+
+SYSTEM_ROLE_PERMISSIONS = {
+    "user": (
+        "image.view",
+        "search.use",
+        "list.view",
+        "list.create",
+        "list.edit.own",
+        "assets.read",
+        "keywords.read",
+    ),
+    "editor": (
+        "image.view",
+        "image.rate",
+        "image.tag",
+        "image.note.edit",
+        "image.variant.manage",
+        "search.use",
+        "curate.use",
+        "list.view",
+        "list.create",
+        "list.edit.own",
+        "list.edit.shared",
+        "provider.view",
+        "tenant.jobs.view",
+        "tenant.jobs.enqueue",
+        "assets.read",
+        "assets.write",
+        "keywords.read",
+        "keywords.write",
+    ),
+    "admin": (
+        "image.view",
+        "image.rate",
+        "image.tag",
+        "image.note.edit",
+        "image.variant.manage",
+        "search.use",
+        "curate.use",
+        "list.view",
+        "list.create",
+        "list.edit.own",
+        "list.edit.shared",
+        "provider.view",
+        "provider.manage",
+        "tenant.users.view",
+        "tenant.users.manage",
+        "tenant.jobs.view",
+        "tenant.jobs.enqueue",
+        "tenant.jobs.manage",
+        "tenant.settings.manage",
+        "assets.read",
+        "assets.write",
+        "keywords.read",
+        "keywords.write",
+    ),
+}
 
 
 def _normalize_identifier(value: str) -> str:
@@ -106,6 +184,65 @@ def _require_tenant_admin_or_super_admin(db: Session, user: UserProfile, tenant:
     if _user_has_tenant_permission(db, user, tenant, "tenant.settings.manage"):
         return
     raise HTTPException(status_code=403, detail="Admin role required for this tenant")
+
+
+def _seed_default_tenant_roles(db: Session, tenant_id: str) -> None:
+    existing_roles = {
+        role.role_key: role
+        for role in db.query(TenantRole).filter(TenantRole.tenant_id == tenant_id).all()
+    }
+    active_permissions = {
+        str(row[0])
+        for row in db.query(PermissionCatalog.key).filter(PermissionCatalog.is_active.is_(True)).all()
+    }
+
+    for role_key, template in SYSTEM_ROLE_TEMPLATES.items():
+        role = existing_roles.get(role_key)
+        if role is None:
+            role = TenantRole(
+                tenant_id=tenant_id,
+                role_key=role_key,
+                label=template["label"],
+                description=template["description"],
+                is_system=True,
+                is_active=True,
+            )
+            db.add(role)
+            db.flush()
+            existing_roles[role_key] = role
+        else:
+            role.label = template["label"]
+            role.description = template["description"]
+            role.is_system = True
+            role.is_active = True
+
+        desired_permissions = {
+            permission_key
+            for permission_key in SYSTEM_ROLE_PERMISSIONS.get(role_key, ())
+            if permission_key in active_permissions
+        }
+        existing_mappings = {
+            str(row[0]): str(row[1] or "allow")
+            for row in db.query(
+                TenantRolePermission.permission_key,
+                TenantRolePermission.effect,
+            ).filter(
+                TenantRolePermission.role_id == role.id
+            ).all()
+        }
+        for permission_key in desired_permissions:
+            if permission_key in existing_mappings:
+                if existing_mappings[permission_key] != "allow":
+                    db.query(TenantRolePermission).filter(
+                        TenantRolePermission.role_id == role.id,
+                        TenantRolePermission.permission_key == permission_key,
+                    ).update({"effect": "allow"}, synchronize_session=False)
+                continue
+            db.add(TenantRolePermission(
+                role_id=role.id,
+                permission_key=permission_key,
+                effect="allow",
+            ))
 
 
 @router.get("", response_model=list)
@@ -257,6 +394,7 @@ async def create_tenant(
 
     db.add(tenant)
     db.flush()
+    _seed_default_tenant_roles(db, tenant.id)
     repo = TenantIntegrationRepository(db)
     repo.backfill_tenant(tenant)
 

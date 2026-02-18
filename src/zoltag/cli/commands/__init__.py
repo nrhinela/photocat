@@ -9,7 +9,6 @@ from . import (
     sync,
     inspect,
     thumbnails,
-    thresholds,
     text_index,
 )
 
@@ -22,6 +21,5 @@ __all__ = [
     'sync',
     'inspect',
     'thumbnails',
-    'thresholds',
     'text_index',
 ]

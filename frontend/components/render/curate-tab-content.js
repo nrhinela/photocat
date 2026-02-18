@@ -220,7 +220,6 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .mode=${host.curateAuditMode}
             .aiEnabled=${host.curateAuditAiEnabled}
             .aiModel=${host.curateAuditAiModel}
-            .mlThreshold=${host.curateAuditMlThreshold ?? null}
             .images=${host.curateAuditImages}
             .thumbSize=${host.curateThumbSize}
             .minRating=${host.curateAuditMinRating}

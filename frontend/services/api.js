@@ -1450,18 +1450,3 @@ export async function upsertAssetNote(tenantId, imageId, noteType, body) {
         body: JSON.stringify({ body }),
     });
 }
-
-export async function getKeywordThresholds(tenantId, { tagType } = {}) {
-    const params = new URLSearchParams();
-    if (tagType) params.append('tag_type', tagType);
-    const qs = params.toString();
-    return fetchWithAuth(`/admin/keyword-thresholds${qs ? `?${qs}` : ''}`, { tenantId });
-}
-
-export async function setKeywordThresholdManual(tenantId, keywordId, tagType, thresholdManual) {
-    return fetchWithAuth(`/admin/keyword-thresholds/${keywordId}/${tagType}`, {
-        method: 'PATCH',
-        tenantId,
-        body: JSON.stringify({ threshold_manual: thresholdManual }),
-    });
-}

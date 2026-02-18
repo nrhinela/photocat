@@ -57,7 +57,6 @@ export class CurateAuditTab extends LitElement {
     mode: { type: String }, // 'existing' or 'missing'
     aiEnabled: { type: Boolean },
     aiModel: { type: String }, // 'siglip' or 'trained'
-    mlThreshold: { type: Number }, // effective threshold applied to AI results, or null
     images: { type: Array },
     thumbSize: { type: Number },
     keywordCategory: { type: String },
@@ -112,7 +111,6 @@ export class CurateAuditTab extends LitElement {
     this.mode = 'existing';
     this.aiEnabled = false;
     this.aiModel = 'siglip';
-    this.mlThreshold = null;
     this.images = [];
     this.thumbSize = 120;
     this.keywordCategory = '';
@@ -975,11 +973,6 @@ export class CurateAuditTab extends LitElement {
               <div class="curate-pane-header curate-pane-header--audit">
                 <span class="curate-pane-header-title">
                   ${this.auditResultsView === 'history' ? 'Hotspot History' : leftLabel}
-                  ${this.aiEnabled && this.mode === 'missing' && this.mlThreshold != null ? html`
-                    <span class="text-xs font-normal text-gray-500 ml-2">
-                      score &ge; <span class="font-mono">${this.mlThreshold.toFixed(4)}</span>
-                    </span>
-                  ` : ''}
                 </span>
                 ${renderResultsViewControls({
                   view: this.auditResultsView,

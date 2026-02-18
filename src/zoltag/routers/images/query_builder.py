@@ -18,7 +18,7 @@ from sqlalchemy.sql import Selectable
 
 from zoltag.tenant import Tenant
 from sqlalchemy import case as sa_case
-from zoltag.metadata import ImageMetadata, MachineTag, KeywordModel, KeywordThreshold
+from zoltag.metadata import ImageMetadata, MachineTag, KeywordModel
 from zoltag.dependencies import get_tenant_setting
 from zoltag.tenant_scope import tenant_column_filter
 
@@ -146,7 +146,7 @@ class QueryBuilder:
         ml_keyword_id: int,
         ml_tag_type: Optional[str] = None,
         require_match: bool = False,
-    ) -> Tuple[Query, Selectable, Optional[float]]:
+    ) -> Tuple[Query, Selectable]:
         """Add ML score ordering to a query via join with scoring subquery.
 
         This consolidates the ML score query construction (lines 373-402) that
@@ -160,10 +160,9 @@ class QueryBuilder:
             require_match: If True, only include rows with a matching ML score
 
         Returns:
-            Tuple of (modified_query, ml_scores_subquery, effective_threshold) where:
+            Tuple of (modified_query, ml_scores_subquery) where:
             - modified_query: Query with ML score join applied
             - ml_scores_subquery: The subquery for use in order clauses
-            - effective_threshold: The COALESCE(manual, calc) threshold applied, or None
         """
         # Get active tag type if not specified
         if ml_tag_type is None:
@@ -185,23 +184,6 @@ class QueryBuilder:
             if model_row:
                 model_name = model_row[0]
 
-        # Look up effective threshold for this keyword+tag_type: COALESCE(manual, calc)
-        _threshold_row = self.db.query(
-            KeywordThreshold.threshold_manual,
-            KeywordThreshold.threshold_calc,
-        ).filter(
-            KeywordThreshold.tenant_id == self.tenant.id,
-            KeywordThreshold.keyword_id == ml_keyword_id,
-            KeywordThreshold.tag_type == ml_tag_type,
-        ).first()
-        _effective_threshold = None
-        if _threshold_row:
-            _effective_threshold = (
-                _threshold_row.threshold_manual
-                if _threshold_row.threshold_manual is not None
-                else _threshold_row.threshold_calc
-            )
-
         # Build ML scores subquery (max confidence for this keyword) keyed by asset_id.
         _mt_filters = [
             MachineTag.keyword_id == ml_keyword_id,
@@ -209,7 +191,6 @@ class QueryBuilder:
             MachineTag.tag_type == ml_tag_type,
             MachineTag.asset_id.is_not(None),
             *([MachineTag.model_name == model_name] if model_name else []),
-            *([MachineTag.confidence >= _effective_threshold] if _effective_threshold is not None else []),
         ]
         ml_scores = self.db.query(
             MachineTag.asset_id.label('asset_id'),
@@ -224,7 +205,7 @@ class QueryBuilder:
         else:
             query = query.outerjoin(ml_scores, ml_scores.c.asset_id == ImageMetadata.asset_id)
 
-        return query, ml_scores, _effective_threshold
+        return query, ml_scores
 
     def apply_pagination(self, query: Query, offset: int, limit: Optional[int]) -> List:
         """Apply SQL-based pagination to a SQLAlchemy query and execute.

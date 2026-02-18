@@ -512,32 +512,6 @@ class Job(Base):
     )
 
 
-class KeywordThreshold(Base):
-    """Per-keyword, per-model score thresholds for filtering MachineTag results.
-
-    Effective threshold = COALESCE(threshold_manual, threshold_calc).
-    If both are null, no filtering is applied (safe default).
-    """
-
-    __tablename__ = "keyword_thresholds"
-
-    id = Column(Integer, primary_key=True)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
-    # keyword_id FK references keywords table (different declarative base — DB enforces constraint)
-    keyword_id = Column(Integer, nullable=False, index=True)
-    tag_type = Column(String(50), nullable=False)           # e.g. 'siglip', 'trained'
-    threshold_calc = Column(Float, nullable=True)           # auto-calculated
-    threshold_manual = Column(Float, nullable=True)         # user override
-    calc_method = Column(String(50), nullable=True)         # e.g. 'percentile_20'
-    calc_sample_n = Column(Integer, nullable=True)          # verified assets used in calc
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("keyword_id", "tag_type", name="uq_keyword_thresholds_keyword_tag_type"),
-        Index("idx_keyword_thresholds_tenant", "tenant_id"),
-    )
-
-
 class AssetNote(Base):
     """User-authored notes attached to an asset (photo or video)."""
 

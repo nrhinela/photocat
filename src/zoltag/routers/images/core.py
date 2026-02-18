@@ -1317,7 +1317,6 @@ async def list_images(
         return [image_map[image_id] for image_id in ordered_ids if image_id in image_map]
 
     total = 0
-    ml_effective_threshold = None
 
     # Handle per-category filters if provided
     if order_by_value == "processed":
@@ -1766,21 +1765,21 @@ async def list_images(
             images = load_images_by_ordered_ids(paginated_ids)
         elif order_by_value == "ml_score" and ml_keyword_id:
             # Apply ML score ordering and require matching ML-tag rows for this keyword.
-            query, ml_scores, ml_effective_threshold = builder.apply_ml_score_ordering(
+            query, ml_scores = builder.apply_ml_score_ordering(
                 query,
                 ml_keyword_id,
                 ml_tag_type,
                 require_match=True,
             )
             total = builder.get_total_count(query)
-            if total == 0 and ml_effective_threshold is None:
-                # If no threshold is configured and there are no ML matches,
-                # fall back to showing the underlying filtered result set
-                # ordered by ML score (nulls last) so users still see results.
+            if total == 0:
+                # If there are no ML matches, fall back to showing the
+                # underlying filtered result set ordered by ML score
+                # (nulls last) so users still see results.
                 query = base_query
                 query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
                 query = query.options(load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS))
-                query, ml_scores, ml_effective_threshold = builder.apply_ml_score_ordering(
+                query, ml_scores = builder.apply_ml_score_ordering(
                     query,
                     ml_keyword_id,
                     ml_tag_type,
@@ -1943,7 +1942,6 @@ async def list_images(
         "total": total,
         "limit": limit,
         "offset": offset,
-        "ml_effective_threshold": ml_effective_threshold,
         "text_query": text_query_value or None,
         "hybrid_vector_weight": vector_weight_value if text_query_value else None,
         "hybrid_lexical_weight": lexical_weight_value if text_query_value else None,
