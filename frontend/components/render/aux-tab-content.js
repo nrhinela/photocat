@@ -66,8 +66,14 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const canEditKeywords = allowByPermissionOrRole(
     host.currentUser,
     selectedTenant,
-    'image.tag',
+    'keywords.write',
     ['admin', 'editor'],
+  );
+  const canReadKeywords = allowByPermissionOrRole(
+    host.currentUser,
+    selectedTenant,
+    'keywords.read',
+    ['admin', 'editor', 'user'],
   );
   const canManageTenantUsers = allowByPermissionOrRole(
     host.currentUser,
@@ -89,6 +95,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
     ['admin'],
   );
   const unavailableLibraryTabs = [
+    !canReadKeywords ? 'Keywords' : null,
     !canViewUsers ? 'Users' : null,
     !canManageProviders ? 'Providers' : null,
     !canManageJobs ? 'Jobs' : null,
@@ -96,7 +103,8 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const libraryTabActive = host.activeTab === 'library';
   const defaultLibrarySubTab = 'assets';
   const rawLibrarySubTab = host.activeLibrarySubTab || defaultLibrarySubTab;
-  const librarySubTab = (rawLibrarySubTab === 'keywords' || rawLibrarySubTab === 'assets'
+  const librarySubTab = (rawLibrarySubTab === 'assets'
+    || (rawLibrarySubTab === 'keywords' && canReadKeywords)
     || (rawLibrarySubTab === 'users' && canViewUsers)
     || (rawLibrarySubTab === 'providers' && canManageProviders)
     || (rawLibrarySubTab === 'jobs' && canManageJobs))
@@ -115,6 +123,8 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
           </button>
           <button
             class="admin-subtab ${librarySubTab === 'keywords' ? 'active' : ''}"
+            ?disabled=${!canReadKeywords}
+            title=${canReadKeywords ? 'View and manage keywords' : 'Requires keywords.read permission'}
             @click=${() => host.activeLibrarySubTab = 'keywords'}
           >
             <i class="fas fa-tags mr-2"></i>Keywords
@@ -146,7 +156,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
         </div>
         ${unavailableLibraryTabs.length ? html`
           <div class="admin-subtabs-hint">
-            Unavailable for your role: ${unavailableLibraryTabs.join(', ')}
+            Some tabs are unavailable for your role: ${unavailableLibraryTabs.join(', ')}
           </div>
         ` : html``}
         ${librarySubTab === 'assets' ? html`

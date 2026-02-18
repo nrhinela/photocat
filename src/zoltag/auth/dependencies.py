@@ -18,20 +18,15 @@ RBAC_PERMISSION_CACHE_TTL_SECONDS = 30
 _tenant_permission_cache = {}
 
 # Compatibility permission aliases.
-# These let tenant roles use friendlier domain language while existing
-# endpoint guards continue to check canonical keys.
+# Keep implications intentionally one-way for broad alias keys. Avoid
+# canonical->alias write implications that can accidentally escalate
+# privileges through transitive expansion.
 PERMISSION_IMPLICATIONS: dict[str, set[str]] = {
-    # Alias -> canonical
+    # Alias -> canonical (broad convenience aliases)
     "assets.read": {"image.view"},
     "assets.write": {"image.rate", "image.tag", "image.note.edit", "image.variant.manage"},
-    "keywords.read": {"image.view"},
-    "keywords.write": {"image.tag"},
-    # Canonical -> alias (for /auth/me payload ergonomics and UI checks)
-    "image.view": {"assets.read", "keywords.read"},
-    "image.rate": {"assets.write"},
-    "image.tag": {"assets.write", "keywords.write"},
-    "image.note.edit": {"assets.write"},
-    "image.variant.manage": {"assets.write"},
+    # Canonical -> alias (read-only compatibility for legacy roles/UI checks)
+    "image.view": {"assets.read"},
 }
 
 

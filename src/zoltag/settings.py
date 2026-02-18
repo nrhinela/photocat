@@ -79,8 +79,6 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8080
     api_workers: int = 4
-    # Emit per-stage timing logs for GET /api/v1/images when troubleshooting search latency.
-    images_timing_logs: bool = False
     
     # Application URL (for OAuth redirects)
     app_url: str = "http://localhost:8080"  # Update for production

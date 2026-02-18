@@ -16,7 +16,6 @@ from zoltag.tenant_scope import assign_tenant_scope, tenant_column_filter
 router = APIRouter(
     prefix="/api/v1/admin/keywords",
     tags=["admin-keywords"],
-    dependencies=[Depends(require_tenant_permission_from_header("image.tag"))],
 )
 
 
@@ -113,6 +112,7 @@ def _ensure_person_not_linked(db: Session, person: Person, keyword_id: int | Non
 
 @router.get("/categories", response_model=list)
 async def list_keyword_categories(
+    _viewer=Depends(require_tenant_permission_from_header("keywords.read")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -137,6 +137,7 @@ async def list_keyword_categories(
 @router.post("/categories", response_model=dict)
 async def create_keyword_category(
     category_data: dict,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -180,6 +181,7 @@ async def create_keyword_category(
 async def update_keyword_category(
     category_id: int,
     category_data: dict,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -222,6 +224,7 @@ async def update_keyword_category(
 @router.delete("/categories/{category_id}", response_model=dict)
 async def delete_keyword_category(
     category_id: int,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -253,6 +256,7 @@ async def delete_keyword_category(
 @router.get("/categories/{category_id}/keywords", response_model=list)
 async def list_keywords_in_category(
     category_id: int,
+    _viewer=Depends(require_tenant_permission_from_header("keywords.read")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -275,6 +279,7 @@ async def list_keywords_in_category(
 async def create_keyword(
     category_id: int,
     keyword_data: dict,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -324,6 +329,7 @@ async def create_keyword(
 async def update_keyword(
     keyword_id: int,
     keyword_data: dict,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
@@ -390,6 +396,7 @@ async def update_keyword(
 @router.delete("/{keyword_id}", response_model=dict)
 async def delete_keyword(
     keyword_id: int,
+    _editor=Depends(require_tenant_permission_from_header("keywords.write")),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db)
 ):
