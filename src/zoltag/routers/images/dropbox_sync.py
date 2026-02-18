@@ -287,7 +287,8 @@ async def propagate_dropbox_tags(
     keyword_ids = {tag.keyword_id for tag in permatags}
     keywords_map = load_keywords_map(db, tenant.id, keyword_ids)
 
-    gmm_tags = []
+    dropbox_tag_prefix = "z_"
+    dropbox_tags = []
     for tag in permatags:
         if tag.signum != 1:
             continue
@@ -298,10 +299,10 @@ async def propagate_dropbox_tags(
         normalized = re.sub(r"[^A-Za-z0-9_]+", "_", keyword.lower()).strip("_")
         if not normalized:
             continue
-        gmm_tags.append(f"gmm_{normalized}")
+        dropbox_tags.append(f"{dropbox_tag_prefix}{normalized}")
     if image.rating is not None:
-        gmm_tags.append(f"gmm_rating_{image.rating}")
-    gmm_tags = sorted(set(gmm_tags))
+        dropbox_tags.append(f"{dropbox_tag_prefix}rating_{image.rating}")
+    dropbox_tags = sorted(set(dropbox_tags))
 
     try:
         dbx = Dropbox(
@@ -317,14 +318,14 @@ async def propagate_dropbox_tags(
                 if tag_text:
                     existing_tags.append(tag_text)
 
-        existing_gmm_tags = {
+        existing_prefixed_tags = {
             tag_text for tag_text in existing_tags
-            if tag_text.lower().startswith("gmm_")
+            if tag_text.lower().startswith(dropbox_tag_prefix)
         }
-        desired_gmm_tags = set(gmm_tags)
+        desired_prefixed_tags = set(dropbox_tags)
 
-        removed = sorted(existing_gmm_tags - desired_gmm_tags)
-        added = sorted(desired_gmm_tags - set(existing_tags))
+        removed = sorted(existing_prefixed_tags - desired_prefixed_tags)
+        added = sorted(desired_prefixed_tags - set(existing_tags))
 
         for tag_text in removed:
             dbx.files_tags_remove(dropbox_ref, tag_text)
@@ -338,7 +339,7 @@ async def propagate_dropbox_tags(
         "status": "ok",
         "image_id": image.id,
         "dropbox_ref": dropbox_ref,
-        "applied_tags": gmm_tags,
+        "applied_tags": dropbox_tags,
         "added_tags": added,
         "removed_tags": removed,
     }

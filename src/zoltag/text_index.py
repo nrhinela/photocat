@@ -143,7 +143,7 @@ def build_asset_text_document(
         .first()
     )
     asset_row = (
-        db.query(Asset.filename)
+        db.query(Asset.filename, Asset.source_key)
         .filter(
             tenant_column_filter_for_values(Asset, str(tenant_uuid)),
             Asset.id == asset_uuid,
@@ -154,6 +154,9 @@ def build_asset_text_document(
         str((image_row[0] if image_row else "") or "").strip()
         or str((asset_row[0] if asset_row else "") or "").strip()
     )
+    source_key = str((asset_row[1] if asset_row else "") or "").strip()
+    source_filename = source_key.rsplit("/", 1)[-1].strip() if source_key else ""
+    source_filename_stem = source_filename.rsplit(".", 1)[0].strip() if "." in source_filename else source_filename
 
     positive_tag_rows = (
         db.query(Keyword.keyword, Keyword.prompt)
@@ -209,6 +212,12 @@ def build_asset_text_document(
     chunks: list[str] = []
     if filename:
         chunks.append(f"asset {filename}")
+    if source_key:
+        chunks.append(f"source key {source_key}")
+    if source_filename:
+        chunks.append(f"source filename {source_filename}")
+    if source_filename_stem and source_filename_stem != source_filename:
+        chunks.append(source_filename_stem)
     if keywords:
         chunks.append(f"keywords: {', '.join(keywords)}")
     if keyword_descriptions:
@@ -229,6 +238,8 @@ def build_asset_text_document(
         search_text=search_text,
         components={
             "filename": filename,
+            "source_key": source_key,
+            "source_filename": source_filename,
             "keywords": keywords,
             "keyword_descriptions": keyword_descriptions,
             "keyword_phrases": keyword_phrases,
@@ -317,6 +328,10 @@ def rebuild_asset_text_index(
                 )
                 .exists()
             )
+            # Auto-refresh legacy rows created before source-key indexing was added.
+            missing_source_key_coverage = ~sa.func.lower(
+                sa.func.coalesce(AssetTextIndex.search_text, "")
+            ).contains("source key ")
             query = query.outerjoin(
                 AssetTextIndex,
                 and_(
@@ -327,6 +342,7 @@ def rebuild_asset_text_index(
                 or_(
                     AssetTextIndex.asset_id.is_(None),
                     positive_keyword_update_exists,
+                    missing_source_key_coverage,
                 )
             )
         query = query.group_by(ImageMetadata.asset_id).order_by(ImageMetadata.asset_id.asc()).offset(safe_offset)

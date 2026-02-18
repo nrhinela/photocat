@@ -29,9 +29,11 @@ logger = logging.getLogger(__name__)
 
 from zoltag.database import get_db
 from zoltag.auth.dependencies import (
+    get_authenticated_user_allow_pending,
     get_current_user,
     get_effective_membership_permissions,
     get_tenant_role_id_by_key,
+    invalidate_tenant_permission_cache,
 )
 from zoltag.auth.jwt import get_supabase_uid_from_token
 from zoltag.auth.models import UserProfile, UserTenant, Invitation
@@ -260,7 +262,7 @@ async def get_current_user_info(
 async def accept_invitation(
     request: Request,
     body: AcceptInvitationRequest,
-    user: UserProfile = Depends(get_current_user),
+    user: UserProfile = Depends(get_authenticated_user_allow_pending),
     db: Session = Depends(get_db)
 ):
     """Accept an invitation and join a tenant.
@@ -303,26 +305,44 @@ async def accept_invitation(
     # Activate user account (auto-approve via invitation)
     user.is_active = True
 
-    # Create tenant membership with specified role
-    membership = UserTenant(
-        supabase_uid=user.supabase_uid,
+    accepted_at = datetime.utcnow()
+    tenant_role_id = get_tenant_role_id_by_key(
+        db,
         tenant_id=invitation.tenant_id,
-        tenant_role_id=get_tenant_role_id_by_key(
-            db,
-            tenant_id=invitation.tenant_id,
-            role_key=invitation.role,
-        ),
-        role=invitation.role,
-        invited_by=invitation.invited_by,
-        invited_at=invitation.created_at,
-        accepted_at=datetime.utcnow()
+        role_key=invitation.role,
     )
-    db.add(membership)
+
+    # Upsert tenant membership with invitation role.
+    membership = db.query(UserTenant).filter(
+        UserTenant.supabase_uid == user.supabase_uid,
+        UserTenant.tenant_id == invitation.tenant_id,
+    ).first()
+    if membership is None:
+        membership = UserTenant(
+            supabase_uid=user.supabase_uid,
+            tenant_id=invitation.tenant_id,
+            tenant_role_id=tenant_role_id,
+            role=invitation.role,
+            invited_by=invitation.invited_by,
+            invited_at=invitation.created_at,
+            accepted_at=accepted_at,
+        )
+        db.add(membership)
+    else:
+        membership.tenant_role_id = tenant_role_id
+        membership.role = invitation.role
+        membership.invited_by = membership.invited_by or invitation.invited_by
+        membership.invited_at = membership.invited_at or invitation.created_at
+        membership.accepted_at = membership.accepted_at or accepted_at
 
     # Mark invitation as accepted
-    invitation.accepted_at = datetime.utcnow()
+    invitation.accepted_at = accepted_at
 
     db.commit()
+    invalidate_tenant_permission_cache(
+        supabase_uid=str(user.supabase_uid),
+        tenant_id=str(invitation.tenant_id),
+    )
 
     # Return updated user info with new tenant
     return await get_current_user_info(user, db)

@@ -4,12 +4,19 @@ import time
 from typing import Optional, Callable
 from fastapi import Header, HTTPException, Depends, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from jose import JWTError
 from datetime import datetime, timedelta, timezone
 
 from zoltag.database import get_db
-from zoltag.auth.jwt import verify_supabase_jwt, get_supabase_uid_from_token
-from zoltag.auth.models import UserProfile, UserTenant, TenantRole, TenantRolePermission
+from zoltag.auth.jwt import get_supabase_uid_from_token
+from zoltag.auth.models import (
+    Invitation,
+    TenantRole,
+    TenantRolePermission,
+    UserProfile,
+    UserTenant,
+)
 from zoltag.metadata import Tenant as TenantModel
 from zoltag.tenant_scope import tenant_column_filter_for_values, tenant_reference_filter
 
@@ -144,6 +151,120 @@ def _resolve_tenant_scope(db: Session, tenant_ref: str) -> Optional[str]:
     return str(row[0])
 
 
+def claim_pending_invitations_for_user(
+    db: Session,
+    *,
+    user: UserProfile,
+) -> set[str]:
+    """Claim all pending, non-expired invitations for a user email.
+
+    Returns:
+        set[str]: Tenant IDs that were changed.
+    """
+    normalized_email = str(getattr(user, "email", "") or "").strip().lower()
+    if not normalized_email:
+        return set()
+
+    now = datetime.utcnow()
+    invitations = db.query(Invitation).filter(
+        func.lower(Invitation.email) == normalized_email,
+        Invitation.accepted_at.is_(None),
+        Invitation.expires_at > now,
+    ).order_by(Invitation.created_at.asc()).all()
+    if not invitations:
+        return set()
+
+    changed_tenant_ids: set[str] = set()
+    for invitation in invitations:
+        tenant_role_id = get_tenant_role_id_by_key(
+            db,
+            tenant_id=invitation.tenant_id,
+            role_key=invitation.role,
+        )
+        membership = db.query(UserTenant).filter(
+            UserTenant.supabase_uid == user.supabase_uid,
+            UserTenant.tenant_id == invitation.tenant_id,
+        ).first()
+
+        if membership is None:
+            db.add(
+                UserTenant(
+                    supabase_uid=user.supabase_uid,
+                    tenant_id=invitation.tenant_id,
+                    tenant_role_id=tenant_role_id,
+                    role=str(invitation.role or "user").strip().lower() or "user",
+                    invited_by=invitation.invited_by,
+                    invited_at=invitation.created_at,
+                    accepted_at=now,
+                )
+            )
+        else:
+            membership.tenant_role_id = tenant_role_id
+            membership.role = str(invitation.role or membership.role or "user").strip().lower() or "user"
+            membership.invited_by = membership.invited_by or invitation.invited_by
+            membership.invited_at = membership.invited_at or invitation.created_at
+            membership.accepted_at = membership.accepted_at or now
+
+        invitation.accepted_at = now
+        changed_tenant_ids.add(str(invitation.tenant_id))
+
+    if changed_tenant_ids and not user.is_active:
+        user.is_active = True
+
+    return changed_tenant_ids
+
+
+async def _resolve_authenticated_user(
+    *,
+    authorization: Optional[str],
+    db: Session,
+) -> UserProfile:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization header required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = authorization[7:]  # Remove "Bearer " prefix
+
+    try:
+        supabase_uid = await get_supabase_uid_from_token(token)
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.query(UserProfile).filter(
+        UserProfile.supabase_uid == supabase_uid
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found. Please complete registration."
+        )
+
+    return user
+
+
+async def get_authenticated_user_allow_pending(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+) -> UserProfile:
+    """Return authenticated user without enforcing approval status."""
+    return await _resolve_authenticated_user(authorization=authorization, db=db)
+
+
 async def get_current_user(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db)
@@ -169,41 +290,16 @@ async def get_current_user(
         HTTPException 403: User account not approved
         HTTPException 404: User profile not found
     """
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    user = await _resolve_authenticated_user(authorization=authorization, db=db)
 
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    token = authorization[7:]  # Remove "Bearer " prefix
-
-    try:
-        supabase_uid = await get_supabase_uid_from_token(token)
-    except JWTError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Fetch user profile from database
-    user = db.query(UserProfile).filter(
-        UserProfile.supabase_uid == supabase_uid
-    ).first()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found. Please complete registration."
-        )
+    changed_tenant_ids = claim_pending_invitations_for_user(db, user=user)
+    if changed_tenant_ids:
+        db.commit()
+        for tenant_id in changed_tenant_ids:
+            invalidate_tenant_permission_cache(
+                supabase_uid=str(user.supabase_uid),
+                tenant_id=tenant_id,
+            )
 
     if not user.is_active:
         raise HTTPException(

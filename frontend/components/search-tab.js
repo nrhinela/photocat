@@ -274,6 +274,8 @@ export class SearchTab extends LitElement {
     this._searchHistoryOrder = null;
     this._searchHistoryGroupKey = null;
     this._searchFilterPanelHandlers = null;
+    this._searchAdvancedFiltersState = null;
+    this._searchResultsFiltersState = null;
     this._appliedInitialVectorstoreQueryToken = 0;
     this._folderBrowserPanelHandlers = null;
     this._searchDropboxFetchTimer = null;
@@ -315,6 +317,70 @@ export class SearchTab extends LitElement {
         return (this.searchImages || []).map(img => img.id);
       },
       flashSelection: (imageId) => this._flashSearchSelection(imageId),
+    });
+  }
+
+  _createDefaultSearchFilters(overrides = {}) {
+    return {
+      limit: 100,
+      offset: 0,
+      sortOrder: 'desc',
+      orderBy: 'photo_creation',
+      hideZeroRating: true,
+      keywords: {},
+      operators: {},
+      categoryFilterOperator: undefined,
+      rating: undefined,
+      ratingOperator: undefined,
+      dropboxPathPrefix: '',
+      filenameQuery: '',
+      textQuery: '',
+      mediaType: 'all',
+      permatagPositiveMissing: false,
+      listId: undefined,
+      listExcludeId: undefined,
+      hybridVectorWeight: undefined,
+      hybridLexicalWeight: undefined,
+      ...overrides,
+    };
+  }
+
+  _cloneKeywordFilters(rawKeywords) {
+    if (!rawKeywords || typeof rawKeywords !== 'object') return {};
+    const cloned = {};
+    Object.entries(rawKeywords).forEach(([category, values]) => {
+      if (values instanceof Set) {
+        cloned[category] = new Set(values);
+        return;
+      }
+      if (Array.isArray(values)) {
+        cloned[category] = new Set(values.filter(Boolean));
+        return;
+      }
+      if (values && typeof values[Symbol.iterator] === 'function') {
+        cloned[category] = new Set(Array.from(values).filter(Boolean));
+      }
+    });
+    return cloned;
+  }
+
+  _cloneSearchFilters(filters = {}) {
+    const normalized = this._createDefaultSearchFilters(filters || {});
+    return {
+      ...normalized,
+      keywords: this._cloneKeywordFilters(normalized.keywords),
+      operators: { ...(normalized.operators || {}) },
+    };
+  }
+
+  _buildIsolatedResultsFilters(baseFilters = {}) {
+    const base = this._cloneSearchFilters(baseFilters || {});
+    return this._createDefaultSearchFilters({
+      limit: base.limit,
+      sortOrder: base.sortOrder,
+      orderBy: base.orderBy,
+      hideZeroRating: base.hideZeroRating,
+      mediaType: base.mediaType || 'all',
     });
   }
 
@@ -446,6 +512,8 @@ export class SearchTab extends LitElement {
       this._listTargetCounter = 1;
       this._listDragTargetId = null;
       this._lastListFetchTime = 0;
+      this._searchAdvancedFiltersState = null;
+      this._searchResultsFiltersState = null;
       this.searchLists = [];
       this._restoreSearchHistorySessionState();
       this._fetchSearchLists({ force: true });
@@ -477,28 +545,38 @@ export class SearchTab extends LitElement {
         return;
       }
       const previousSubTab = changedProps.get('searchSubTab');
+      const currentFilters = this.searchFilterPanel?.getState?.() || this.searchFilterPanel?.filters || {};
+      if (previousSubTab === 'results') {
+        this._searchResultsFiltersState = this._cloneSearchFilters(currentFilters);
+      } else {
+        this._searchAdvancedFiltersState = this._cloneSearchFilters(currentFilters);
+      }
+
       if (this.searchSubTab === 'results') {
         if (previousSubTab !== 'results') {
           this.vectorstoreHasSearched = false;
         }
-        const currentFilters = this.searchFilterPanel?.getState?.() || this.searchFilterPanel?.filters || {};
-        this.vectorstoreQuery = String(currentFilters.textQuery || this.vectorstoreQuery || '');
-        const vectorstoreWeights = this._readVectorstoreWeights(currentFilters);
+        if (!this._searchResultsFiltersState) {
+          const base = this._searchAdvancedFiltersState || currentFilters;
+          this._searchResultsFiltersState = this._buildIsolatedResultsFilters(base);
+        }
+        if (this.searchFilterPanel) {
+          const nextResultsFilters = this._cloneSearchFilters(this._searchResultsFiltersState);
+          this.searchFilterPanel.updateFilters(nextResultsFilters);
+          this._syncChipFiltersFromFilterState(nextResultsFilters);
+        }
+        const resultsFilters = this._searchResultsFiltersState || {};
+        this.vectorstoreQuery = String(resultsFilters.textQuery || '');
+        const vectorstoreWeights = this._readVectorstoreWeights(resultsFilters);
         this.vectorstoreLexicalWeight = vectorstoreWeights.lexicalWeight;
-      }
-      if (previousSubTab === 'results' && this.searchSubTab !== 'results' && this.searchFilterPanel) {
-        const currentFilters = this.searchFilterPanel.getState?.() || this.searchFilterPanel.filters || {};
-        if (currentFilters.textQuery || currentFilters.hybridVectorWeight !== undefined || currentFilters.hybridLexicalWeight !== undefined) {
-          this.searchFilterPanel.updateFilters({
-            ...currentFilters,
-            textQuery: '',
-            hybridVectorWeight: undefined,
-            hybridLexicalWeight: undefined,
-            offset: 0,
-          });
-          if (this.searchSubTab === 'advanced') {
-            this.searchFilterPanel.fetchImages();
-          }
+      } else if (previousSubTab === 'results' && this.searchFilterPanel) {
+        const nextAdvancedFilters = this._cloneSearchFilters(
+          this._searchAdvancedFiltersState || this._createDefaultSearchFilters()
+        );
+        this.searchFilterPanel.updateFilters(nextAdvancedFilters);
+        this._syncChipFiltersFromFilterState(nextAdvancedFilters);
+        if (this.searchSubTab === 'advanced') {
+          this.searchFilterPanel.fetchImages();
         }
       }
       this._maybeStartInitialRefresh();
@@ -1628,12 +1706,32 @@ export class SearchTab extends LitElement {
     };
     const handleFiltersChanged = (detail) => {
       if (!detail?.filters) return;
+      const snapshot = this._cloneSearchFilters(detail.filters);
+      if (this.searchSubTab === 'results') {
+        this._searchResultsFiltersState = snapshot;
+      } else {
+        this._searchAdvancedFiltersState = snapshot;
+      }
       this._syncChipFiltersFromFilterState(detail.filters);
     };
     this._searchFilterPanelHandlers = { panel, handleLoaded, handleError, handleFiltersChanged };
     panel.on('images-loaded', handleLoaded);
     panel.on('error', handleError);
     panel.on('filters-changed', handleFiltersChanged);
+
+    const currentFilters = panel.getState?.() || panel.filters || {};
+    if (!this._searchAdvancedFiltersState) {
+      this._searchAdvancedFiltersState = this._cloneSearchFilters(currentFilters);
+    }
+    if (!this._searchResultsFiltersState) {
+      this._searchResultsFiltersState = this._buildIsolatedResultsFilters(this._searchAdvancedFiltersState);
+    }
+
+    if (this.searchSubTab === 'results') {
+      panel.updateFilters(this._cloneSearchFilters(this._searchResultsFiltersState));
+    } else {
+      panel.updateFilters(this._cloneSearchFilters(this._searchAdvancedFiltersState));
+    }
     this._syncChipFiltersFromFilterPanel();
   }
 
@@ -2041,6 +2139,8 @@ export class SearchTab extends LitElement {
     const chips = event.detail.filters || [];
     const currentFilters = this.searchFilterPanel?.getState?.() || this.searchFilterPanel?.filters || {};
     const preserveVectorstoreQuery = this.searchSubTab === 'results';
+    const hasTextSearchChip = chips.some((chip) => chip?.type === 'text_search');
+    const shouldPreserveTextSearch = preserveVectorstoreQuery && hasTextSearchChip;
 
     // Store the chip filters for UI state
     this.searchChipFilters = chips;
@@ -2069,11 +2169,11 @@ export class SearchTab extends LitElement {
       categoryFilterSource: 'permatags',
       dropboxPathPrefix: '',
       filenameQuery: '',
-      textQuery: preserveVectorstoreQuery
+      textQuery: shouldPreserveTextSearch
         ? String(currentFilters.textQuery || this.vectorstoreQuery || '').trim()
         : '',
-      hybridVectorWeight: preserveVectorstoreQuery ? currentFilters.hybridVectorWeight : undefined,
-      hybridLexicalWeight: preserveVectorstoreQuery ? currentFilters.hybridLexicalWeight : undefined,
+      hybridVectorWeight: shouldPreserveTextSearch ? currentFilters.hybridVectorWeight : undefined,
+      hybridLexicalWeight: shouldPreserveTextSearch ? currentFilters.hybridLexicalWeight : undefined,
       listId: undefined,
       listExcludeId: undefined,
     };

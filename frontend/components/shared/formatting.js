@@ -40,14 +40,14 @@ export function formatDropboxTag(keyword) {
     .replace(/[^a-z0-9_]+/g, '_')
     .replace(/^_+|_+$/g, '');
   if (!normalized) return '';
-  return `gmm_${normalized}`;
+  return `z_${normalized}`;
 }
 
 export function formatDropboxRatingTag(rating) {
   if (rating === null || rating === undefined || rating === '') return '';
   const normalized = Number.parseInt(rating, 10);
   if (!Number.isFinite(normalized)) return '';
-  return `gmm_rating_${normalized}`;
+  return `z_rating_${normalized}`;
 }
 
 export function formatQueueItem(item) {
