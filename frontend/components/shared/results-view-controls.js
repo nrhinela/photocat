@@ -11,26 +11,29 @@ export function renderResultsViewControls({
   actions = null,
   resultsLabel = 'Results',
   historyLabel = 'Hotspot History',
+  showToggle = true,
 } = {}) {
   const hasActions = actions !== null && actions !== undefined && actions !== false;
 
   return html`
-    <div class="curate-pane-header-row curate-pane-header-row--view-toggle">
-      <div class="curate-audit-toggle">
-        <button
-          class=${view === 'results' ? 'active' : ''}
-          @click=${() => onChange?.('results')}
-        >
-          ${resultsLabel}
-        </button>
-        <button
-          class=${view === 'history' ? 'active' : ''}
-          @click=${() => onChange?.('history')}
-        >
-          ${historyLabel}
-        </button>
+    ${showToggle ? html`
+      <div class="curate-pane-header-row curate-pane-header-row--view-toggle">
+        <div class="curate-audit-toggle">
+          <button
+            class=${view === 'results' ? 'active' : ''}
+            @click=${() => onChange?.('results')}
+          >
+            ${resultsLabel}
+          </button>
+          <button
+            class=${view === 'history' ? 'active' : ''}
+            @click=${() => onChange?.('history')}
+          >
+            ${historyLabel}
+          </button>
+        </div>
       </div>
-    </div>
+    ` : html``}
     ${hasActions ? html`
       <div class="curate-pane-header-row curate-pane-header-row--view-actions">
         <div class="curate-pane-header-actions">
@@ -40,4 +43,3 @@ export function renderResultsViewControls({
     ` : html``}
   `;
 }
-

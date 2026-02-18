@@ -1,5 +1,5 @@
 import { LitElement, html } from 'lit';
-import { getSystemSettings, getTenantsPublic } from '../services/api.js';
+import { getTenantsPublic } from '../services/api.js';
 import { supabase } from '../services/supabase.js';
 import {
     canCurateTenant,
@@ -15,7 +15,6 @@ class AppHeader extends LitElement {
         tenants: { type: Array },
         tenant: { type: String },
         activeTab: { type: String },
-        environment: { type: String },
         currentUser: { type: Object },
         canCurate: { type: Boolean },
         tenantMenuOpen: { type: Boolean },
@@ -26,7 +25,6 @@ class AppHeader extends LitElement {
         super();
         this.tenants = [];
         this.activeTab = 'home'; // Default
-        this.environment = '...';
         this.currentUser = null;
         this.canCurate = null;
         this.tenantMenuOpen = false;
@@ -41,7 +39,6 @@ class AppHeader extends LitElement {
 
   connectedCallback() {
       super.connectedCallback();
-      this.fetchEnvironment();
       if (this.currentUser) {
           this._syncTenantsForCurrentUser();
       }
@@ -77,16 +74,6 @@ class AppHeader extends LitElement {
               composed: true,
           }));
       });
-  }
-
-  async fetchEnvironment() {
-      try {
-          const data = await getSystemSettings();
-          this.environment = data?.environment?.toUpperCase() || 'UNKNOWN';
-      } catch (error) {
-          console.error('Error fetching environment:', error);
-          this.environment = 'ERROR';
-      }
   }
 
   async fetchTenants() {
@@ -238,28 +225,32 @@ class AppHeader extends LitElement {
       return this._formatTenantLabel(match);
   }
 
-  _toggleTenantMenu(event) {
-      event?.stopPropagation?.();
-      this.userMenuOpen = false;
-      this.tenantMenuOpen = !this.tenantMenuOpen;
-  }
-
   _handleTenantMenuSelect(tenantId) {
       const nextTenant = this._normalizeTenantValue(tenantId);
       const currentTenant = this._normalizeTenantValue(this.tenant);
       this.tenantMenuOpen = false;
       if (!nextTenant || nextTenant === currentTenant) return;
       this.dispatchEvent(new CustomEvent('tenant-change', { detail: nextTenant, bubbles: true, composed: true }));
+      this.userMenuOpen = false;
+  }
+
+  _toggleTenantMenu(event) {
+      event?.stopPropagation?.();
+      if (!this.userMenuOpen) return;
+      this.tenantMenuOpen = !this.tenantMenuOpen;
   }
 
   _toggleUserMenu(event) {
       event?.stopPropagation?.();
-      this.tenantMenuOpen = false;
-      this.userMenuOpen = !this.userMenuOpen;
+      const nextOpen = !this.userMenuOpen;
+      this.userMenuOpen = nextOpen;
+      if (!nextOpen) {
+          this.tenantMenuOpen = false;
+      }
   }
 
   _handleDocumentClick(event) {
-      if (!this.tenantMenuOpen && !this.userMenuOpen) return;
+      if (!this.userMenuOpen && !this.tenantMenuOpen) return;
       const target = event?.target;
       if (target && this.contains(target)) return;
       this.tenantMenuOpen = false;
@@ -274,12 +265,6 @@ class AppHeader extends LitElement {
 
   _getUserEmail() {
       return this.currentUser?.user?.email || '';
-  }
-
-  _getUserMenuIdentityLine() {
-      const name = this._getUserDisplayName();
-      const email = this._getUserEmail();
-      return email ? `${name} - ${email}` : name;
   }
 
   _getUserAvatarLetter() {
@@ -309,147 +294,136 @@ class AppHeader extends LitElement {
     const canManageTenantUsers = this._canManageTenantUsersFromUser();
     const canOpenSystemAdmin = this._canOpenSystemAdmin();
     const libraryActive = this.activeTab === 'library';
+    const topNavItems = [
+      { tab: 'search', label: 'Explore', active: this.activeTab === 'search' },
+      { tab: 'lists', label: 'Lists', active: this.activeTab === 'lists' },
+      ...(canCurate ? [{ tab: 'curate', label: 'Curate', active: this.activeTab === 'curate' }] : []),
+      { tab: 'library', label: 'Admin', active: libraryActive },
+    ];
+    const userDisplayName = this._getUserDisplayName();
+    const userEmail = this._getUserEmail();
     const selectedTenant = this._getEffectiveTenantId();
     const tenantMissingFromList = !!selectedTenant
       && !this.tenants.some((tenant) => this._normalizeTenantValue(tenant.id) === selectedTenant);
+    const tenantOptions = tenantMissingFromList
+      ? [{ id: selectedTenant, name: `${selectedTenant} (not in tenant list)` }, ...(this.tenants || [])]
+      : (this.tenants || []);
     return html`
-        <nav class="bg-white shadow-lg">
-            <div class="max-w-7xl mx-auto px-4 py-4">
-                <div class="flex justify-between items-start">
-                    <div class="flex items-center space-x-2">
-                        <i class="fas fa-camera text-blue-600 text-2xl"></i>
-                        <h1 class="text-2xl font-bold text-gray-800">Zoltag</h1>
-                        <span class="text-sm px-3 py-1 rounded font-semibold text-white" style="background-color: ${this.environment === 'PROD' ? '#b91c1c' : '#16a34a'}">${this.environment}</span>
+        <nav class="bg-white shadow-lg border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 py-3">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex items-center gap-6 min-w-0">
+                        <a
+                            href="#"
+                            class="flex items-center space-x-2 shrink-0 text-left no-underline"
+                            @click=${(event) => {
+                              event.preventDefault();
+                              this._handleTabChange('home');
+                            }}
+                            title="Home"
+                        >
+                            <i class="fas fa-camera text-blue-600 text-2xl"></i>
+                            <h1 class="text-2xl font-bold text-gray-800">Zoltag</h1>
+                        </a>
+                        <nav class="inline-flex items-center overflow-x-auto whitespace-nowrap" aria-label="Primary navigation">
+                            ${topNavItems.map((item) => html`
+                              <a
+                                href="#"
+                                class="inline-flex items-center px-6 py-3 text-base font-semibold transition-colors ${item.active ? 'text-blue-800' : 'text-gray-600 hover:text-gray-800'}"
+                                style=${`text-decoration:none;border-bottom:4px solid ${item.active ? '#2563eb' : 'transparent'};`}
+                                @click=${(event) => {
+                                  event.preventDefault();
+                                  this._handleTabChange(item.tab);
+                                }}
+                              >
+                                <span>${item.label}</span>
+                              </a>
+                            `)}
+                        </nav>
                     </div>
-                    <div class="flex items-start space-x-4">
-                        <div class="flex items-center space-x-2">
-                            <label for="tenantSelect" class="text-gray-700 font-medium text-sm">Tenant:</label>
-                            <div class="relative">
-                                <button
-                                    id="tenantSelect"
-                                    type="button"
-                                    class="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm font-normal text-gray-800 focus:border-blue-500 focus:outline-none bg-white min-w-[280px] flex items-center justify-between gap-3"
-                                    style="min-height: 42px;"
-                                    aria-haspopup="listbox"
-                                    aria-expanded=${this.tenantMenuOpen ? 'true' : 'false'}
-                                    @click=${this._toggleTenantMenu}
-                                >
-                                    <span class="truncate">${this._getTenantDisplayLabel(selectedTenant)}</span>
-                                    <i class="fas fa-chevron-down text-xs text-gray-500"></i>
-                                </button>
-                                ${this.tenantMenuOpen ? html`
-                                    <div class="absolute left-0 mt-1 min-w-full max-w-[80vw] max-h-72 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="listbox">
-                                        ${tenantMissingFromList ? html`
-                                            <button
-                                                type="button"
-                                                class="w-full text-left px-3 py-2 text-sm bg-blue-50 text-blue-900 border-b border-blue-100"
-                                                @click=${() => this._handleTenantMenuSelect(selectedTenant)}
-                                            >
-                                                ${selectedTenant} (not in tenant list)
-                                            </button>
-                                        ` : html``}
-                                        ${this.tenants.length ? this.tenants.map((tenant) => {
-                                            const tenantId = this._normalizeTenantValue(tenant.id);
-                                            const isSelected = tenantId === selectedTenant;
-                                            return html`
-                                                <button
-                                                    type="button"
-                                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${isSelected ? 'bg-blue-50 text-blue-900' : 'text-gray-800'}"
-                                                    aria-selected=${isSelected ? 'true' : 'false'}
-                                                    @click=${() => this._handleTenantMenuSelect(tenantId)}
-                                                >
-                                                    ${this._formatTenantLabel(tenant)}
-                                                </button>
-                                            `;
-                                        }) : html`
-                                            <div class="px-3 py-2 text-sm text-gray-500">No tenants available.</div>
-                                        `}
+                    <div class="relative shrink-0">
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center h-10 w-10 rounded-full text-white text-lg font-semibold shadow-sm ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            style=${this._getUserAvatarStyle()}
+                            aria-haspopup="menu"
+                            aria-expanded=${this.userMenuOpen ? 'true' : 'false'}
+                            @click=${this._toggleUserMenu}
+                            title=${this._getUserDisplayName()}
+                        >
+                            ${this._getUserAvatarLetter()}
+                        </button>
+                        ${this.userMenuOpen ? html`
+                            <div class="absolute right-0 mt-2 min-w-[320px] max-w-[80vw] bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="menu">
+                                <div class="px-3 py-2 border-b border-gray-100">
+                                    <div class="text-sm font-semibold text-gray-800 truncate" title=${userDisplayName}>
+                                        ${userDisplayName}
                                     </div>
-                                ` : html``}
-                            </div>
-                        </div>
-                        <div class="relative">
-                            <button
-                                type="button"
-                                class="inline-flex items-center justify-center h-10 w-10 rounded-full text-white text-lg font-semibold shadow-sm ring-1 ring-black/10 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                style=${this._getUserAvatarStyle()}
-                                aria-haspopup="menu"
-                                aria-expanded=${this.userMenuOpen ? 'true' : 'false'}
-                                @click=${this._toggleUserMenu}
-                                title=${this._getUserDisplayName()}
-                            >
-                                ${this._getUserAvatarLetter()}
-                            </button>
-                            ${this.userMenuOpen ? html`
-                                <div class="absolute right-0 mt-2 min-w-[320px] max-w-[80vw] bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="menu">
-                                    <div class="px-3 py-2 text-sm text-gray-800 border-b border-gray-100 truncate" title=${this._getUserMenuIdentityLine()}>
-                                        ${this._getUserMenuIdentityLine()}
-                                    </div>
+                                    ${userEmail ? html`
+                                        <div class="text-xs text-gray-500 truncate mt-0.5" title=${userEmail}>
+                                            ${userEmail}
+                                        </div>
+                                    ` : html``}
+                                </div>
+                                <div class="px-3 py-2 border-b border-gray-100 relative">
+                                    <button
+                                        type="button"
+                                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-between gap-2"
+                                        aria-haspopup="listbox"
+                                        aria-expanded=${this.tenantMenuOpen ? 'true' : 'false'}
+                                        @click=${this._toggleTenantMenu}
+                                    >
+                                        <span class="truncate">${this._getTenantDisplayLabel(selectedTenant)}</span>
+                                        <i class="fas fa-chevron-down text-xs text-gray-500"></i>
+                                    </button>
+                                    ${this.tenantMenuOpen ? html`
+                                        <div class="absolute left-3 right-3 mt-1 max-h-72 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50" role="listbox">
+                                            ${tenantOptions.length ? tenantOptions.map((tenant) => {
+                                                const tenantId = this._normalizeTenantValue(tenant.id);
+                                                const isSelected = tenantId === selectedTenant;
+                                                return html`
+                                                    <button
+                                                        type="button"
+                                                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 ${isSelected ? 'bg-blue-50 text-blue-900' : 'text-gray-800'}"
+                                                        aria-selected=${isSelected ? 'true' : 'false'}
+                                                        @click=${() => this._handleTenantMenuSelect(tenantId)}
+                                                    >
+                                                        ${this._formatTenantLabel(tenant)}
+                                                    </button>
+                                                `;
+                                            }) : html`
+                                                <div class="px-3 py-2 text-sm text-gray-500">No tenants available.</div>
+                                            `}
+                                        </div>
+                                    ` : html``}
+                                </div>
+                                ${canManageTenantUsers ? html`
                                     <button
                                         type="button"
                                         class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
-                                        @click=${() => this._handleUserMenuAction('public-site')}
-                                    >Back to public site</button>
-                                    ${canManageTenantUsers ? html`
-                                        <button
-                                            type="button"
-                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
-                                            @click=${() => this._handleUserMenuAction('manage-users')}
-                                        >Manage users</button>
-                                    ` : html``}
-                                    ${canOpenSystemAdmin ? html`
-                                        <button
-                                            type="button"
-                                            class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
-                                            @click=${() => this._handleUserMenuAction('admin')}
-                                        >System Administration</button>
-                                    ` : html``}
+                                        @click=${() => this._handleUserMenuAction('manage-users')}
+                                    >Manage users</button>
+                                ` : html``}
+                                ${canOpenSystemAdmin ? html`
                                     <button
                                         type="button"
-                                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-red-700 border-t border-gray-100"
-                                        @click=${() => this._handleUserMenuAction('logout')}
-                                    >Sign Out</button>
-                                </div>
-                            ` : html``}
-                        </div>
+                                        class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
+                                        @click=${() => this._handleUserMenuAction('admin')}
+                                    >System Administration</button>
+                                ` : html``}
+                                <button
+                                    type="button"
+                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-gray-800"
+                                    @click=${() => this._handleUserMenuAction('public-site')}
+                                >Back to public site</button>
+                                <button
+                                    type="button"
+                                    class="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 text-red-700 border-t border-gray-100"
+                                    @click=${() => this._handleUserMenuAction('logout')}
+                                >Sign Out</button>
+                            </div>
+                        ` : html``}
                     </div>
-                </div>
-            </div>
-            <!-- Tab Navigation moved to a separate bar -->
-            <div class="bg-gray-100 border-b border-gray-200">
-                <div class="max-w-7xl mx-auto px-4">
-                    <button
-                        @click=${() => this._handleTabChange('home')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'home' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-home mr-2"></i>Home
-                    </button>
-                    <button
-                        @click=${() => this._handleTabChange('search')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'search' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-magnifying-glass mr-2"></i>Explore
-                    </button>
-                    <button
-                        @click=${() => this._handleTabChange('lists')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'lists' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-list mr-2"></i>Lists
-                    </button>
-                    ${canCurate ? html`
-                    <button
-                        @click=${() => this._handleTabChange('curate')}
-                        class="py-3 px-6 text-base font-semibold ${this.activeTab === 'curate' ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-star mr-2"></i>Curate
-                    </button>
-                    ` : html``}
-                    <button
-                        @click=${() => this._handleTabChange('library')}
-                        class="py-3 px-6 text-base font-semibold ${libraryActive ? 'border-b-4 border-blue-600 text-blue-800 bg-blue-50' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'} transition-all duration-200"
-                    >
-                        <i class="fas fa-cog mr-2"></i>Admin
-                    </button>
                 </div>
             </div>
         </nav>

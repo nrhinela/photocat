@@ -1254,7 +1254,7 @@ export class CurateBrowseFolderTab extends LitElement {
 
     return html`
       ${ratingModal}
-      <div class="curate-header-layout search-header-layout mb-4">
+      <div class="curate-header-layout search-header-layout">
         <div class="w-full">
           <filter-chips
             .tenant=${this.tenant}
@@ -1294,25 +1294,11 @@ export class CurateBrowseFolderTab extends LitElement {
           ></filter-chips>
         </div>
       </div>
-      <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.thumbSize}px;">
+      <div class="curate-layout search-layout results-hotspot-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
         <div class="curate-pane">
           <div class="curate-pane-header">
             <div class="curate-pane-header-row">
               <span class="text-sm font-semibold">Browse by Folder</span>
-              <div class="curate-audit-toggle">
-                <button
-                  class=${this.browseResultsView === 'results' ? 'active' : ''}
-                  @click=${() => this._setBrowseResultsView('results')}
-                >
-                  Results
-                </button>
-                <button
-                  class=${this.browseResultsView === 'history' ? 'active' : ''}
-                  @click=${() => this._setBrowseResultsView('history')}
-                >
-                  Hotspot History
-                </button>
-              </div>
             </div>
           </div>
           <div class="curate-pane-body">
@@ -1476,6 +1462,15 @@ export class CurateBrowseFolderTab extends LitElement {
           .activeTool=${this.rightPanelTool}
           @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
         >
+          <div slot="header-right" class="curate-rating-checkbox">
+            <input
+              type="checkbox"
+              id="history-checkbox-curate-browse"
+              .checked=${this.browseResultsView === 'history'}
+              @change=${(event) => this._setBrowseResultsView(event.target.checked ? 'history' : 'results')}
+            />
+            <label for="history-checkbox-curate-browse">History</label>
+          </div>
           <hotspot-targets-panel
             slot="tool-tags"
             mode="tags"

@@ -323,6 +323,14 @@ class TaggingAdmin extends LitElement {
     }
   }
 
+  _getCategoriesAlphabetical(categories = this.categories || []) {
+    return [...categories].sort((a, b) => {
+      const aName = String(a?.name || '');
+      const bName = String(b?.name || '');
+      return aName.localeCompare(bName, undefined, { sensitivity: 'base' });
+    });
+  }
+
   renderDialog() {
     if (!this.dialog) return null;
     if (this.readOnly) return null;
@@ -346,7 +354,9 @@ class TaggingAdmin extends LitElement {
     }
 
     if (this.dialog.type === 'category') {
-      const availableParents = (this.categories || []).filter((cat) => cat.id !== this.dialog.categoryId);
+      const availableParents = this._getCategoriesAlphabetical(
+        (this.categories || []).filter((cat) => cat.id !== this.dialog.categoryId)
+      );
       return html`
         <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
           <div class="bg-white rounded-lg shadow-xl w-full max-w-6xl mx-4 p-6">
@@ -617,6 +627,7 @@ class TaggingAdmin extends LitElement {
   }
 
   render() {
+    const categories = this._getCategoriesAlphabetical(this.categories || []);
     return html`
       <div class="w-full">
         <div class="bg-white rounded-lg border border-gray-200 p-6">
@@ -658,7 +669,7 @@ class TaggingAdmin extends LitElement {
             </div>
           `}
           <div class="space-y-4">
-            ${this.categories.map((category) => this.renderCategory(category))}
+            ${categories.map((category) => this.renderCategory(category))}
           </div>
         </div>
       </div>

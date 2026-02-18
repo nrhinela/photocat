@@ -29,14 +29,8 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
 
   return html`
     <div slot="curate" class="container">
-      <div class="flex items-center justify-between mb-4">
+      <div class="subnav-strip mb-4">
         <div class="curate-subtabs">
-          <button
-            class="curate-subtab ${host.curateSubTab === 'main' ? 'active' : ''}"
-            @click=${() => host._handleCurateSubTabChange('main')}
-          >
-            Explore
-          </button>
           <button
             class="curate-subtab ${host.curateSubTab === 'browse-folder' ? 'active' : ''}"
             @click=${() => host._handleCurateSubTabChange('browse-folder')}

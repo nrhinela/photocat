@@ -3,7 +3,6 @@ import { enqueueCommand } from '../services/command-queue.js';
 import { getDropboxFolders } from '../services/api.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
-import { renderResultsViewControls } from './shared/results-view-controls.js';
 import { renderSelectableImageGrid } from './shared/selectable-image-grid.js';
 import { getKeywordsByCategory, getKeywordsByCategoryFromList } from './shared/keyword-utils.js';
 import {
@@ -968,28 +967,12 @@ export class CurateAuditTab extends LitElement {
             </div>
           </div>
 
-          <div class="curate-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
+          <div class="curate-layout results-hotspot-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
             <div class="curate-pane">
               <div class="curate-pane-header curate-pane-header--audit">
                 <span class="curate-pane-header-title">
                   ${this.auditResultsView === 'history' ? 'Hotspot History' : leftLabel}
                 </span>
-                ${renderResultsViewControls({
-                  view: this.auditResultsView,
-                  onChange: (nextView) => this._setAuditResultsView(nextView),
-                  actions: this.auditResultsView === 'results' && this.keyword && !this.loadAll
-                    ? renderResultsPagination({
-                      total: paginationTotal,
-                      offset,
-                      limit,
-                      count: leftImages.length,
-                      onPrev: this._handlePagePrev,
-                      onNext: this._handlePageNext,
-                      onLimitChange: this._handleLimitChange,
-                      disabled: this.loading,
-                    })
-                    : null,
-                })}
               </div>
               ${this.loading ? html`
                 <div class="curate-loading-overlay" aria-label="Loading">
@@ -1000,6 +983,20 @@ export class CurateAuditTab extends LitElement {
                 ${this.auditResultsView === 'history' ? html`
                   ${this._renderAuditHistoryPane()}
                 ` : html`
+                  ${this.keyword && !this.loadAll ? html`
+                    <div class="p-2">
+                      ${renderResultsPagination({
+                        total: paginationTotal,
+                        offset,
+                        limit,
+                        count: leftImages.length,
+                        onPrev: this._handlePagePrev,
+                        onNext: this._handlePageNext,
+                        onLimitChange: this._handleLimitChange,
+                        disabled: this.loading,
+                      })}
+                    </div>
+                  ` : html``}
                   ${renderSelectableImageGrid({
                     images: leftImages,
                     selection: this.dragSelection,
@@ -1029,7 +1026,7 @@ export class CurateAuditTab extends LitElement {
                     },
                   })}
                   ${this.keyword && !this.loadAll ? html`
-                    <div class="mt-3">
+                    <div class="p-2">
                       ${renderResultsPagination({
                         total: paginationTotal,
                         offset,
@@ -1052,6 +1049,15 @@ export class CurateAuditTab extends LitElement {
                 <div class="curate-pane-header-row">
                   <span>Hotspots</span>
                   <div class="curate-rating-checkbox" style="margin-left: auto;">
+                    <input
+                      type="checkbox"
+                      id="history-checkbox-audit"
+                      .checked=${this.auditResultsView === 'history'}
+                      @change=${(event) => this._setAuditResultsView(event.target.checked ? 'history' : 'results')}
+                    />
+                    <label for="history-checkbox-audit">History</label>
+                  </div>
+                  <div class="curate-rating-checkbox">
                     <input
                       type="checkbox"
                       id="rating-checkbox-audit"

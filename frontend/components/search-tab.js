@@ -2705,6 +2705,17 @@ export class SearchTab extends LitElement {
         @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
       >
         ${this.canCurate ? html`
+          <div slot="header-right" class="curate-rating-checkbox">
+            <input
+              type="checkbox"
+              id="history-checkbox-search"
+              .checked=${this.searchResultsView === 'history'}
+              @change=${(event) => this._setSearchResultsView(event.target.checked ? 'history' : 'results')}
+            />
+            <label for="history-checkbox-search">History</label>
+          </div>
+        ` : html``}
+        ${this.canCurate ? html`
           <hotspot-targets-panel
             slot="tool-tags"
             mode="tags"
@@ -2765,14 +2776,8 @@ export class SearchTab extends LitElement {
       <div class="container">
         <!-- Search Tab Header -->
         ${this.hideSubtabs ? html`` : html`
-          <div class="flex items-center justify-between mb-4">
+          <div class="subnav-strip mb-4">
             <div class="curate-subtabs">
-              <button
-                class="curate-subtab ${this.searchSubTab === 'advanced' ? 'active' : ''}"
-                @click=${() => this._handleSearchSubTabChange('advanced')}
-              >
-                Explore
-              </button>
               <button
                 class="curate-subtab ${this.searchSubTab === 'browse-by-folder' ? 'active' : ''}"
                 @click=${() => this._handleSearchSubTabChange('browse-by-folder')}
@@ -2980,25 +2985,9 @@ export class SearchTab extends LitElement {
             ></filter-chips>
 
             <!-- Image Grid Layout -->
-            <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">
+            <div class="curate-layout search-layout results-hotspot-layout" style="--curate-thumb-size: ${this.curateThumbSize}px; ${browseByFolderBlurStyle}">
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
                 <div class="curate-pane-body">
-                  <div class="p-2 pt-3">
-                    <div class="curate-audit-toggle">
-                      <button
-                        class=${this.searchResultsView === 'results' ? 'active' : ''}
-                        @click=${() => this._setSearchResultsView('results')}
-                      >
-                        Results
-                      </button>
-                      <button
-                        class=${this.searchResultsView === 'history' ? 'active' : ''}
-                        @click=${() => this._setSearchResultsView('history')}
-                      >
-                        Hotspot History
-                      </button>
-                    </div>
-                  </div>
                   ${this.searchResultsView === 'history' ? html`
                     ${this._renderSearchHistoryPane()}
                   ` : html`
@@ -3058,25 +3047,11 @@ export class SearchTab extends LitElement {
         <!-- Browse by Folder Subtab -->
         ${this.searchSubTab === 'browse-by-folder' ? html`
           <div>
-            <div class="curate-layout search-layout mt-3" style="--curate-thumb-size: ${this.curateThumbSize}px;">
+            <div class="curate-layout search-layout results-hotspot-layout" style="--curate-thumb-size: ${this.curateThumbSize}px;">
               <div class="curate-pane" @dragover=${this._handleSearchAvailableDragOver} @drop=${this._handleSearchAvailableDrop}>
                 <div class="curate-pane-header">
                   <div class="curate-pane-header-row">
                     <span class="text-sm font-semibold">Browse by Folder</span>
-                    <div class="curate-audit-toggle">
-                      <button
-                        class=${this.searchResultsView === 'results' ? 'active' : ''}
-                        @click=${() => this._setSearchResultsView('results')}
-                      >
-                        Results
-                      </button>
-                      <button
-                        class=${this.searchResultsView === 'history' ? 'active' : ''}
-                        @click=${() => this._setSearchResultsView('history')}
-                      >
-                        Hotspot History
-                      </button>
-                    </div>
                   </div>
                 </div>
                 <div class="curate-pane-body">

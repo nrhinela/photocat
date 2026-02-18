@@ -3,7 +3,6 @@ import { enqueueCommand } from '../services/command-queue.js';
 import { getDropboxFolders, getLists, createList, getListItems } from '../services/api.js';
 import { createSelectionHandlers } from './shared/selection-handlers.js';
 import { renderResultsPagination } from './shared/pagination-controls.js';
-import { renderResultsViewControls } from './shared/results-view-controls.js';
 import { renderSelectableImageGrid } from './shared/selectable-image-grid.js';
 import { renderSimilarityModeHeader } from './shared/similarity-mode-header.js';
 import {
@@ -1430,75 +1429,52 @@ export class CurateExploreTab extends LitElement {
 
     return html`
       <div>
-        <div class="curate-header-layout search-header-layout">
-          <div class="w-full">
-            <filter-chips
-              .tenant=${this.tenant}
-              .tagStatsBySource=${this.tagStatsBySource}
-              .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
-              .keywords=${this.keywords}
-              .imageStats=${this.imageStats}
-              .activeFilters=${activeFilters}
-              .hideFiltersSection=${Boolean(this.curateSimilarityAssetUuid)}
-              .dropboxFolders=${this.dropboxFolders || []}
-              .lists=${this._lists}
-              .renderSortControls=${() => this.curateSimilarityAssetUuid
-                ? renderSimilarityModeHeader({
-                  onContinue: () => this._continueFromSimilarityMode(),
-                })
-                : html`
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-semibold text-gray-700">Sort:</span>
-                    <div class="curate-audit-toggle">
-                      <button
-                        class=${this.orderBy === 'rating' ? 'active' : ''}
-                        @click=${() => this._handleCurateQuickSort('rating')}
-                      >
-                        Rating ${this._getCurateQuickSortArrow('rating')}
-                      </button>
-                      <button
-                        class=${this.orderBy === 'photo_creation' ? 'active' : ''}
-                        @click=${() => this._handleCurateQuickSort('photo_creation')}
-                      >
-                        Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
-                      </button>
-                      <button
-                        class=${this.orderBy === 'processed' ? 'active' : ''}
-                        @click=${() => this._handleCurateQuickSort('processed')}
-                      >
-                        Process Date ${this._getCurateQuickSortArrow('processed')}
-                      </button>
-                    </div>
-                  </div>
-                `}
-              @filters-changed=${this._handleCurateChipFiltersChanged}
-              @folder-search=${this._handleCurateDropboxInput}
-              @lists-requested=${this._handleListsRequested}
-            ></filter-chips>
-          </div>
-          <div></div>
-        </div>
-
-        <div class="curate-layout mt-4" style="--curate-thumb-size: ${this.thumbSize}px;">
-          <div class="curate-pane">
-              <div class="curate-pane-header" style="padding: 4px;">
-                ${renderResultsViewControls({
-                  view: this.curateResultsView,
-                  onChange: (nextView) => this._setCurateResultsView(nextView),
-                  actions: this.curateResultsView === 'results'
-                    ? renderResultsPagination({
-                      total,
-                      offset,
-                      limit,
-                      count: leftImages.length,
-                      onPrev: this._handleCuratePagePrev,
-                      onNext: this._handleCuratePageNext,
-                      onLimitChange: (e) => this._handleCurateLimitChange(Number(e.target.value)),
-                      disabled: this.loading,
-                    })
-                    : null,
-                })}
+        <filter-chips
+          .tenant=${this.tenant}
+          .tagStatsBySource=${this.tagStatsBySource}
+          .activeCurateTagSource=${this.activeCurateTagSource || 'permatags'}
+          .keywords=${this.keywords}
+          .imageStats=${this.imageStats}
+          .activeFilters=${activeFilters}
+          .hideFiltersSection=${Boolean(this.curateSimilarityAssetUuid)}
+          .dropboxFolders=${this.dropboxFolders || []}
+          .lists=${this._lists}
+          .renderSortControls=${() => this.curateSimilarityAssetUuid
+            ? renderSimilarityModeHeader({
+              onContinue: () => this._continueFromSimilarityMode(),
+            })
+            : html`
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold text-gray-700">Sort:</span>
+                <div class="curate-audit-toggle">
+                  <button
+                    class=${this.orderBy === 'rating' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('rating')}
+                  >
+                    Rating ${this._getCurateQuickSortArrow('rating')}
+                  </button>
+                  <button
+                    class=${this.orderBy === 'photo_creation' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('photo_creation')}
+                  >
+                    Photo Date ${this._getCurateQuickSortArrow('photo_creation')}
+                  </button>
+                  <button
+                    class=${this.orderBy === 'processed' ? 'active' : ''}
+                    @click=${() => this._handleCurateQuickSort('processed')}
+                  >
+                    Process Date ${this._getCurateQuickSortArrow('processed')}
+                  </button>
+                </div>
               </div>
+            `}
+          @filters-changed=${this._handleCurateChipFiltersChanged}
+          @folder-search=${this._handleCurateDropboxInput}
+          @lists-requested=${this._handleListsRequested}
+        ></filter-chips>
+
+        <div class="curate-layout results-hotspot-layout" style="--curate-thumb-size: ${this.thumbSize}px;">
+          <div class="curate-pane">
               ${this.loading ? html`
                 <div class="curate-loading-overlay" aria-label="Loading">
                   <span class="curate-spinner large"></span>
@@ -1508,6 +1484,18 @@ export class CurateExploreTab extends LitElement {
                   ${this.curateResultsView === 'history' ? html`
                     ${this._renderCurateHistoryPane()}
                   ` : html`
+                    <div class="p-2">
+                      ${renderResultsPagination({
+                        total,
+                        offset,
+                        limit,
+                        count: leftImages.length,
+                        onPrev: this._handleCuratePagePrev,
+                        onNext: this._handleCuratePageNext,
+                        onLimitChange: (e) => this._handleCurateLimitChange(Number(e.target.value)),
+                        disabled: this.loading,
+                      })}
+                    </div>
                     ${renderSelectableImageGrid({
                       images: leftImages,
                       selection: this.dragSelection,
@@ -1566,6 +1554,15 @@ export class CurateExploreTab extends LitElement {
             .activeTool=${this.rightPanelTool}
             @tool-changed=${(event) => this._handleRightPanelToolChange(event.detail.tool)}
           >
+            <div slot="header-right" class="curate-rating-checkbox">
+              <input
+                type="checkbox"
+                id="history-checkbox-curate-explore"
+                .checked=${this.curateResultsView === 'history'}
+                @change=${(event) => this._setCurateResultsView(event.target.checked ? 'history' : 'results')}
+              />
+              <label for="history-checkbox-curate-explore">History</label>
+            </div>
             <hotspot-targets-panel
               slot="tool-tags"
               mode="tags"

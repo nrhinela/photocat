@@ -9,6 +9,13 @@ export const zoltagAppStyles = css`
         margin: 0 auto;
         padding: 16px;
     }
+    search-tab,
+    curate-explore-tab,
+    curate-browse-folder-tab,
+    curate-audit-tab {
+        display: block;
+        margin: 0;
+    }
     .tag-carousel {
         display: flex;
         gap: 12px;
@@ -565,7 +572,9 @@ export const zoltagAppStyles = css`
     .home-insights-large .prop-content .text-xs {
         font-size: 13px;
     }
-    .curate-subtabs {
+    .curate-subtabs,
+    .admin-subtabs,
+    .system-subtabs {
         display: inline-flex;
         gap: 6px;
         padding: 4px;
@@ -573,44 +582,53 @@ export const zoltagAppStyles = css`
         background: #f3f4f6;
         border: 1px solid #e5e7eb;
     }
-    .curate-subtab {
+    .subnav-strip {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        background: #f3f4f6;
+    }
+    .subnav-strip .curate-subtabs,
+    .subnav-strip .admin-subtabs,
+    .subnav-strip .system-subtabs {
+        margin-bottom: 0;
+    }
+    @media (max-width: 1024px) {
+        .subnav-strip {
+            flex-wrap: wrap;
+        }
+    }
+    .curate-subtab,
+    .admin-subtab,
+    .system-subtab {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 32px;
         border: none;
         background: transparent;
         color: #6b7280;
         font-size: 12px;
         font-weight: 600;
+        line-height: 1;
         padding: 6px 12px;
         border-radius: 999px;
         cursor: pointer;
+        white-space: nowrap;
     }
-    .curate-subtab.active {
+    .curate-subtab.active,
+    .admin-subtab.active,
+    .system-subtab.active {
         background: #2563eb;
         color: #ffffff;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
     }
     .admin-subtabs {
-        display: inline-flex;
-        gap: 6px;
-        padding: 4px;
-        border-radius: 999px;
-        background: #f3f4f6;
-        border: 1px solid #e5e7eb;
         margin-bottom: 16px;
-    }
-    .admin-subtab {
-        border: none;
-        background: transparent;
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 600;
-        padding: 6px 12px;
-        border-radius: 999px;
-        cursor: pointer;
-    }
-    .admin-subtab.active {
-        background: #2563eb;
-        color: #ffffff;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
     }
     .admin-subtab:disabled {
         opacity: 0.48;
@@ -622,28 +640,7 @@ export const zoltagAppStyles = css`
         color: #6b7280;
     }
     .system-subtabs {
-        display: inline-flex;
-        gap: 6px;
-        padding: 4px;
-        border-radius: 999px;
-        background: #f3f4f6;
-        border: 1px solid #e5e7eb;
         margin-bottom: 16px;
-    }
-    .system-subtab {
-        border: none;
-        background: transparent;
-        color: #6b7280;
-        font-size: 12px;
-        font-weight: 600;
-        padding: 6px 12px;
-        border-radius: 999px;
-        cursor: pointer;
-    }
-    .system-subtab.active {
-        background: #2563eb;
-        color: #ffffff;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
     }
     .curate-audit-toggle {
         display: inline-flex;
@@ -704,6 +701,9 @@ export const zoltagAppStyles = css`
     }
     .search-header-layout {
         grid-template-columns: 1fr;
+    }
+    .results-hotspot-layout {
+        margin-top: 12px;
     }
     .curate-control-grid {
         display: grid;

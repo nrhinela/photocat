@@ -114,45 +114,47 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   return html`
     ${libraryTabActive ? html`
       <div slot="library" class="container">
-        <div class="admin-subtabs">
-          <button
-            class="admin-subtab ${librarySubTab === 'assets' ? 'active' : ''}"
-            @click=${() => host.activeLibrarySubTab = 'assets'}
-          >
-            <i class="fas fa-images mr-2"></i>Assets
-          </button>
-          <button
-            class="admin-subtab ${librarySubTab === 'keywords' ? 'active' : ''}"
-            ?disabled=${!canReadKeywords}
-            title=${canReadKeywords ? 'View and manage keywords' : 'Requires keywords.read permission'}
-            @click=${() => host.activeLibrarySubTab = 'keywords'}
-          >
-            <i class="fas fa-tags mr-2"></i>Keywords
-          </button>
-          <button
-            class="admin-subtab ${librarySubTab === 'users' ? 'active' : ''}"
-            ?disabled=${!canViewUsers}
-            title=${canViewUsers ? 'Manage tenant users' : 'Requires tenant user permissions'}
-            @click=${() => host.activeLibrarySubTab = 'users'}
-          >
-            <i class="fas fa-users mr-2"></i>Users
-          </button>
-          <button
-            class="admin-subtab ${librarySubTab === 'providers' ? 'active' : ''}"
-            ?disabled=${!canManageProviders}
-            title=${canManageProviders ? 'Manage provider integrations' : 'Requires provider.manage permission'}
-            @click=${() => host.activeLibrarySubTab = 'providers'}
-          >
-            <i class="fas fa-database mr-2"></i>Providers
-          </button>
-          <button
-            class="admin-subtab ${librarySubTab === 'jobs' ? 'active' : ''}"
-            ?disabled=${!canManageJobs}
-            title=${canManageJobs ? 'View and manage tenant jobs' : 'Requires tenant.jobs.view permission'}
-            @click=${() => host.activeLibrarySubTab = 'jobs'}
-          >
-            <i class="fas fa-list-check mr-2"></i>Jobs
-          </button>
+        <div class="subnav-strip mb-4">
+          <div class="admin-subtabs">
+            <button
+              class="admin-subtab ${librarySubTab === 'assets' ? 'active' : ''}"
+              @click=${() => host.activeLibrarySubTab = 'assets'}
+            >
+              Assets
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'keywords' ? 'active' : ''}"
+              ?disabled=${!canReadKeywords}
+              title=${canReadKeywords ? 'View and manage keywords' : 'Requires keywords.read permission'}
+              @click=${() => host.activeLibrarySubTab = 'keywords'}
+            >
+              Keywords
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'users' ? 'active' : ''}"
+              ?disabled=${!canViewUsers}
+              title=${canViewUsers ? 'Manage tenant users' : 'Requires tenant user permissions'}
+              @click=${() => host.activeLibrarySubTab = 'users'}
+            >
+              Users
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'providers' ? 'active' : ''}"
+              ?disabled=${!canManageProviders}
+              title=${canManageProviders ? 'Manage provider integrations' : 'Requires provider.manage permission'}
+              @click=${() => host.activeLibrarySubTab = 'providers'}
+            >
+              Providers
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'jobs' ? 'active' : ''}"
+              ?disabled=${!canManageJobs}
+              title=${canManageJobs ? 'View and manage tenant jobs' : 'Requires tenant.jobs.view permission'}
+              @click=${() => host.activeLibrarySubTab = 'jobs'}
+            >
+              Jobs
+            </button>
+          </div>
         </div>
         ${unavailableLibraryTabs.length ? html`
           <div class="admin-subtabs-hint">
@@ -171,19 +173,21 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
         ` : html``}
         ${librarySubTab === 'keywords' ? html`
           <div class="mt-2">
-            <div class="admin-subtabs">
-              <button
-                class="admin-subtab ${host.activeAdminSubTab === 'tagging' ? 'active' : ''}"
-                @click=${() => host.activeAdminSubTab = 'tagging'}
-              >
-                <i class="fas fa-tags mr-2"></i>Tagging
-              </button>
-              <button
-                class="admin-subtab ${host.activeAdminSubTab === 'people' ? 'active' : ''}"
-                @click=${() => host.activeAdminSubTab = 'people'}
-              >
-                <i class="fas fa-users mr-2"></i>People and Organizations
-              </button>
+            <div class="subnav-strip mb-4">
+              <div class="admin-subtabs">
+                <button
+                  class="admin-subtab ${host.activeAdminSubTab === 'tagging' ? 'active' : ''}"
+                  @click=${() => host.activeAdminSubTab = 'tagging'}
+                >
+                  Tagging
+                </button>
+                <button
+                  class="admin-subtab ${host.activeAdminSubTab === 'people' ? 'active' : ''}"
+                  @click=${() => host.activeAdminSubTab = 'people'}
+                >
+                  People and Organizations
+                </button>
+              </div>
             </div>
           </div>
           ${host.activeAdminSubTab === 'tagging' ? html`

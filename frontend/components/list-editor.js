@@ -1,6 +1,5 @@
 import { LitElement, html, css } from 'lit';
 import { tailwind } from './tailwind-lit.js';
-import './admin-tabs.js';
 import {
   getLists,
   createList,
@@ -242,6 +241,11 @@ class ListEditor extends LitElement {
 
   async _handleVisibilityTabChanged(event) {
     const tabId = String(event?.detail?.tabId || '').trim().toLowerCase();
+    await this._setVisibilityScope(tabId);
+  }
+
+  async _setVisibilityScope(nextScope) {
+    const tabId = String(nextScope || '').trim().toLowerCase();
     const tabs = this._getListVisibilityTabs();
     if (!tabs.some((tab) => tab.id === tabId)) {
       return;
@@ -991,9 +995,18 @@ class ListEditor extends LitElement {
       : (selectedVisibilityScope === 'all' ? 'All tenant lists (admin only)' : 'Shared lists and your own private lists');
 
     return html`
-      <div class="p-4">
-        <div class="flex justify-between items-center mb-6">
-            <h2 class="text-lg font-semibold text-gray-900">Lists</h2>
+      <div>
+        <div class="subnav-strip mb-4">
+            <div class="curate-subtabs">
+              ${visibilityTabs.map((tab) => html`
+                <button
+                  class="curate-subtab ${selectedVisibilityScope === tab.id ? 'active' : ''}"
+                  @click=${() => this._setVisibilityScope(tab.id)}
+                >
+                  ${tab.label}
+                </button>
+              `)}
+            </div>
             <div class="ml-auto flex items-center gap-4 text-sm text-gray-600">
               ${this.selectedList ? html`
                 <label class="font-semibold text-gray-600">Thumb</label>
@@ -1010,13 +1023,6 @@ class ListEditor extends LitElement {
               ` : html``}
               <div class="flex items-center gap-2">
                 <button
-                  @click=${this._createList}
-                  class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
-                >
-                  <span aria-hidden="true">+</span>
-                  Add New List
-                </button>
-                <button
                   @click=${() => this.fetchLists({ force: true })}
                   class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   title="Refresh"
@@ -1029,16 +1035,20 @@ class ListEditor extends LitElement {
               </div>
             </div>
         </div>
-        <div class="mb-4">
-          <admin-tabs
-            .tabs=${visibilityTabs}
-            .activeTab=${selectedVisibilityScope}
-            @tab-changed=${this._handleVisibilityTabChanged}
-          ></admin-tabs>
-          <div class="text-xs text-gray-600 -mt-3">
-            <span class="font-semibold">${selectedVisibilityLabel}:</span> ${selectedVisibilityDescription}
-          </div>
+        <div class="text-xs text-gray-600 mb-4">
+          <span class="font-semibold">${selectedVisibilityLabel}:</span> ${selectedVisibilityDescription}
         </div>
+        ${!this.selectedList ? html`
+          <div class="flex justify-end mb-4">
+            <button
+              @click=${this._createList}
+              class="inline-flex items-center gap-2 border rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            >
+              <span aria-hidden="true">+</span>
+              Add New List
+            </button>
+          </div>
+        ` : html``}
         ${this.selectedList ? html`
           <div class="mb-6">
             <button @click=${this._closeListView} class="text-sm text-blue-600 hover:underline mb-4">← Back to lists</button>

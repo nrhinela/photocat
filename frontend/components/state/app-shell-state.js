@@ -178,6 +178,9 @@ export class AppShellStateController extends BaseStateController {
         this.host.pendingSearchExploreSelection = null;
         this.host.pendingVectorstoreQuery = null;
       }
+      if (tab === 'curate') {
+        this.host.curateSubTab = subTab || 'main';
+      }
       if (tab === 'library' && subTab === 'keywords' && adminSubTab) {
         this.host.activeAdminSubTab = adminSubTab;
       }
@@ -188,6 +191,9 @@ export class AppShellStateController extends BaseStateController {
       this.host.activeSearchSubTab = 'advanced';
       this.host.pendingSearchExploreSelection = null;
       this.host.pendingVectorstoreQuery = null;
+    }
+    if (detail === 'curate') {
+      this.host.curateSubTab = 'main';
     }
     if (detail === 'lists') {
       this.host.pendingListSelectionId = null;
