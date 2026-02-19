@@ -76,3 +76,7 @@ Last updated: 2026-02-19
 
 ## Notes / blockers
 - None currently.
+
+## Verification run
+- `pytest tests/test_people_api.py` (pass)
+- `alembic upgrade head` (pass; applied `202602192100`)
