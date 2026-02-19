@@ -103,6 +103,37 @@ class Person(Base):
     # Relationships
     tenant = relationship("Tenant", back_populates="people")
     detected_faces = relationship("DetectedFace", back_populates="person")
+    reference_images = relationship("PersonReferenceImage", back_populates="person", cascade="all, delete-orphan")
+
+
+class PersonReferenceImage(Base):
+    """Reference images used to train/suggest person matches."""
+
+    __tablename__ = "person_reference_images"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    person_id = Column(Integer, ForeignKey("people.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    source_type = Column(String(16), nullable=False)  # upload | asset
+    source_asset_id = Column(UUID(as_uuid=True), ForeignKey("assets.id", ondelete="SET NULL"), nullable=True)
+    storage_key = Column(String(1024), nullable=True)
+
+    is_active = Column(Boolean, nullable=False, default=True)
+    face_count = Column(Integer, nullable=False, default=0)
+    quality_score = Column(Float, nullable=True)
+
+    created_by = Column(UUID(as_uuid=True), ForeignKey("user_profiles.supabase_uid", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    person = relationship("Person", back_populates="reference_images")
+
+    __table_args__ = (
+        Index("idx_person_reference_images_tenant_person_active", "tenant_id", "person_id", "is_active"),
+        Index("idx_person_reference_images_tenant_source_asset", "tenant_id", "source_asset_id"),
+        CheckConstraint("source_type in ('upload','asset')", name="ck_person_reference_images_source_type"),
+    )
 
 
 
