@@ -82,6 +82,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
     ['admin'],
   );
   const canViewUsers = canViewTenantUsers(host.currentUser, selectedTenant);
+  const canViewAudit = canViewUsers;
   const canManageProviders = allowByPermissionOrRole(
     host.currentUser,
     selectedTenant,
@@ -97,6 +98,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const unavailableLibraryTabs = [
     !canReadKeywords ? 'Keywords' : null,
     !canViewUsers ? 'Users' : null,
+    !canViewAudit ? 'Audit' : null,
     !canManageProviders ? 'Providers' : null,
     !canManageJobs ? 'Jobs' : null,
   ].filter(Boolean);
@@ -106,6 +108,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
   const librarySubTab = (rawLibrarySubTab === 'assets'
     || (rawLibrarySubTab === 'keywords' && canReadKeywords)
     || (rawLibrarySubTab === 'users' && canViewUsers)
+    || (rawLibrarySubTab === 'audit' && canViewAudit)
     || (rawLibrarySubTab === 'providers' && canManageProviders)
     || (rawLibrarySubTab === 'jobs' && canManageJobs))
     ? rawLibrarySubTab
@@ -137,6 +140,14 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               @click=${() => host.activeLibrarySubTab = 'users'}
             >
               Users
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'audit' ? 'active' : ''}"
+              ?disabled=${!canViewAudit}
+              title=${canViewAudit ? 'View tenant activity' : 'Requires tenant user permissions'}
+              @click=${() => host.activeLibrarySubTab = 'audit'}
+            >
+              Audit
             </button>
             <button
               class="admin-subtab ${librarySubTab === 'providers' ? 'active' : ''}"
@@ -213,6 +224,15 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               .canManage=${canManageTenantUsers}
               .isSuperAdmin=${isSuperAdmin}
             ></tenant-users-admin>
+          </div>
+        ` : html``}
+        ${librarySubTab === 'audit' ? html`
+          <div class="mt-2">
+            <activity-audit
+              .tenant=${host.tenant}
+              .tenantName=${tenantDisplayName}
+              scope="tenant"
+            ></activity-audit>
           </div>
         ` : html``}
         ${librarySubTab === 'providers' ? html`

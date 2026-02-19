@@ -6,10 +6,13 @@ import json
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from zoltag.activity import EVENT_SEARCH_NL, extract_client_ip, record_activity_event
+from zoltag.auth.dependencies import get_current_user
+from zoltag.auth.models import UserProfile
 from zoltag.dependencies import get_db, get_tenant
 from zoltag.metadata import Person
 from zoltag.models.config import Keyword, KeywordCategory
@@ -350,7 +353,9 @@ def _apply_quality_defaults(response: Dict[str, Any], query: str) -> Dict[str, A
 
 @router.post("/nl")
 async def nl_search(
+    http_request: Request,
     request: NLSearchRequest,
+    current_user: UserProfile = Depends(get_current_user),
     tenant: Tenant = Depends(get_tenant),
     db: Session = Depends(get_db),
 ):
@@ -401,4 +406,24 @@ async def nl_search(
         raise HTTPException(status_code=502, detail="Gemini response was not valid JSON.") from exc
 
     sanitized = _sanitize_response(parsed, vocab)
-    return _apply_quality_defaults(sanitized, request.query)
+    response = _apply_quality_defaults(sanitized, request.query)
+    record_activity_event(
+        db,
+        event_type=EVENT_SEARCH_NL,
+        actor_supabase_uid=current_user.supabase_uid,
+        tenant_id=tenant.id,
+        request_path=str(http_request.url.path),
+        client_ip=extract_client_ip(
+            x_forwarded_for=http_request.headers.get("X-Forwarded-For"),
+            x_real_ip=http_request.headers.get("X-Real-IP"),
+        ),
+        user_agent=http_request.headers.get("User-Agent"),
+        details={
+            "query": request.query[:300],
+            "query_length": len(request.query or ""),
+            "needs_clarification": bool(response.get("needs_clarification")),
+            "category_filter_count": len((response.get("filters") or {}).get("category_filters") or []),
+            "sort": response.get("sort"),
+        },
+    )
+    return response

@@ -51,7 +51,7 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
-      - '--memory=1Gi'
+      - '--memory=2Gi'
       - '--cpu=1'
       - '--timeout=900'
       - '--max-instances=1'

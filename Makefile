@@ -274,7 +274,7 @@ deploy-api:
 		--region $(REGION) \
 		--platform managed \
 		--allow-unauthenticated \
-		--memory=512Mi \
+		--memory=2Gi \
 		--cpu=1 \
 		--timeout=900 \
 		--max-instances=1 \

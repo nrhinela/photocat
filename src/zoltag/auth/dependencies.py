@@ -2,13 +2,15 @@
 
 import time
 from typing import Optional, Callable
-from fastapi import Header, HTTPException, Depends, status
+import math
+from fastapi import Header, HTTPException, Depends, Request, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from jose import JWTError
+from jose import JWTError, jwt as jose_jwt
 from datetime import datetime, timedelta, timezone
 
 from zoltag.database import get_db
+from zoltag.activity import EVENT_AUTH_LOGIN, extract_client_ip, record_activity_event
 from zoltag.auth.jwt import get_supabase_uid_from_token
 from zoltag.auth.models import (
     Invitation,
@@ -151,6 +153,30 @@ def _resolve_tenant_scope(db: Session, tenant_ref: str) -> Optional[str]:
     return str(row[0])
 
 
+def _extract_token_issued_at(authorization: Optional[str]) -> Optional[datetime]:
+    """Extract JWT iat claim as aware UTC datetime (token already verified upstream)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:]
+    try:
+        claims = jose_jwt.get_unverified_claims(token)
+    except Exception:
+        return None
+    issued_at_raw = claims.get("iat")
+    if issued_at_raw is None:
+        return None
+    try:
+        issued_at_seconds = float(issued_at_raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(issued_at_seconds):
+        return None
+    try:
+        return datetime.fromtimestamp(issued_at_seconds, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def claim_pending_invitations_for_user(
     db: Session,
     *,
@@ -266,8 +292,12 @@ async def get_authenticated_user_allow_pending(
 
 
 async def get_current_user(
+    request: Request,
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    x_forwarded_for: Optional[str] = Header(None, alias="X-Forwarded-For"),
+    x_real_ip: Optional[str] = Header(None, alias="X-Real-IP"),
+    user_agent: Optional[str] = Header(None, alias="User-Agent"),
 ) -> UserProfile:
     """Verify JWT token and return current authenticated user.
 
@@ -307,22 +337,49 @@ async def get_current_user(
             detail="Account pending admin approval"
         )
 
-    # Update last login timestamp at most once per hour to avoid per-request writes
+    token_issued_at = _extract_token_issued_at(authorization)
     now = datetime.now(timezone.utc)
     last = user.last_login_at
     # Normalise stored value to aware if DB returned naive UTC
     if last is not None and last.tzinfo is None:
         last = last.replace(tzinfo=timezone.utc)
-    if last is None or (now - last) > timedelta(hours=1):
+
+    is_new_login_session = False
+    if token_issued_at is not None:
+        is_new_login_session = last is None or token_issued_at > (last + timedelta(seconds=1))
+
+    # Keep last_login_at fresh, but avoid per-request writes.
+    should_refresh_last_login = last is None or (now - last) > timedelta(hours=1) or is_new_login_session
+    if should_refresh_last_login:
         user.last_login_at = now
         db.commit()
+
+    request_path = str(request.url.path)
+    is_auth_me_request = request_path == "/api/v1/auth/me"
+    should_emit_login_event = is_new_login_session or (token_issued_at is None and is_auth_me_request)
+
+    if should_emit_login_event:
+        record_activity_event(
+            db,
+            event_type=EVENT_AUTH_LOGIN,
+            actor_supabase_uid=user.supabase_uid,
+            tenant_id=None,
+            request_path=request_path,
+            client_ip=extract_client_ip(
+                x_forwarded_for=x_forwarded_for,
+                x_real_ip=x_real_ip,
+            ),
+            user_agent=user_agent,
+            details={"source": "jwt"},
+        )
 
     return user
 
 
 async def get_optional_user(
+    request: Request,
     authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ) -> Optional[UserProfile]:
     """Get current user if authenticated, None otherwise.
 
@@ -339,7 +396,11 @@ async def get_optional_user(
         return None
 
     try:
-        return await get_current_user(authorization, db)
+        return await get_current_user(
+            authorization=authorization,
+            db=db,
+            request=request,
+        )
     except HTTPException:
         return None
 

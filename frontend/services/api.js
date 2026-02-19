@@ -1361,6 +1361,40 @@ export async function cancelTenantInvitation(tenantId, invitationId) {
     });
 }
 
+/**
+ * List tenant-scoped activity events for audit visualizations.
+ * @param {string} tenantId
+ * @param {{eventType?: string, userId?: string, sinceHours?: number, limit?: number, offset?: number}} options
+ * @returns {Promise<Object>}
+ */
+export async function getTenantActivity(tenantId, options = {}) {
+    const params = new URLSearchParams();
+    if (options.eventType) params.append('event_type', String(options.eventType));
+    if (options.userId) params.append('user_id', String(options.userId));
+    if (options.sinceHours !== undefined && options.sinceHours !== null) params.append('since_hours', String(options.sinceHours));
+    if (options.limit !== undefined && options.limit !== null) params.append('limit', String(options.limit));
+    if (options.offset !== undefined && options.offset !== null) params.append('offset', String(options.offset));
+    const query = params.toString();
+    return fetchWithAuth(`/admin/tenant-activity${query ? `?${query}` : ''}`, { tenantId });
+}
+
+/**
+ * List global activity events for super-admin audit visualizations.
+ * @param {{tenantId?: string, eventType?: string, userId?: string, sinceHours?: number, limit?: number, offset?: number}} options
+ * @returns {Promise<Object>}
+ */
+export async function getAdminActivity(options = {}) {
+    const params = new URLSearchParams();
+    if (options.tenantId) params.append('tenant_id', String(options.tenantId));
+    if (options.eventType) params.append('event_type', String(options.eventType));
+    if (options.userId) params.append('user_id', String(options.userId));
+    if (options.sinceHours !== undefined && options.sinceHours !== null) params.append('since_hours', String(options.sinceHours));
+    if (options.limit !== undefined && options.limit !== null) params.append('limit', String(options.limit));
+    if (options.offset !== undefined && options.offset !== null) params.append('offset', String(options.offset));
+    const query = params.toString();
+    return fetchWithAuth(`/admin/activity${query ? `?${query}` : ''}`);
+}
+
 // ============================================================================
 // People and Categories Management
 // ============================================================================

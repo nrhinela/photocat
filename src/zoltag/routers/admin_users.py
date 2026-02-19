@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Query, Header
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 import secrets
@@ -11,6 +11,7 @@ import secrets
 from zoltag.ratelimit import limiter
 
 from zoltag.database import get_db
+from zoltag.activity import EVENT_AUTH_LOGIN
 from zoltag.auth.dependencies import (
     get_effective_membership_permissions,
     get_tenant_role_id_by_key,
@@ -27,7 +28,7 @@ from zoltag.auth.schemas import (
     UpdateTenantMembershipRequest,
     InvitationResponse,
 )
-from zoltag.metadata import Tenant as TenantModel
+from zoltag.metadata import ActivityEvent, Tenant as TenantModel
 from zoltag.settings import settings
 from zoltag.tenant_scope import tenant_column_filter_for_values, tenant_reference_filter
 
@@ -155,6 +156,121 @@ def _resolve_tenant_role(
     if not target.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role is not active")
     return target
+
+
+def _parse_activity_user_id(user_id: Optional[str]) -> Optional[UUID]:
+    raw = str(user_id or "").strip()
+    if not raw:
+        return None
+    try:
+        return UUID(raw)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user_id format")
+
+
+def _apply_activity_filters(
+    query,
+    *,
+    since_hours: Optional[int],
+    event_type: Optional[str],
+    actor_user_id: Optional[UUID],
+):
+    if since_hours:
+        cutoff = datetime.utcnow() - timedelta(hours=int(since_hours))
+        query = query.filter(ActivityEvent.created_at >= cutoff)
+
+    normalized_event_type = str(event_type or "").strip().lower()
+    if normalized_event_type:
+        query = query.filter(ActivityEvent.event_type == normalized_event_type)
+
+    if actor_user_id is not None:
+        query = query.filter(ActivityEvent.actor_supabase_uid == actor_user_id)
+
+    return query
+
+
+def _build_activity_summary(query) -> dict:
+    total = int(query.order_by(None).count() or 0)
+    unique_actor_count = int(
+        query.with_entities(func.count(func.distinct(ActivityEvent.actor_supabase_uid))).scalar() or 0
+    )
+
+    type_rows = query.with_entities(
+        ActivityEvent.event_type,
+        func.count(ActivityEvent.id),
+    ).group_by(
+        ActivityEvent.event_type
+    ).all()
+    event_type_counts = {
+        str(event_type): int(count or 0)
+        for event_type, count in type_rows
+        if event_type
+    }
+
+    daily_rows = query.with_entities(
+        func.date(ActivityEvent.created_at),
+        func.count(ActivityEvent.id),
+    ).group_by(
+        func.date(ActivityEvent.created_at)
+    ).order_by(
+        func.date(ActivityEvent.created_at)
+    ).all()
+    daily_counts = [
+        {
+            "date": str(day),
+            "count": int(count or 0),
+        }
+        for day, count in daily_rows
+        if day is not None
+    ]
+
+    return {
+        "total_events": total,
+        "unique_actors": unique_actor_count,
+        "event_type_counts": event_type_counts,
+        "daily_counts": daily_counts,
+    }
+
+
+def _serialize_activity_rows(db: Session, rows: list[ActivityEvent]) -> list[dict]:
+    actor_ids = sorted({
+        row.actor_supabase_uid
+        for row in rows
+        if row.actor_supabase_uid is not None
+    })
+    actor_by_uid: dict[UUID, dict] = {}
+    if actor_ids:
+        actor_rows = db.query(
+            UserProfile.supabase_uid,
+            UserProfile.email,
+            UserProfile.display_name,
+        ).filter(
+            UserProfile.supabase_uid.in_(actor_ids)
+        ).all()
+        actor_by_uid = {
+            actor_uid: {
+                "email": str(email or "").strip() or None,
+                "display_name": str(display_name or "").strip() or None,
+            }
+            for actor_uid, email, display_name in actor_rows
+        }
+
+    return [
+        {
+            "id": str(row.id),
+            "tenant_id": str(row.tenant_id) if row.tenant_id else None,
+            "actor_supabase_uid": str(row.actor_supabase_uid) if row.actor_supabase_uid else None,
+            "actor_email": actor_by_uid.get(row.actor_supabase_uid, {}).get("email"),
+            "actor_display_name": actor_by_uid.get(row.actor_supabase_uid, {}).get("display_name"),
+            "event_type": row.event_type,
+            "request_path": row.request_path,
+            "client_ip": row.client_ip,
+            "user_agent": row.user_agent,
+            "details": row.details if isinstance(row.details, dict) else {},
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
 
 
 # ============================================================================
@@ -1074,3 +1190,106 @@ async def cancel_invitation(
     db.commit()
 
     return {"message": "Invitation cancelled"}
+
+
+@router.get("/activity", response_model=dict)
+async def list_activity_events(
+    tenant_id: Optional[str] = Query(None),
+    event_type: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    since_hours: Optional[int] = Query(168, ge=1, le=4320),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _admin: UserProfile = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """List recent activity events (super admin only)."""
+    query = db.query(ActivityEvent)
+
+    if tenant_id:
+        try:
+            tenant_uuid = UUID(str(tenant_id))
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid tenant_id format")
+        query = query.filter(ActivityEvent.tenant_id == tenant_uuid)
+
+    actor_user_id = _parse_activity_user_id(user_id)
+    query = _apply_activity_filters(
+        query,
+        since_hours=since_hours,
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+    )
+    summary = _build_activity_summary(query)
+    rows = query.order_by(
+        ActivityEvent.created_at.desc(),
+        ActivityEvent.id.desc(),
+    ).limit(limit).offset(offset).all()
+    events = _serialize_activity_rows(db, rows)
+
+    return {
+        "events": events,
+        "total": summary["total_events"],
+        "summary": summary,
+        "scope": "global",
+        "tenant_id": str(tenant_id) if tenant_id else None,
+        "since_hours": since_hours,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+@router.get("/tenant-activity", response_model=dict)
+async def list_tenant_activity_events(
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+    event_type: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    since_hours: Optional[int] = Query(168, ge=1, le=4320),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    _viewer: UserProfile = Depends(require_tenant_permission_from_header("tenant.users.view")),
+    db: Session = Depends(get_db),
+):
+    """List tenant activity events (tenant admin/viewer scope)."""
+    tenant = _resolve_tenant(db, x_tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    actor_user_id = _parse_activity_user_id(user_id)
+    tenant_member_uids_subquery = db.query(UserTenant.supabase_uid).filter(
+        UserTenant.tenant_id == tenant.id,
+        UserTenant.accepted_at.isnot(None),
+    ).subquery()
+    query = db.query(ActivityEvent).filter(
+        or_(
+            ActivityEvent.tenant_id == tenant.id,
+            and_(
+                ActivityEvent.event_type == EVENT_AUTH_LOGIN,
+                ActivityEvent.actor_supabase_uid.in_(tenant_member_uids_subquery),
+            ),
+        )
+    )
+    query = _apply_activity_filters(
+        query,
+        since_hours=since_hours,
+        event_type=event_type,
+        actor_user_id=actor_user_id,
+    )
+    summary = _build_activity_summary(query)
+    rows = query.order_by(
+        ActivityEvent.created_at.desc(),
+        ActivityEvent.id.desc(),
+    ).limit(limit).offset(offset).all()
+    events = _serialize_activity_rows(db, rows)
+
+    return {
+        "events": events,
+        "total": summary["total_events"],
+        "summary": summary,
+        "scope": "tenant",
+        "tenant_id": str(tenant.id),
+        "tenant_identifier": str(getattr(tenant, "identifier", "") or "").strip() or None,
+        "since_hours": since_hours,
+        "limit": limit,
+        "offset": offset,
+    }

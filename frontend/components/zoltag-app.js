@@ -13,6 +13,7 @@ import './ml-training.js';
 import './image-editor.js';
 import './person-manager.js';
 import './people-tagger.js';
+import './activity-audit.js';
 import './shared/widgets/filter-chips.js';
 import './shared/widgets/keyword-dropdown.js';
 

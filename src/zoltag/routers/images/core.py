@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Dict, List, Optional, Tuple
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, distinct, and_, case, cast, Text, literal, or_, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, load_only
@@ -15,6 +15,7 @@ from google.cloud import storage
 import numpy as np
 
 from zoltag.dependencies import get_db, get_tenant, get_tenant_setting
+from zoltag.activity import EVENT_SEARCH_IMAGES, extract_client_ip, record_activity_event
 from zoltag.auth.dependencies import get_current_user, require_tenant_permission_from_header
 from zoltag.auth.models import UserProfile
 from zoltag.list_visibility import is_tenant_admin_user
@@ -87,6 +88,66 @@ HYBRID_TEXT_PREFILTER_MAX = 4000
 HYBRID_TRIGRAM_THRESHOLD = 0.12
 TEXT_INDEX_SEMANTIC_BLEND = 0.35
 LEGACY_LEXICAL_SCORING_MAX_CANDIDATES = 250
+
+
+def _log_images_search_event(
+    *,
+    db: Session,
+    request: Request,
+    tenant: Tenant,
+    current_user: UserProfile,
+    total: int,
+    returned_count: int,
+    limit: int,
+    offset: int,
+    text_query: str,
+    keywords: Optional[str],
+    category_filters: Optional[str],
+    filename_query: Optional[str],
+    dropbox_path_prefix: Optional[str],
+    order_by_value: Optional[str],
+    date_order: str,
+    hybrid_vector_weight: float,
+    hybrid_lexical_weight: float,
+) -> None:
+    keyword_values = [k.strip() for k in str(keywords or "").split(",") if k.strip()]
+    mode = (
+        "text"
+        if text_query
+        else ("category_filters" if bool(category_filters) else ("keywords" if keyword_values else "browse"))
+    )
+    if mode == "browse":
+        return
+
+    record_activity_event(
+        db,
+        event_type=EVENT_SEARCH_IMAGES,
+        actor_supabase_uid=current_user.supabase_uid,
+        tenant_id=tenant.id,
+        request_path=str(request.url.path),
+        client_ip=extract_client_ip(
+            x_forwarded_for=request.headers.get("X-Forwarded-For"),
+            x_real_ip=request.headers.get("X-Real-IP"),
+        ),
+        user_agent=request.headers.get("User-Agent"),
+        details={
+            "mode": mode,
+            "text_query": text_query[:200] if text_query else None,
+            "text_query_length": len(text_query or ""),
+            "keywords": keyword_values[:25],
+            "has_category_filters": bool(category_filters),
+            "filename_query": str(filename_query or "")[:200] or None,
+            "dropbox_path_prefix": str(dropbox_path_prefix or "")[:200] or None,
+            "order_by": order_by_value or "photo_creation",
+            "date_order": date_order,
+            "hybrid_vector_weight": float(hybrid_vector_weight or 0.0) if text_query else None,
+            "hybrid_lexical_weight": float(hybrid_lexical_weight or 0.0) if text_query else None,
+            "limit": int(limit or 0),
+            "offset": int(offset or 0),
+            "result_total": int(total or 0),
+            "result_count": int(returned_count or 0),
+        },
+    )
 
 
 def _build_similarity_index(
@@ -1135,6 +1196,7 @@ def _fetch_similar_ids_with_pgvector(
 
 @router.get("/images", response_model=dict, operation_id="list_images")
 async def list_images(
+    request: Request,
     tenant: Tenant = Depends(get_tenant),
     current_user: UserProfile = Depends(get_current_user),
     limit: int = 100,
@@ -1244,6 +1306,25 @@ async def list_images(
             "limit": limit,
             "offset": offset
         }
+        _log_images_search_event(
+            db=db,
+            request=request,
+            tenant=tenant,
+            current_user=current_user,
+            total=0,
+            returned_count=0,
+            limit=limit,
+            offset=offset,
+            text_query=text_query_value,
+            keywords=keywords,
+            category_filters=category_filters,
+            filename_query=filename_query,
+            dropbox_path_prefix=dropbox_path_prefix,
+            order_by_value=order_by_value,
+            date_order=date_order,
+            hybrid_vector_weight=vector_weight_value,
+            hybrid_lexical_weight=lexical_weight_value,
+        )
         return result
 
     def resolve_anchor_offset(query, current_offset):
@@ -1946,6 +2027,25 @@ async def list_images(
         "hybrid_vector_weight": vector_weight_value if text_query_value else None,
         "hybrid_lexical_weight": lexical_weight_value if text_query_value else None,
     }
+    _log_images_search_event(
+        db=db,
+        request=request,
+        tenant=tenant,
+        current_user=current_user,
+        total=int(total or 0),
+        returned_count=len(images_list),
+        limit=limit,
+        offset=offset,
+        text_query=text_query_value,
+        keywords=keywords,
+        category_filters=category_filters,
+        filename_query=filename_query,
+        dropbox_path_prefix=dropbox_path_prefix,
+        order_by_value=order_by_value,
+        date_order=date_order,
+        hybrid_vector_weight=vector_weight_value,
+        hybrid_lexical_weight=lexical_weight_value,
+    )
     return result
 
 
