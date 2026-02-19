@@ -1501,6 +1501,20 @@ export async function deletePersonReference(tenantId, personId, referenceId) {
 }
 
 /**
+ * Fetch a person reference image as blob for preview rendering.
+ * @param {string} tenantId
+ * @param {number} personId
+ * @param {string} referenceId
+ * @returns {Promise<Blob>}
+ */
+export async function getPersonReferenceContent(tenantId, personId, referenceId) {
+    return fetchWithAuth(`/people/${personId}/references/${referenceId}/content`, {
+        tenantId,
+        responseType: 'blob',
+    });
+}
+
+/**
  * Upload a dedicated person reference photo outside the asset system.
  * @param {string} tenantId
  * @param {number} personId

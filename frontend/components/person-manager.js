@@ -8,6 +8,7 @@ import {
   getPersonReferences,
   createPersonReference,
   deletePersonReference,
+  getPersonReferenceContent,
   getLists,
   getListItems,
   uploadPersonReference,
@@ -32,6 +33,7 @@ class PersonManager extends LitElement {
     referenceListId: { type: String },
     referenceLists: { type: Array },
     referenceListsLoading: { type: Boolean },
+    referencePreviewUrls: { type: Object },
     referenceActionBusyKey: { type: String },
   };
 
@@ -358,6 +360,15 @@ class PersonManager extends LitElement {
       padding: 10px 12px;
       border-bottom: 1px solid #e5e7eb;
     }
+    .reference-preview {
+      width: 64px;
+      height: 64px;
+      border-radius: 8px;
+      object-fit: cover;
+      background: #e5e7eb;
+      flex-shrink: 0;
+      border: 1px solid #d1d5db;
+    }
     .reference-list-item:last-child {
       border-bottom: none;
     }
@@ -441,6 +452,7 @@ class PersonManager extends LitElement {
     this.referenceListId = '';
     this.referenceLists = [];
     this.referenceListsLoading = false;
+    this.referencePreviewUrls = {};
     this.referenceActionBusyKey = '';
   }
 
@@ -448,6 +460,11 @@ class PersonManager extends LitElement {
     super.connectedCallback();
     console.log('[PersonManager] connectedCallback, tenant:', this.tenant);
     await this.loadData();
+  }
+
+  disconnectedCallback() {
+    this._revokeAllReferencePreviews();
+    super.disconnectedCallback();
   }
 
   updated(changedProperties) {
@@ -561,6 +578,7 @@ class PersonManager extends LitElement {
     this.referenceListId = '';
     this.referenceLists = [];
     this.referenceListsLoading = false;
+    this._revokeAllReferencePreviews();
     this.referenceActionBusyKey = '';
     this.view = 'editor';
   }
@@ -579,6 +597,7 @@ class PersonManager extends LitElement {
     this.referenceListId = '';
     this.referenceLists = [];
     this.referenceListsLoading = false;
+    this._revokeAllReferencePreviews();
     this.referenceActionBusyKey = '';
     this.view = 'editor';
     await Promise.all([
@@ -593,6 +612,7 @@ class PersonManager extends LitElement {
 
   async loadReferences() {
     if (!this.selectedPersonId) {
+      this._revokeAllReferencePreviews();
       this.references = [];
       return;
     }
@@ -602,12 +622,42 @@ class PersonManager extends LitElement {
       const tenantId = this._getTenantId();
       const refs = await getPersonReferences(tenantId, this.selectedPersonId);
       this.references = Array.isArray(refs) ? refs : [];
+      await this._loadReferencePreviews();
     } catch (err) {
       this.referencesError = err?.message || 'Failed to load references';
+      this._revokeAllReferencePreviews();
       this.references = [];
     } finally {
       this.referencesLoading = false;
     }
+  }
+
+  _revokeAllReferencePreviews() {
+    Object.values(this.referencePreviewUrls || {}).forEach((url) => {
+      if (url) {
+        URL.revokeObjectURL(url);
+      }
+    });
+    this.referencePreviewUrls = {};
+  }
+
+  async _loadReferencePreviews() {
+    this._revokeAllReferencePreviews();
+    const refs = Array.isArray(this.references) ? this.references : [];
+    if (!refs.length || !this.selectedPersonId) return;
+    const tenantId = this._getTenantId();
+    const nextUrls = {};
+    await Promise.all(refs.map(async (reference) => {
+      const referenceId = String(reference?.id || '').trim();
+      if (!referenceId) return;
+      try {
+        const blob = await getPersonReferenceContent(tenantId, this.selectedPersonId, referenceId);
+        nextUrls[referenceId] = URL.createObjectURL(blob);
+      } catch (_err) {
+        nextUrls[referenceId] = '';
+      }
+    }));
+    this.referencePreviewUrls = nextUrls;
   }
 
   async _loadReferenceLists() {
@@ -939,6 +989,13 @@ class PersonManager extends LitElement {
                           const busyKey = `ref:${reference.id}`;
                           return html`
                             <div class="reference-list-item">
+                              ${this.referencePreviewUrls?.[String(reference.id)] ? html`
+                                <img
+                                  class="reference-preview"
+                                  src=${this.referencePreviewUrls[String(reference.id)]}
+                                  alt="Reference preview"
+                                />
+                              ` : html`<div class="reference-preview"></div>`}
                               <div class="reference-meta">
                                 <strong>${reference.source_type === 'asset' ? 'Asset reference' : 'Uploaded reference'}</strong>
                                 <span>${this._truncateReferenceKey(reference)}</span>

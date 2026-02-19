@@ -1,9 +1,11 @@
 """People management and tagging endpoints."""
 
 import mimetypes
+import io
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy import distinct, func, case
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -558,6 +560,52 @@ async def delete_person_reference(
         except Exception:
             pass
     return {"status": "deleted", "person_id": person_id, "reference_id": reference_id}
+
+
+@router.get("/{person_id}/references/{reference_id}/content")
+async def get_person_reference_content(
+    person_id: int,
+    reference_id: str,
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db),
+):
+    """Stream a person reference image from private reference storage."""
+    _get_person_for_tenant(db, tenant, person_id)
+    try:
+        parsed_reference_id = UUID(reference_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="reference_id must be a valid UUID")
+
+    reference = db.query(PersonReferenceImage).filter(
+        tenant_column_filter(PersonReferenceImage, tenant),
+        PersonReferenceImage.person_id == person_id,
+        PersonReferenceImage.id == parsed_reference_id,
+    ).first()
+    if not reference:
+        raise HTTPException(status_code=404, detail="Reference not found")
+
+    storage_key = (reference.storage_key or "").strip()
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Reference image not available")
+
+    try:
+        storage_client = storage.Client(project=settings.gcp_project_id)
+        bucket = storage_client.bucket(tenant.get_person_reference_bucket(settings))
+        blob = bucket.blob(storage_key)
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="Reference image not found in storage")
+        image_data = blob.download_as_bytes()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load reference image: {exc}")
+
+    content_type, _ = mimetypes.guess_type(storage_key)
+    return StreamingResponse(
+        io.BytesIO(image_data),
+        media_type=content_type or "application/octet-stream",
+        headers={"Cache-Control": "private, max-age=120"},
+    )
 
 
 @router.put("/{person_id}", response_model=PersonResponse)
