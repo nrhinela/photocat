@@ -279,7 +279,7 @@ deploy-api:
 		--timeout=900 \
 		--max-instances=1 \
 		--min-instances=0 \
-		--set-env-vars THUMBNAIL_CDN_BASE_URL=https://pc.nedeva.com
+		--set-env-vars THUMBNAIL_CDN_BASE_URL=https://storage.googleapis.com/photocat-483622-prod-shared
 
 deploy-worker:
 	@echo "Deploying worker service only..."
@@ -293,7 +293,7 @@ deploy-worker:
 		--cpu=2 \
 		--timeout=900 \
 		--max-instances=10 \
-		--set-env-vars THUMBNAIL_CDN_BASE_URL=https://pc.nedeva.com
+		--set-env-vars THUMBNAIL_CDN_BASE_URL=https://storage.googleapis.com/photocat-483622-prod-shared
 
 status:
 	@echo "Cloud Run Services Status:"

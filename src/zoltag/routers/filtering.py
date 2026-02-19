@@ -964,10 +964,12 @@ def build_image_query_with_subqueries(
         rating_subquery = apply_rating_filter_subquery(db, tenant, rating, rating_operator)
         subqueries_list.append(rating_subquery)
     
-    # Apply hide zero rating filter if requested
+    # Apply hide-zero-rating directly on the base image query to avoid
+    # an extra self-subquery/PK lookup pass on image_metadata.
     if hide_zero_rating:
-        zero_rating_subquery = apply_hide_zero_rating_filter_subquery(db, tenant)
-        subqueries_list.append(zero_rating_subquery)
+        base_query = base_query.filter(
+            or_(ImageMetadata.rating != 0, ImageMetadata.rating.is_(None))
+        )
     
     # Apply reviewed filter if provided
     if reviewed is not None:
@@ -976,15 +978,43 @@ def build_image_query_with_subqueries(
     
     # Apply permatag filter if provided
     if permatag_keyword:
-        permatag_subquery = apply_permatag_filter_subquery(
-            db,
-            tenant,
-            permatag_keyword,
-            signum=permatag_signum,
-            missing=permatag_missing,
-            category=permatag_category
-        )
-        subqueries_list.append(permatag_subquery)
+        if permatag_missing:
+            normalized_keyword = (permatag_keyword or "").strip().lower()
+            if normalized_keyword:
+                keyword_query = db.query(Keyword).filter(
+                    tenant_column_filter(Keyword, tenant),
+                    func.lower(Keyword.keyword) == normalized_keyword
+                )
+                if permatag_category:
+                    keyword_query = keyword_query.join(
+                        KeywordCategory, Keyword.category_id == KeywordCategory.id
+                    ).filter(
+                        KeywordCategory.name == permatag_category,
+                        tenant_column_filter(KeywordCategory, tenant)
+                    )
+                keyword_obj = keyword_query.first()
+                if keyword_obj:
+                    permatag_exists_query = db.query(Permatag.id).filter(
+                        tenant_column_filter(Permatag, tenant),
+                        Permatag.keyword_id == keyword_obj.id,
+                        Permatag.asset_id.is_not(None),
+                        Permatag.asset_id == ImageMetadata.asset_id,
+                    )
+                    if permatag_signum is not None:
+                        permatag_exists_query = permatag_exists_query.filter(
+                            Permatag.signum == permatag_signum
+                        )
+                    base_query = base_query.filter(~permatag_exists_query.exists())
+        else:
+            permatag_subquery = apply_permatag_filter_subquery(
+                db,
+                tenant,
+                permatag_keyword,
+                signum=permatag_signum,
+                missing=permatag_missing,
+                category=permatag_category
+            )
+            subqueries_list.append(permatag_subquery)
 
     if permatag_positive_missing:
         subqueries_list.append(apply_no_positive_permatag_filter_subquery(db, tenant))

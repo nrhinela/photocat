@@ -1845,45 +1845,46 @@ async def list_images(
             paginated_ids = sorted_ids[offset: offset + limit] if limit else sorted_ids[offset:]
             images = load_images_by_ordered_ids(paginated_ids)
         elif order_by_value == "ml_score" and ml_keyword_id:
-            # Apply ML score ordering and require matching ML-tag rows for this keyword.
-            query, ml_scores = builder.apply_ml_score_ordering(
-                query,
-                ml_keyword_id,
-                ml_tag_type,
-                require_match=True,
-            )
-            total = builder.get_total_count(query)
-            if total == 0:
-                # If there are no ML matches, fall back to showing the
-                # underlying filtered result set ordered by ML score
-                # (nulls last) so users still see results.
-                query = base_query
-                query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
-                query = query.options(load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS))
-                query, ml_scores = builder.apply_ml_score_ordering(
+            def fetch_ml_score_page(require_match: bool):
+                ml_query, ml_scores_subquery = builder.apply_ml_score_ordering(
                     query,
                     ml_keyword_id,
                     ml_tag_type,
-                    require_match=False,
+                    require_match=require_match,
                 )
-                total = builder.get_total_count(query)
-            # Build order clauses with ML score priority
-            if order_by_value == "processed":
-                order_by_date_clause = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
-            elif order_by_value == "created_at":
-                order_by_date_clause = ImageMetadata.created_at
-            else:
-                order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
-            order_by_date_clause = order_by_date_clause.desc() if date_order == "desc" else order_by_date_clause.asc()
-            id_order_clause = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
-            order_clauses = (
-                ml_scores.c.ml_score.desc().nullslast(),
-                order_by_date_clause,
-                id_order_clause
-            )
-            query = query.order_by(*order_clauses)
-            offset = resolve_anchor_offset(query, offset)
-            images = query.limit(limit).offset(offset).all() if limit else query.offset(offset).all()
+                if order_by_value == "processed":
+                    order_by_date_clause = func.coalesce(ImageMetadata.last_processed, ImageMetadata.created_at)
+                elif order_by_value == "created_at":
+                    order_by_date_clause = ImageMetadata.created_at
+                else:
+                    order_by_date_clause = func.coalesce(ImageMetadata.capture_timestamp, ImageMetadata.modified_time)
+                order_by_date_clause = order_by_date_clause.desc() if date_order == "desc" else order_by_date_clause.asc()
+                id_order_clause = ImageMetadata.id.desc() if date_order == "desc" else ImageMetadata.id.asc()
+                order_clauses = (
+                    ml_scores_subquery.c.ml_score.desc().nullslast(),
+                    order_by_date_clause,
+                    id_order_clause,
+                )
+                ml_query = ml_query.order_by(*order_clauses)
+                resolved_offset = resolve_anchor_offset(ml_query, offset)
+                if limit:
+                    rows = ml_query.limit(limit + 1).offset(resolved_offset).all()
+                    has_more = len(rows) > limit
+                    page_rows = rows[:limit] if has_more else rows
+                    estimated_total = resolved_offset + len(page_rows) + (1 if has_more else 0)
+                else:
+                    page_rows = ml_query.offset(resolved_offset).all()
+                    estimated_total = resolved_offset + len(page_rows)
+                return ml_query, page_rows, resolved_offset, estimated_total
+
+            query, images, resolved_offset, total = fetch_ml_score_page(require_match=True)
+            if not images and query.limit(1).first() is None:
+                # No ML-tag matches at all: fall back to filtered rows ordered by ML score (nulls last).
+                query = base_query
+                query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
+                query = query.options(load_only(*LIST_IMAGES_LOAD_ONLY_COLUMNS))
+                query, images, resolved_offset, total = fetch_ml_score_page(require_match=False)
+            offset = resolved_offset
         else:
             total = builder.get_total_count(query)
             order_by_clauses = builder.build_order_clauses()
