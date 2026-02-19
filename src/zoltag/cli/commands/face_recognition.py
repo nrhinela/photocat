@@ -14,7 +14,7 @@ from zoltag.face_recognition import (
     recompute_face_detections,
     recompute_face_recognition_tags,
 )
-from zoltag.metadata import Asset, ImageMetadata, PersonReferenceImage
+from zoltag.metadata import ImageMetadata, PersonReferenceImage
 from zoltag.settings import settings
 
 
@@ -177,25 +177,6 @@ class RecomputeFaceRecognitionTagsCommand(CliCommand):
             thumbnail_bucket = storage_client.bucket(self.tenant.get_thumbnail_bucket(settings))
 
             def _load_reference_image_bytes(reference: PersonReferenceImage) -> bytes | None:
-                if reference.source_type == "asset" and reference.source_asset_id:
-                    asset = self.db.query(Asset).filter(
-                        self.tenant_filter(Asset),
-                        Asset.id == reference.source_asset_id,
-                    ).first()
-                    if not asset:
-                        return None
-                    thumbnail_key = (asset.thumbnail_key or "").strip()
-                    if thumbnail_key:
-                        thumb_blob = thumbnail_bucket.blob(thumbnail_key)
-                        if thumb_blob.exists():
-                            return thumb_blob.download_as_bytes()
-                    source_key = (asset.source_key or "").strip()
-                    if source_key:
-                        source_blob = image_bucket.blob(source_key)
-                        if source_blob.exists():
-                            return source_blob.download_as_bytes()
-                    return None
-
                 storage_key = (reference.storage_key or "").strip()
                 if not storage_key:
                     return None
