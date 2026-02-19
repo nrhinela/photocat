@@ -252,7 +252,7 @@ export class HomeStoryTab extends LitElement {
                   >${slide.cta}</a>
                 ` : html``}
                 <a
-                  href="/login"
+                  href="/app"
                   class="inline-flex items-center px-4 py-2 rounded-full border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
                 >Log in</a>
               </div>

@@ -120,12 +120,16 @@ export const zoltagAppStyles = css`
         border-color: #2563eb;
     }
     .home-vectorstore-launch-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         border: none;
         border-radius: 10px;
         background: #2563eb;
         color: #ffffff;
         font-size: 13px;
         font-weight: 700;
+        min-width: 110px;
         padding: 10px 16px;
         cursor: pointer;
         transition: background-color 0.15s ease, transform 0.15s ease;

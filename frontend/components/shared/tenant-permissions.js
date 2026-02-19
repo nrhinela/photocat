@@ -71,6 +71,13 @@ export function canViewTenantUsers(currentUser, tenantRef) {
   return hasTenantPermission(currentUser, tenantRef, 'tenant.users.view');
 }
 
+export function canViewTenantAudit(currentUser, tenantRef) {
+  if (userIsSuperAdmin(currentUser)) return true;
+  if (hasTenantPermission(currentUser, tenantRef, 'tenant.audit.view')) return true;
+  // Backward compatibility for roles not yet updated with tenant.audit.view.
+  return canViewTenantUsers(currentUser, tenantRef);
+}
+
 export function hasAnyTenantUsersAccess(currentUser) {
   if (userIsSuperAdmin(currentUser)) return true;
   const memberships = getMemberships(currentUser);

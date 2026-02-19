@@ -123,6 +123,35 @@ def _require_membership_permission(
     return membership
 
 
+def _require_any_membership_permission(
+    db: Session,
+    *,
+    user: UserProfile,
+    tenant_ref: str,
+    permission_keys: tuple[str, ...],
+) -> Optional[UserTenant]:
+    if user.is_super_admin:
+        return None
+
+    normalized_keys = tuple(
+        str(permission_key or "").strip()
+        for permission_key in permission_keys
+        if str(permission_key or "").strip()
+    )
+    if not normalized_keys:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    membership = _membership_or_403(
+        db,
+        user_id=user.supabase_uid,
+        tenant_ref=tenant_ref,
+    )
+    effective_permissions = get_effective_membership_permissions(db, membership)
+    if not any(permission_key in effective_permissions for permission_key in normalized_keys):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    return membership
+
+
 def _resolve_tenant_role(
     db: Session,
     *,
@@ -1247,13 +1276,19 @@ async def list_tenant_activity_events(
     since_hours: Optional[int] = Query(168, ge=1, le=4320),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    _viewer: UserProfile = Depends(require_tenant_permission_from_header("tenant.users.view")),
+    viewer: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List tenant activity events (tenant admin/viewer scope)."""
     tenant = _resolve_tenant(db, x_tenant_id)
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+    _require_any_membership_permission(
+        db,
+        user=viewer,
+        tenant_ref=str(tenant.id),
+        permission_keys=("tenant.audit.view", "tenant.users.view"),
+    )
 
     actor_user_id = _parse_activity_user_id(user_id)
     tenant_member_uids_subquery = db.query(UserTenant.supabase_uid).filter(

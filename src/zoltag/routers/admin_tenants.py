@@ -100,6 +100,7 @@ SYSTEM_ROLE_PERMISSIONS = {
         "provider.manage",
         "tenant.users.view",
         "tenant.users.manage",
+        "tenant.audit.view",
         "tenant.jobs.view",
         "tenant.jobs.enqueue",
         "tenant.jobs.manage",

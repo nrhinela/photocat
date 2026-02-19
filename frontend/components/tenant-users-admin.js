@@ -33,7 +33,7 @@ class TenantUsersAdmin extends LitElement {
     inviteEmail: { type: String },
     inviteRole: { type: String },
     inviteSubmitting: { type: Boolean },
-    inviteLink: { type: String },
+    inviteSuccessMessage: { type: String },
     roles: { type: Array },
     permissionCatalog: { type: Array },
     rolesLoading: { type: Boolean },
@@ -354,13 +354,6 @@ class TenantUsersAdmin extends LitElement {
         flex-wrap: wrap;
       }
 
-      .invite-success-link {
-        max-width: 100%;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 12px;
-        overflow-wrap: anywhere;
-      }
-
       .invite-table {
         margin-top: 16px;
       }
@@ -461,7 +454,7 @@ class TenantUsersAdmin extends LitElement {
     this.inviteEmail = '';
     this.inviteRole = 'user';
     this.inviteSubmitting = false;
-    this.inviteLink = '';
+    this.inviteSuccessMessage = '';
     this.roles = [];
     this.permissionCatalog = [];
     this.rolesLoading = false;
@@ -676,32 +669,13 @@ class TenantUsersAdmin extends LitElement {
     this.showInviteModal = true;
     this.inviteEmail = '';
     this.inviteRole = 'user';
+    this.inviteSuccessMessage = '';
     this.error = '';
   }
 
   _closeInviteModal() {
     this.showInviteModal = false;
     this.inviteSubmitting = false;
-  }
-
-  _buildInvitationLink(token) {
-    const encoded = encodeURIComponent(String(token || '').trim());
-    return `${window.location.origin}/signup?invitation_token=${encoded}`;
-  }
-
-  async _copyToClipboard(value) {
-    const text = String(value || '').trim();
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (_error) {
-      const input = document.createElement('input');
-      input.value = text;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand('copy');
-      document.body.removeChild(input);
-    }
   }
 
   async _submitInvite() {
@@ -714,19 +688,15 @@ class TenantUsersAdmin extends LitElement {
     this.inviteSubmitting = true;
     this.error = '';
     try {
-      this.inviteLink = '';
-      const result = await createTenantInvitation(this.tenant, email, this._normalizeRole(this.inviteRole || 'user'));
-      const token = String(result?.token || '').trim();
-      const apiInvitationLink = String(result?.invitation_link || '').trim();
-      this.inviteLink = apiInvitationLink || (token ? this._buildInvitationLink(token) : '');
+      this.inviteSuccessMessage = '';
+      await createTenantInvitation(this.tenant, email, this._normalizeRole(this.inviteRole || 'user'));
+      this.inviteSuccessMessage = `Account setup is done. Please let them know they can now login via Google, or create an account (using ${email}) at https://zoltag.com/login.`;
       this._closeInviteModal();
       await this._loadData();
-      if (this.inviteLink) {
-        await this._copyToClipboard(this.inviteLink);
-      }
     } catch (error) {
       console.error('Failed to create invitation:', error);
       this.error = error.message || 'Failed to create invitation';
+      this.inviteSuccessMessage = '';
       this.inviteSubmitting = false;
     }
   }
@@ -1063,17 +1033,15 @@ class TenantUsersAdmin extends LitElement {
           ${!this.canManage ? html`
             <div class="hint mb-3">Read only for your role.</div>
           ` : html``}
-          ${this.inviteLink ? html`
+          ${this.inviteSuccessMessage ? html`
             <div class="invite-success">
               <div>
-                <div><strong>Invitation created.</strong> Share this signup link with the user:</div>
-                <div class="invite-success-link">${this.inviteLink}</div>
+                <div>${this.inviteSuccessMessage}</div>
               </div>
               <div class="row-actions">
-                <button class="btn btn-secondary btn-small" @click=${() => this._copyToClipboard(this.inviteLink)}>
-                  Copy Link
-                </button>
-                <button class="btn btn-secondary btn-small" @click=${() => { this.inviteLink = ''; }}>
+                <button class="btn btn-secondary btn-small" @click=${() => {
+                  this.inviteSuccessMessage = '';
+                }}>
                   Dismiss
                 </button>
               </div>

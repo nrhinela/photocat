@@ -33,7 +33,7 @@ export class PublicStoryPage extends LitElement {
                 <span>Zoltag</span>
               </div>
               <div class="ml-auto flex items-center gap-3 text-sm">
-                <a href="/login" class="text-gray-600 hover:text-gray-900">Log in</a>
+                <a href="/app" class="text-gray-600 hover:text-gray-900">Log in</a>
                 <a href="/signup" class="px-3 py-1.5 rounded-full bg-blue-600 text-white hover:bg-blue-700">Register</a>
               </div>
             </div>

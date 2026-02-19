@@ -2978,7 +2978,7 @@ export class SearchTab extends LitElement {
                   <div class="home-vectorstore-launch-row" style="align-items: flex-start;">
                     <input
                       class="home-vectorstore-launch-input"
-                      placeholder="Describe what you want to find (e.g. aerial silks performer in blue light)"
+                      placeholder="Search for files by : tag, list names, file folder, filename."
                       .value=${this.vectorstoreQuery}
                       @input=${this._handleVectorstoreQueryInput}
                       @keydown=${this._handleVectorstoreQueryKeydown}

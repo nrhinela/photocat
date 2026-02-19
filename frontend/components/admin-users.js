@@ -59,6 +59,8 @@ class AdminUsers extends LitElement {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
       }
 
       .card-title {
@@ -71,6 +73,12 @@ class AdminUsers extends LitElement {
       .card-content {
         padding: 20px;
         overflow-x: auto;
+      }
+
+      .card-subtitle {
+        margin: 0;
+        font-size: 14px;
+        color: #6b7280;
       }
 
       .users-grid {
@@ -91,7 +99,7 @@ class AdminUsers extends LitElement {
           minmax(260px, 2fr)
           minmax(140px, 1.1fr);
         gap: 12px;
-        align-items: start;
+        align-items: center;
         padding: 12px 16px;
         border-bottom: 1px solid #e5e7eb;
       }
@@ -119,11 +127,13 @@ class AdminUsers extends LitElement {
 
       .users-grid-cell {
         min-width: 0;
+        font-size: 14px;
+        color: #1f2937;
       }
 
       .user-email {
-        font-size: 13px;
-        color: #6b7280;
+        font-size: 14px;
+        color: #4b5563;
         overflow-wrap: anywhere;
       }
 
@@ -202,6 +212,7 @@ class AdminUsers extends LitElement {
         text-align: center;
         padding: 40px;
         color: #6b7280;
+        font-size: 14px;
       }
 
       .empty-state-icon {
@@ -223,6 +234,13 @@ class AdminUsers extends LitElement {
         text-align: center;
         padding: 40px;
         color: #6b7280;
+        font-size: 14px;
+      }
+
+      .loading-spinner {
+        font-size: 24px;
+        color: #2563eb;
+        margin-bottom: 12px;
       }
 
       .modal-overlay {
@@ -368,12 +386,17 @@ class AdminUsers extends LitElement {
         border-bottom-color: #2563eb;
       }
 
+      .tab-count {
+        margin-left: 8px;
+        opacity: 0.7;
+      }
+
       .user-status-badge {
         display: inline-block;
         padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 500;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
       }
 
       .status-pending {
@@ -410,7 +433,7 @@ class AdminUsers extends LitElement {
       }
 
       .tenant-membership-name {
-        font-size: 13px;
+        font-size: 14px;
         color: #1f2937;
         overflow-wrap: anywhere;
       }
@@ -419,7 +442,7 @@ class AdminUsers extends LitElement {
         border: 1px solid #d1d5db;
         border-radius: 6px;
         background: white;
-        font-size: 12px;
+        font-size: 13px;
         padding: 5px 8px;
         color: #374151;
       }
@@ -433,7 +456,7 @@ class AdminUsers extends LitElement {
         border-radius: 6px;
         background: #fef2f2;
         color: #dc2626;
-        font-size: 12px;
+        font-size: 13px;
         padding: 6px 10px;
         cursor: pointer;
       }
@@ -445,7 +468,7 @@ class AdminUsers extends LitElement {
 
       .muted-label {
         color: #9ca3af;
-        font-size: 13px;
+        font-size: 14px;
       }
 
       .row-actions {
@@ -455,12 +478,12 @@ class AdminUsers extends LitElement {
       }
 
       .tenant-summary {
-        font-size: 13px;
+        font-size: 14px;
         color: #374151;
       }
 
       .tenant-summary-sub {
-        font-size: 12px;
+        font-size: 13px;
         color: #6b7280;
         margin-top: 2px;
       }
@@ -477,12 +500,16 @@ class AdminUsers extends LitElement {
       }
 
       .edit-section-title {
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 700;
         color: #374151;
         margin-bottom: 10px;
         text-transform: uppercase;
         letter-spacing: 0.02em;
+      }
+
+      .empty-subtitle {
+        font-size: 14px;
       }
 
       .edit-inline-row {
@@ -964,7 +991,7 @@ class AdminUsers extends LitElement {
         <div class="empty-state">
           <div class="empty-state-icon"><i class="fas fa-users"></i></div>
           <p>${emptyMessage}</p>
-          <p style="font-size: 13px;">${emptySubtitle}</p>
+          <p class="empty-subtitle">${emptySubtitle}</p>
         </div>
       `;
     }
@@ -1046,7 +1073,7 @@ class AdminUsers extends LitElement {
           <h2 class="card-title">
             <i class="fas fa-users-cog mr-2"></i>User Management
           </h2>
-          <span style="color: #6b7280; font-size: 14px;">
+          <span class="card-subtitle">
             ${this.pendingUsers.length} pending, ${this.approvedUsers.length} approved
           </span>
         </div>
@@ -1062,7 +1089,7 @@ class AdminUsers extends LitElement {
               @click=${() => (this.activeUserTab = 'all')}
             >
               <i class="fas fa-users mr-2"></i>All
-              <span style="margin-left: 8px; opacity: 0.7;">
+              <span class="tab-count">
                 (${this.allUsers.length})
               </span>
             </button>
@@ -1071,7 +1098,7 @@ class AdminUsers extends LitElement {
               @click=${() => (this.activeUserTab = 'pending')}
             >
               <i class="fas fa-hourglass-half mr-2"></i>Pending
-              <span style="margin-left: 8px; opacity: 0.7;">
+              <span class="tab-count">
                 (${this.pendingUsers.length})
               </span>
             </button>
@@ -1080,7 +1107,7 @@ class AdminUsers extends LitElement {
               @click=${() => (this.activeUserTab = 'approved')}
             >
               <i class="fas fa-check-circle mr-2"></i>Approved
-              <span style="margin-left: 8px; opacity: 0.7;">
+              <span class="tab-count">
                 (${this.approvedUsers.length})
               </span>
             </button>
@@ -1088,7 +1115,7 @@ class AdminUsers extends LitElement {
 
           ${this.loading
             ? html`<div class="loading">
-                <i class="fas fa-spinner fa-spin" style="font-size: 24px; color: #2563eb; margin-bottom: 12px;"></i>
+                <i class="fas fa-spinner fa-spin loading-spinner"></i>
                 <div>Loading users...</div>
               </div>`
             : this.renderUserTable(displayUsers)}

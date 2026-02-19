@@ -3,6 +3,7 @@ import { renderCuratePermatagSummary } from './curate-image-fragments.js';
 import { renderCurateRatingWidget, renderCurateRatingStatic } from './curate-rating-widgets.js';
 import {
   allowByPermissionOrRole,
+  canViewTenantAudit,
   canViewTenantUsers,
   normalizeTenantRef,
   resolveTenantMembership,
@@ -82,7 +83,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
     ['admin'],
   );
   const canViewUsers = canViewTenantUsers(host.currentUser, selectedTenant);
-  const canViewAudit = canViewUsers;
+  const canViewAudit = canViewTenantAudit(host.currentUser, selectedTenant);
   const canManageProviders = allowByPermissionOrRole(
     host.currentUser,
     selectedTenant,
@@ -144,7 +145,7 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
             <button
               class="admin-subtab ${librarySubTab === 'audit' ? 'active' : ''}"
               ?disabled=${!canViewAudit}
-              title=${canViewAudit ? 'View tenant activity' : 'Requires tenant user permissions'}
+              title=${canViewAudit ? 'View tenant activity' : 'Requires tenant.audit.view permission'}
               @click=${() => host.activeLibrarySubTab = 'audit'}
             >
               Audit
