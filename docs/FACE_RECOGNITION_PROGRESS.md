@@ -22,6 +22,7 @@ Last updated: 2026-02-19
 | 2026-02-19 | `5beb195` | Update progress log baseline entry |
 | 2026-02-19 | `4dd9a42` | Add person reference images schema + migration |
 | 2026-02-19 | `31f10f9` | Add tenant-scoped People reference CRUD endpoints and tests |
+| 2026-02-19 | `518056f` | Record migration/test verification for completed Phase 1 |
 
 ## Phase checklist
 
