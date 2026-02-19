@@ -67,6 +67,7 @@ def recompute_face_detections(
 
     processed = 0
     skipped = 0
+    attempted = 0
     skipped_missing_bytes = 0
     skipped_detect_error = 0
     detect_error_sample: str | None = None
@@ -74,11 +75,11 @@ def recompute_face_detections(
     batch_offset = 0
 
     while True:
-        if limit is not None and processed >= limit:
+        if limit is not None and attempted >= limit:
             break
         batch_limit = batch_size
         if limit is not None:
-            batch_limit = max(0, min(batch_size, limit - processed))
+            batch_limit = max(0, min(batch_size, limit - attempted))
             if batch_limit <= 0:
                 break
 
@@ -87,6 +88,7 @@ def recompute_face_detections(
             break
 
         for image in images:
+            attempted += 1
             image_bytes = load_image_bytes(image)
             if not image_bytes:
                 skipped += 1
@@ -132,6 +134,7 @@ def recompute_face_detections(
                 {
                     "stage": "batch",
                     "processed": int(processed),
+                    "attempted": int(attempted),
                     "skipped": int(skipped),
                     "skipped_missing_bytes": int(skipped_missing_bytes),
                     "skipped_detect_error": int(skipped_detect_error),
@@ -148,6 +151,7 @@ def recompute_face_detections(
             {
                 "stage": "done",
                 "processed": int(processed),
+                "attempted": int(attempted),
                 "skipped": int(skipped),
                 "skipped_missing_bytes": int(skipped_missing_bytes),
                 "skipped_detect_error": int(skipped_detect_error),
@@ -158,6 +162,7 @@ def recompute_face_detections(
         )
     return {
         "processed": processed,
+        "attempted": attempted,
         "skipped": skipped,
         "skipped_missing_bytes": skipped_missing_bytes,
         "skipped_detect_error": skipped_detect_error,

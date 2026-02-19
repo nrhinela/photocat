@@ -135,9 +135,11 @@ class RecomputeFaceDetectionsCommand(CliCommand):
                 if stage == "batch":
                     elapsed = float(payload.get("elapsed_seconds") or 0.0)
                     processed = int(payload.get("processed") or 0)
+                    attempted = int(payload.get("attempted") or 0)
                     rate = (processed / elapsed) if elapsed > 0 else 0.0
                     click.echo(
                         "Progress: "
+                        f"{attempted} attempted · "
                         f"{processed} processed · "
                         f"{int(payload.get('skipped') or 0)} skipped "
                         f"(missing-bytes={int(payload.get('skipped_missing_bytes') or 0)}, "
@@ -160,6 +162,7 @@ class RecomputeFaceDetectionsCommand(CliCommand):
             )
             click.echo(
                 "✓ Face detections refreshed: "
+                f"{int(summary.get('attempted') or 0)} attempted · "
                 f"{summary['processed']} processed · "
                 f"{summary['skipped']} skipped "
                 f"(missing-bytes={int(summary.get('skipped_missing_bytes') or 0)}, "
