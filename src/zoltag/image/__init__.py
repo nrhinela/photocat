@@ -370,17 +370,29 @@ class FaceDetector:
                 pil_image = pil_image.convert("RGB")
             image = np.ascontiguousarray(np.asarray(pil_image), dtype=np.uint8)
         
-        # Detect faces
+        # Detect faces with strict ndarray fallbacks for dlib compatibility.
         try:
             face_locations = face_recognition.face_locations(image)
             face_encodings = face_recognition.face_encodings(image, face_locations)
         except Exception as exc:
-            raise RuntimeError(
-                "Face detection failed "
-                f"(shape={getattr(image, 'shape', None)}, "
-                f"dtype={getattr(image, 'dtype', None)}, "
-                f"contiguous={bool(getattr(image, 'flags', {}).c_contiguous if hasattr(getattr(image, 'flags', None), 'c_contiguous') else False)}): {exc}"
-            ) from exc
+            message = str(exc)
+            if "Unsupported image type" in message:
+                try:
+                    rgb_retry = np.require(np.array(image, copy=True), dtype=np.uint8, requirements=["C", "W"])
+                    face_locations = face_recognition.face_locations(rgb_retry)
+                    face_encodings = face_recognition.face_encodings(rgb_retry, face_locations)
+                except Exception:
+                    gray_retry = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+                    gray_retry = np.require(np.array(gray_retry, copy=True), dtype=np.uint8, requirements=["C", "W"])
+                    face_locations = face_recognition.face_locations(gray_retry)
+                    face_encodings = face_recognition.face_encodings(gray_retry, face_locations)
+            else:
+                raise RuntimeError(
+                    "Face detection failed "
+                    f"(shape={getattr(image, 'shape', None)}, "
+                    f"dtype={getattr(image, 'dtype', None)}, "
+                    f"contiguous={bool(getattr(image, 'flags', {}).c_contiguous if hasattr(getattr(image, 'flags', None), 'c_contiguous') else False)}): {exc}"
+                ) from exc
         
         results = []
         for location, encoding in zip(face_locations, face_encodings):
