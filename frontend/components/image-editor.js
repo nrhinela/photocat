@@ -3,6 +3,8 @@ import {
   getImageDetails,
   getSimilarImages,
   getKeywords,
+  getKeywordCategories,
+  createKeyword,
   addPermatag,
   getFullImage,
   getImagePlayback,
@@ -428,6 +430,112 @@ class ImageEditor extends LitElement {
       gap: 8px;
       align-items: center;
       flex-wrap: wrap;
+    }
+    .new-keyword-toggle-row {
+      display: flex;
+      justify-content: flex-start;
+      margin-bottom: 6px;
+    }
+    .new-keyword-toggle {
+      border-radius: 8px;
+      padding: 7px 10px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #111827;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .new-keyword-toggle.active {
+      border-color: #2563eb;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .new-keyword-panel {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background: #f8fafc;
+    }
+    .new-keyword-grid {
+      display: grid;
+      grid-template-columns: minmax(130px, 0.9fr) minmax(170px, 1.1fr);
+      gap: 8px;
+    }
+    .new-keyword-input,
+    .new-keyword-select {
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 11px;
+      color: #111827;
+      background: #ffffff;
+      min-width: 0;
+    }
+    .new-keyword-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .new-keyword-save {
+      border-radius: 8px;
+      padding: 7px 11px;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid #2563eb;
+    }
+    .new-keyword-cancel {
+      border-radius: 8px;
+      padding: 7px 11px;
+      background: #ffffff;
+      color: #374151;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid #d1d5db;
+    }
+    .new-keyword-error {
+      color: #b91c1c;
+      font-size: 11px;
+    }
+    .new-keyword-similar {
+      border-top: 1px solid #e2e8f0;
+      padding-top: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .new-keyword-similar-title {
+      color: #475569;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .new-keyword-similar-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
+      overflow: auto;
+    }
+    .new-keyword-similar-item {
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #1e293b;
+      font-size: 11px;
+      padding: 6px 8px;
+      text-align: left;
+    }
+    .new-keyword-similar-item:hover {
+      background: #eff6ff;
+      border-color: #93c5fd;
     }
     .tag-grid-table {
       display: flex;
@@ -1240,6 +1348,9 @@ class ImageEditor extends LitElement {
       .tag-form {
         grid-template-columns: 1fr;
       }
+      .new-keyword-grid {
+        grid-template-columns: 1fr;
+      }
       .variants-table-header {
         display: none;
       }
@@ -1317,6 +1428,12 @@ class ImageEditor extends LitElement {
     marketingNote: { type: String },
     marketingNoteSaving: { type: Boolean },
     marketingNoteError: { type: String },
+    keywordCategories: { type: Array },
+    newKeywordMode: { type: Boolean },
+    newKeywordCategoryId: { type: [Number, String] },
+    newKeywordName: { type: String },
+    newKeywordSaving: { type: Boolean },
+    newKeywordError: { type: String },
   };
 
   constructor() {
@@ -1378,6 +1495,12 @@ class ImageEditor extends LitElement {
     this.marketingNote = '';
     this.marketingNoteSaving = false;
     this.marketingNoteError = '';
+    this.keywordCategories = [];
+    this.newKeywordMode = false;
+    this.newKeywordCategoryId = '';
+    this.newKeywordName = '';
+    this.newKeywordSaving = false;
+    this.newKeywordError = '';
     this._ratingBurstActive = false;
     this._ratingBurstTimer = null;
     this._suppressPermatagRefresh = false;
@@ -1452,6 +1575,7 @@ class ImageEditor extends LitElement {
       this._resetVideoPlayback();
       this._resetSimilarResults();
       this._resetVariantEditor();
+      this._cancelNewKeywordMode();
       this.fetchDetails();
       this.fetchKeywords();
     }
@@ -1542,9 +1666,14 @@ class ImageEditor extends LitElement {
     if (!this.tenant) return;
     try {
       this.keywordsByCategory = await getKeywords(this.tenant, { source: 'permatags', includePeople: true });
+      this.keywordCategories = await getKeywordCategories(this.tenant);
+      if (this.newKeywordMode && !this.newKeywordCategoryId && Array.isArray(this.keywordCategories) && this.keywordCategories.length) {
+        this.newKeywordCategoryId = String(this.keywordCategories[0].id);
+      }
     } catch (error) {
       console.error('ImageEditor: fetchKeywords failed', error);
       this.keywordsByCategory = {};
+      this.keywordCategories = [];
     }
   }
 
@@ -2208,31 +2337,156 @@ class ImageEditor extends LitElement {
     return map;
   }
 
+  _getKeywordCategoriesSorted() {
+    const categories = Array.isArray(this.keywordCategories) ? [...this.keywordCategories] : [];
+    return categories.sort((a, b) => {
+      const aOrder = Number(a?.sort_order ?? 0);
+      const bOrder = Number(b?.sort_order ?? 0);
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return String(a?.name || '').localeCompare(String(b?.name || ''));
+    });
+  }
+
+  _normalizeKeywordValue(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  _getSimilarKeywordSuggestions(queryRaw) {
+    const query = this._normalizeKeywordValue(queryRaw);
+    if (!query || query.length < 2) return [];
+    const matches = [];
+    Object.entries(this.keywordsByCategory || {}).forEach(([category, keywords]) => {
+      (keywords || []).forEach((entry) => {
+        const keyword = String(entry?.keyword || '').trim();
+        if (!keyword) return;
+        const normalizedKeyword = this._normalizeKeywordValue(keyword);
+        if (!normalizedKeyword.includes(query)) return;
+        matches.push({ keyword, category });
+      });
+    });
+    matches.sort((a, b) => {
+      const aKeyword = this._normalizeKeywordValue(a.keyword);
+      const bKeyword = this._normalizeKeywordValue(b.keyword);
+      const aStarts = aKeyword.startsWith(query) ? 0 : 1;
+      const bStarts = bKeyword.startsWith(query) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      if (aKeyword !== bKeyword) return aKeyword.localeCompare(bKeyword);
+      return String(a.category || '').localeCompare(String(b.category || ''));
+    });
+    const deduped = [];
+    const seen = new Set();
+    for (const row of matches) {
+      const key = `${row.category}::${this._normalizeKeywordValue(row.keyword)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(row);
+      if (deduped.length >= 8) break;
+    }
+    return deduped;
+  }
+
+  _toggleNewKeywordMode() {
+    const next = !this.newKeywordMode;
+    this.newKeywordMode = next;
+    this.newKeywordError = '';
+    if (!next) {
+      this.newKeywordName = '';
+      this.newKeywordCategoryId = '';
+      return;
+    }
+    const categories = this._getKeywordCategoriesSorted();
+    if (!this.newKeywordCategoryId && categories.length) {
+      this.newKeywordCategoryId = String(categories[0].id);
+    }
+  }
+
+  _cancelNewKeywordMode() {
+    this.newKeywordMode = false;
+    this.newKeywordName = '';
+    this.newKeywordCategoryId = '';
+    this.newKeywordError = '';
+  }
+
+  async _applyPermatag(keywordRaw, categoryRaw) {
+    if (!this.details) return;
+    const keyword = String(keywordRaw || '').trim();
+    if (!keyword) return;
+    const keywordMap = this._keywordIndex();
+    const category = String(categoryRaw || '').trim() || keywordMap[keyword] || 'Uncategorized';
+    await addPermatag(this.tenant, this.details.id, keyword, category, 1);
+    const existing = Array.isArray(this.details.permatags) ? this.details.permatags : [];
+    const alreadyTagged = existing.some((entry) => (
+      entry.signum === 1
+      && String(entry.keyword || '') === keyword
+      && String(entry.category || 'Uncategorized') === String(category || 'Uncategorized')
+    ));
+    const nextPermatags = alreadyTagged
+      ? existing
+      : [...existing, { keyword, category, signum: 1 }];
+    this.details = { ...this.details, permatags: nextPermatags };
+    this.tagInput = '';
+    this.tagCategory = '';
+    this._suppressPermatagRefresh = true;
+    this.dispatchEvent(new CustomEvent('permatags-changed', {
+      detail: { imageId: this.details.id, source: 'image-editor' },
+      bubbles: true,
+      composed: true,
+    }));
+  }
+
   async _handleAddTag() {
     if (!this.details) return;
     const keyword = this.tagInput.trim();
     if (!keyword) return;
-    const keywordMap = this._keywordIndex();
-    const category = this.tagCategory || keywordMap[keyword] || 'Uncategorized';
     try {
-      await addPermatag(this.tenant, this.details.id, keyword, category, 1);
-      const existing = Array.isArray(this.details.permatags) ? this.details.permatags : [];
-      const nextPermatags = [
-        ...existing,
-        { keyword, category, signum: 1 },
-      ];
-      this.details = { ...this.details, permatags: nextPermatags };
-      this.tagInput = '';
-      this.tagCategory = '';
-      this._suppressPermatagRefresh = true;
-      this.dispatchEvent(new CustomEvent('permatags-changed', {
-        detail: { imageId: this.details.id, source: 'image-editor' },
-        bubbles: true,
-        composed: true,
-      }));
+      await this._applyPermatag(keyword, this.tagCategory);
     } catch (error) {
       this.error = 'Failed to add tag.';
       console.error('ImageEditor: add tag failed', error);
+    }
+  }
+
+  async _handleSelectExistingSimilarKeyword(suggestion) {
+    if (!suggestion?.keyword) return;
+    try {
+      await this._applyPermatag(suggestion.keyword, suggestion.category);
+      this._cancelNewKeywordMode();
+    } catch (error) {
+      this.newKeywordError = 'Failed to apply selected keyword.';
+      console.error('ImageEditor: apply existing similar keyword failed', error);
+    }
+  }
+
+  async _handleSaveNewKeyword() {
+    if (!this.details || !this.tenant || this.newKeywordSaving) return;
+    const keyword = String(this.newKeywordName || '').trim();
+    const categoryId = String(this.newKeywordCategoryId || '').trim();
+    if (!categoryId) {
+      this.newKeywordError = 'Select a category.';
+      return;
+    }
+    if (!keyword) {
+      this.newKeywordError = 'Enter a keyword name.';
+      return;
+    }
+    const categories = this._getKeywordCategoriesSorted();
+    const selectedCategory = categories.find((cat) => String(cat?.id) === categoryId);
+    if (!selectedCategory) {
+      this.newKeywordError = 'Selected category no longer exists.';
+      return;
+    }
+    this.newKeywordSaving = true;
+    this.newKeywordError = '';
+    try {
+      await createKeyword(this.tenant, Number(categoryId), { keyword });
+      await this.fetchKeywords();
+      await this._applyPermatag(keyword, selectedCategory.name || 'Uncategorized');
+      this._cancelNewKeywordMode();
+    } catch (error) {
+      this.newKeywordError = error?.message || 'Failed to create keyword.';
+      console.error('ImageEditor: create keyword failed', error);
+    } finally {
+      this.newKeywordSaving = false;
     }
   }
 
@@ -2395,6 +2649,8 @@ class ImageEditor extends LitElement {
           count: entry.count || 0,
         }))
     ));
+    const sortedKeywordCategories = this._getKeywordCategoriesSorted();
+    const similarKeywordSuggestions = this._getSimilarKeywordSuggestions(this.newKeywordName);
     return html`
       <div class="prop-panel">
         ${renderPropertySection({
@@ -2446,6 +2702,15 @@ class ImageEditor extends LitElement {
         ${this.canEditTags ? renderPropertySection({
           title: 'Add Tags',
           body: html`
+            <div class="new-keyword-toggle-row">
+              <button
+                type="button"
+                class="new-keyword-toggle ${this.newKeywordMode ? 'active' : ''}"
+                @click=${this._toggleNewKeywordMode}
+              >
+                New keyword
+              </button>
+            </div>
             <div class="tag-form">
               <keyword-dropdown
                 class="tag-dropdown"
@@ -2458,6 +2723,70 @@ class ImageEditor extends LitElement {
               ></keyword-dropdown>
               <button class="tag-add" @click=${this._handleAddTag}>Add Tag</button>
             </div>
+            ${this.newKeywordMode ? html`
+              <div class="new-keyword-panel">
+                <div class="new-keyword-grid">
+                  <select
+                    class="new-keyword-select"
+                    .value=${String(this.newKeywordCategoryId || '')}
+                    @change=${(event) => {
+                      this.newKeywordCategoryId = String(event?.target?.value || '');
+                      this.newKeywordError = '';
+                    }}
+                  >
+                    <option value="">Select category</option>
+                    ${sortedKeywordCategories.map((cat) => html`
+                      <option value=${String(cat.id)}>${cat.name}</option>
+                    `)}
+                  </select>
+                  <input
+                    type="text"
+                    class="new-keyword-input"
+                    placeholder="Keyword name"
+                    .value=${this.newKeywordName}
+                    @input=${(event) => {
+                      this.newKeywordName = String(event?.target?.value || '');
+                      this.newKeywordError = '';
+                    }}
+                  />
+                </div>
+                <div class="new-keyword-actions">
+                  <button
+                    type="button"
+                    class="new-keyword-save"
+                    ?disabled=${this.newKeywordSaving}
+                    @click=${this._handleSaveNewKeyword}
+                  >
+                    ${this.newKeywordSaving ? 'Saving...' : 'Save keyword'}
+                  </button>
+                  <button
+                    type="button"
+                    class="new-keyword-cancel"
+                    ?disabled=${this.newKeywordSaving}
+                    @click=${this._cancelNewKeywordMode}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                ${this.newKeywordError ? html`<div class="new-keyword-error">${this.newKeywordError}</div>` : html``}
+                ${similarKeywordSuggestions.length ? html`
+                  <div class="new-keyword-similar">
+                    <div class="new-keyword-similar-title">Similar keywords (click to use existing)</div>
+                    <div class="new-keyword-similar-list">
+                      ${similarKeywordSuggestions.map((suggestion) => html`
+                        <button
+                          type="button"
+                          class="new-keyword-similar-item"
+                          @click=${() => this._handleSelectExistingSimilarKeyword(suggestion)}
+                        >
+                          ${suggestion.keyword} · ${suggestion.category || 'Uncategorized'}
+                        </button>
+                      `)}
+                    </div>
+                  </div>
+                ` : html``}
+              </div>
+            ` : html``}
           `,
         }) : html``}
 
