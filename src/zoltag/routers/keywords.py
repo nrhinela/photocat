@@ -160,7 +160,10 @@ async def get_available_keywords(
             by_category[cat] = []
         by_category[cat].append({
             'keyword': keyword,
-            'count': counts_dict.get(keyword, 0)
+            'count': counts_dict.get(keyword, 0),
+            'prompt': kw.get('prompt'),
+            'person_id': kw.get('person_id'),
+            'tag_type': kw.get('tag_type', 'keyword'),
         })
 
     return {

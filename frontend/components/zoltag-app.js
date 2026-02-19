@@ -123,6 +123,7 @@ class ZoltagApp extends LitElement {
       curateAuditHideDeleted: { type: Boolean },
       curateAuditMinRating: { type: [Number, String] },
       curateAuditNoPositivePermatags: { type: Boolean },
+      curateAuditEmptyState: { type: Object },
       curateAuditDropboxPathPrefix: { type: String },
       curateAuditFilenameQuery: { type: String },
       curateAuditTextQuery: { type: String },

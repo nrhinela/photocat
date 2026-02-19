@@ -219,6 +219,7 @@ export function renderCurateTabContent(host, { formatCurateDate }) {
             .mlSimilarityDedupe=${host.curateAuditMlSimilarityDedupe}
             .mlSimilarityRandom=${host.curateAuditMlSimilarityRandom}
             .images=${host.curateAuditImages}
+            .emptyState=${host.curateAuditEmptyState}
             .thumbSize=${host.curateThumbSize}
             .minRating=${host.curateAuditMinRating}
             .mediaType=${host.curateAuditMediaType}

@@ -30,7 +30,7 @@ const AUDIT_HELP_VISIBILITY_STORAGE_KEY = 'curate-audit:help-visible';
  *
  * Features:
  * - Mode toggle (existing vs missing)
- * - AI-powered suggestions (zero-shot, trained, and similarity models)
+ * - AI-powered suggestions (zero-shot, trained, similarity, and face-recognition models)
  * - Image grid with rating and permatag overlays
  * - Multi-select via long-press and drag
  * - Hotspots for quick rating/tagging
@@ -57,12 +57,13 @@ export class CurateAuditTab extends LitElement {
     keyword: { type: String },
     mode: { type: String }, // 'existing' or 'missing'
     aiEnabled: { type: Boolean },
-    aiModel: { type: String }, // 'siglip', 'trained', or 'ml-similarity'
+    aiModel: { type: String }, // 'siglip', 'trained', 'ml-similarity', or 'face-recognition'
     mlSimilaritySeedCount: { type: Number },
     mlSimilaritySimilarCount: { type: Number },
     mlSimilarityDedupe: { type: Boolean },
     mlSimilarityRandom: { type: Boolean },
     images: { type: Array },
+    emptyState: { type: Object },
     thumbSize: { type: Number },
     keywordCategory: { type: String },
     keywords: { type: Array },
@@ -122,6 +123,7 @@ export class CurateAuditTab extends LitElement {
     this.mlSimilarityDedupe = true;
     this.mlSimilarityRandom = true;
     this.images = [];
+    this.emptyState = null;
     this.thumbSize = 120;
     this.keywordCategory = '';
     this.keywords = [];
@@ -261,6 +263,17 @@ export class CurateAuditTab extends LitElement {
     }
     if (changedProperties.has('tenant')) {
       this.dragSelection = [];
+    }
+    if (
+      changedProperties.has('keyword')
+      || changedProperties.has('keywordCategory')
+      || changedProperties.has('keywords')
+      || changedProperties.has('aiModel')
+    ) {
+      const activeModel = this._getActiveAiModel();
+      if (activeModel === 'face-recognition' && !this._isFaceRecognitionEligibleKeyword()) {
+        this._handleAiModelChange('siglip');
+      }
     }
     if (!changedProperties.has('targets')
       && !changedProperties.has('keywords')
@@ -981,9 +994,50 @@ export class CurateAuditTab extends LitElement {
     return raw || 'siglip';
   }
 
+  _getSelectedKeywordMetadata() {
+    const selectedKeyword = String(this.keyword || '').trim();
+    if (!selectedKeyword) return null;
+    const selectedCategory = String(this.keywordCategory || '').trim();
+    const keywords = Array.isArray(this.keywords) ? this.keywords : [];
+    return keywords.find((entry) => {
+      if (!entry || String(entry.keyword || '').trim() !== selectedKeyword) {
+        return false;
+      }
+      const entryCategory = String(entry.category || '').trim();
+      if (!selectedCategory) return true;
+      return entryCategory === selectedCategory;
+    }) || null;
+  }
+
+  _isFaceRecognitionEligibleKeyword() {
+    const meta = this._getSelectedKeywordMetadata();
+    if (!meta) return false;
+    const personId = Number(meta.person_id);
+    const tagType = String(meta.tag_type || '').trim().toLowerCase();
+    return (Number.isFinite(personId) && personId > 0) || tagType === 'person';
+  }
+
+  _getAvailableAiModels() {
+    const models = [
+      { key: 'siglip', label: 'Zero-shot' },
+      { key: 'trained', label: 'Trained' },
+      { key: 'ml-similarity', label: 'Similarity' },
+    ];
+    if (this._isFaceRecognitionEligibleKeyword()) {
+      models.push({ key: 'face-recognition', label: 'Face Recognition' });
+    }
+    return models;
+  }
+
   _isMlSimilarityMode() {
     return this.mode === 'missing'
       && this._getActiveAiModel() === 'ml-similarity'
+      && !!this.keyword;
+  }
+
+  _isFaceRecognitionMode() {
+    return this.mode === 'missing'
+      && this._getActiveAiModel() === 'face-recognition'
       && !!this.keyword;
   }
 
@@ -1024,6 +1078,18 @@ export class CurateAuditTab extends LitElement {
           '[ ] dedupe avoids repeating the same candidate across source groups.',
           '[ ] random uses random source selection instead of rating-based order.',
           'Often produces surprisingly strong results on near-duplicate scene sets.',
+        ],
+      };
+    }
+    if (mode === 'face-recognition') {
+      return {
+        title: 'Face Recognition',
+        summary: 'Uses person reference photos to find likely untagged matches for person-linked keywords.',
+        bestFor: 'reviewing person-specific tags after references are configured.',
+        points: [
+          'Available only for keywords linked to a person record.',
+          'Requires at least 3 active reference photos for that person.',
+          'Suggestions are ranked by face-match confidence.',
         ],
       };
     }
@@ -1120,6 +1186,12 @@ export class CurateAuditTab extends LitElement {
     }
   }
 
+  _getAuditEmptyStateMessage() {
+    const fromBackend = String(this.emptyState?.message || '').trim();
+    if (fromBackend) return fromBackend;
+    return this.keyword ? 'No images available.' : 'Choose a keyword to start.';
+  }
+
   _buildSimilarityGroups(images) {
     const safeImages = Array.isArray(images) ? images : [];
     const hasSimilarityMetadata = safeImages.some((image) => (
@@ -1173,7 +1245,7 @@ export class CurateAuditTab extends LitElement {
           enableReordering: false,
           showPermatags: true,
           showAiScore: true,
-          emptyMessage: this.keyword ? 'No images available.' : 'Choose a keyword to start.',
+          emptyMessage: this._getAuditEmptyStateMessage(),
         },
       });
     }
@@ -1203,7 +1275,7 @@ export class CurateAuditTab extends LitElement {
           enableReordering: false,
           showPermatags: true,
           showAiScore: true,
-          emptyMessage: this.keyword ? 'No images available.' : 'Choose a keyword to start.',
+          emptyMessage: this._getAuditEmptyStateMessage(),
         },
       });
     }
@@ -1276,6 +1348,13 @@ export class CurateAuditTab extends LitElement {
       : 'Select a keyword';
     const selectedKeywordValue = this._getAuditKeywordDropdownValue();
     const activeAiModel = this._getActiveAiModel();
+    const availableAiModels = this._getAvailableAiModels();
+    const auditEmptyMessage = this._getAuditEmptyStateMessage();
+    const showAuditEmptyStateNotice = this.mode === 'missing'
+      && !!this.keyword
+      && !this.loading
+      && leftImages.length === 0
+      && !!this.emptyState;
 
     // Update left order for selection
     this._auditLeftOrder = leftImages.map(img => img.id);
@@ -1342,11 +1421,7 @@ export class CurateAuditTab extends LitElement {
                       </legend>
                       <div class="w-full text-xs text-gray-600">
                         <div class="mx-auto flex w-fit flex-wrap items-center justify-center gap-2">
-                          ${[
-                            { key: 'siglip', label: 'Zero-shot' },
-                            { key: 'trained', label: 'Trained' },
-                            { key: 'ml-similarity', label: 'Similarity' },
-                          ].map((model) => html`
+                          ${availableAiModels.map((model) => html`
                             <button
                               class="px-2 py-1 rounded border text-xs ${activeAiModel === model.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}"
                               aria-pressed=${activeAiModel === model.key ? 'true' : 'false'}
@@ -1436,6 +1511,11 @@ export class CurateAuditTab extends LitElement {
                 ${this.auditResultsView === 'history' ? html`
                   ${this._renderAuditHistoryPane()}
                 ` : html`
+                  ${showAuditEmptyStateNotice ? html`
+                    <div class="mx-2 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      ${this.emptyState?.message}
+                    </div>
+                  ` : html``}
                   ${this.keyword && !this.loadAll ? html`
                     <div class="p-2">
                       ${renderResultsPagination({
@@ -1477,7 +1557,7 @@ export class CurateAuditTab extends LitElement {
                         enableReordering: false,
                         showPermatags: true,
                         showAiScore: true,
-                        emptyMessage: this.keyword ? 'No images available.' : 'Choose a keyword to start.',
+                        emptyMessage: auditEmptyMessage,
                       },
                     })}
                   ${this.keyword && !this.loadAll ? html`

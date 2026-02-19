@@ -22,6 +22,7 @@ from zoltag.tenant import Tenant
 from zoltag.metadata import Asset, ImageMetadata, MachineTag, Permatag
 from zoltag.models.config import PhotoList, PhotoListItem, Keyword, KeywordCategory
 from zoltag.dependencies import get_tenant_setting
+from zoltag.machine_tag_types import normalize_ml_tag_type
 from zoltag.routers.filter_builder import FilterBuilder
 from zoltag.tenant_scope import tenant_column_filter
 
@@ -849,10 +850,14 @@ def apply_ml_tag_type_filter_subquery(
         # Keyword not found - return empty result
         return db.query(ImageMetadata.id).filter(False).subquery()
 
+    normalized_tag_type = normalize_ml_tag_type(tag_type)
+    if not normalized_tag_type:
+        return db.query(ImageMetadata.id).filter(False).subquery()
+
     # Return assets that have MachineTag entries for this keyword and tag_type.
     ml_images = db.query(MachineTag.asset_id).filter(
         MachineTag.keyword_id == keyword_obj.id,
-        MachineTag.tag_type == tag_type,
+        MachineTag.tag_type == normalized_tag_type,
         tenant_column_filter(MachineTag, tenant),
         MachineTag.asset_id.is_not(None),
     ).distinct().subquery()

@@ -73,6 +73,7 @@ export function initializeAppDefaultState(host) {
   host.curateAuditHideDeleted = true;
   host.curateAuditMinRating = null;
   host.curateAuditNoPositivePermatags = false;
+  host.curateAuditEmptyState = null;
   host.curateAuditDropboxPathPrefix = '';
   host.curateAuditFilenameQuery = '';
   host.curateAuditTextQuery = '';

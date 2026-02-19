@@ -58,13 +58,13 @@ Last updated: 2026-02-19
 - [x] Add tests for idempotent writes and scoped recompute
 
 ### Phase 3: Tag Audit integration
-- [ ] Add new model option in Tag Audit: `Face Recognition`
-- [ ] Only show model when selected keyword is linked to a person
-- [ ] Wire request param (`ml_tag_type=face-recognition`) in filters
-- [ ] Return helpful empty states:
-  - [ ] no linked person
-  - [ ] fewer than 3 references
-  - [ ] no high-confidence matches
+- [x] Add new model option in Tag Audit: `Face Recognition`
+- [x] Only show model when selected keyword is linked to a person
+- [x] Wire request param (`ml_tag_type=face-recognition`) in filters
+- [x] Return helpful empty states:
+  - [x] no linked person
+  - [x] fewer than 3 references
+  - [x] no high-confidence matches
 - [ ] Add frontend tests/coverage for model selection and visibility
 
 ### Phase 4: People screen UX
@@ -81,9 +81,11 @@ Last updated: 2026-02-19
 - [ ] Tune global threshold with early-tenant feedback
 
 ## Notes / blockers
-- None currently.
+- Frontend unit/integration harness for `curate-audit-tab` model-option visibility is still pending.
 
 ## Verification run
 - `pytest tests/test_people_api.py` (pass)
 - `pytest tests/test_face_recognition_service.py` (pass)
 - `alembic upgrade head` (pass; applied `202602192230`)
+- `.venv/bin/pytest -q tests/test_machine_tag_types.py tests/test_config_manager_keywords.py tests/test_face_recognition_audit_mode.py` (pass)
+- `.venv/bin/pytest -q tests/test_face_recognition_service.py tests/test_people_api.py` (pass)

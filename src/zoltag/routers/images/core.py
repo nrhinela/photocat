@@ -28,7 +28,13 @@ from zoltag.metadata import (
     ImageEmbedding,
     ImageMetadata,
     MachineTag,
+    PersonReferenceImage,
     Permatag,
+)
+from zoltag.machine_tag_types import (
+    is_face_recognition_ml_tag_type,
+    is_similarity_ml_tag_type,
+    normalize_ml_tag_type,
 )
 from zoltag.models.config import Keyword, PhotoListItem
 from zoltag.tagging import calculate_tags, get_tagger
@@ -88,6 +94,70 @@ HYBRID_TEXT_PREFILTER_MAX = 4000
 HYBRID_TRIGRAM_THRESHOLD = 0.12
 TEXT_INDEX_SEMANTIC_BLEND = 0.35
 LEGACY_LEXICAL_SCORING_MAX_CANDIDATES = 250
+
+
+def _build_face_recognition_audit_empty_state(
+    *,
+    db: Session,
+    tenant: Tenant,
+    keyword_id: Optional[int],
+) -> Optional[dict]:
+    """Return a specific empty-state payload for face-recognition audit mode."""
+    if keyword_id is None:
+        return None
+
+    keyword_row = db.query(
+        Keyword.keyword,
+        Keyword.person_id,
+    ).filter(
+        tenant_column_filter(Keyword, tenant),
+        Keyword.id == keyword_id,
+    ).first()
+    if not keyword_row:
+        return None
+
+    keyword_value = str(keyword_row.keyword or "").strip()
+    min_references = max(1, int(getattr(settings, "face_recognition_min_references", 3) or 3))
+    if keyword_row.person_id is None:
+        return {
+            "code": "face_recognition_no_linked_person",
+            "title": "Face Recognition unavailable",
+            "message": "This keyword is not linked to a person record. Link a person in Keyword Admin to use Face Recognition.",
+            "keyword": keyword_value,
+            "min_references": min_references,
+        }
+
+    active_references = int(
+        db.query(func.count(PersonReferenceImage.id)).filter(
+            tenant_column_filter(PersonReferenceImage, tenant),
+            PersonReferenceImage.person_id == int(keyword_row.person_id),
+            PersonReferenceImage.is_active.is_(True),
+        ).scalar() or 0
+    )
+
+    if active_references < min_references:
+        return {
+            "code": "face_recognition_insufficient_references",
+            "title": "More reference photos required",
+            "message": (
+                f"Face Recognition needs at least {min_references} active reference photos for "
+                f"\"{keyword_value}\". Found {active_references}."
+            ),
+            "keyword": keyword_value,
+            "person_id": int(keyword_row.person_id),
+            "active_references": active_references,
+            "min_references": min_references,
+        }
+
+    return {
+        "code": "face_recognition_no_matches",
+        "title": "No high-confidence matches",
+        "message": "No high-confidence face matches were found for this keyword with the current filters.",
+        "keyword": keyword_value,
+        "person_id": int(keyword_row.person_id),
+        "active_references": active_references,
+        "min_references": min_references,
+    }
 
 
 def _log_images_search_event(
@@ -1261,6 +1331,7 @@ async def list_images(
     )
 
     ml_keyword_id = None
+    normalized_ml_tag_type = normalize_ml_tag_type(ml_tag_type)
     if ml_keyword:
         normalized_keyword = ml_keyword.strip().lower()
         if normalized_keyword:
@@ -1286,6 +1357,11 @@ async def list_images(
     similarity_dedupe_enabled = bool(ml_similarity_dedupe)
     similarity_random_enabled = bool(ml_similarity_random)
     constrain_to_ml_matches = order_by_value == "ml_score" and ml_keyword_id is not None
+    is_face_recognition_audit_mode = (
+        constrain_to_ml_matches
+        and permatag_missing
+        and is_face_recognition_ml_tag_type(normalized_ml_tag_type)
+    )
     media_type_value = (media_type or "all").strip().lower()
     if media_type_value not in {"all", "image", "video"}:
         media_type_value = "all"
@@ -1324,7 +1400,7 @@ async def list_images(
         permatag_missing=permatag_missing,
         permatag_positive_missing=permatag_positive_missing,
         ml_keyword=ml_keyword,
-        ml_tag_type=ml_tag_type,
+        ml_tag_type=normalized_ml_tag_type,
         apply_ml_tag_filter=not constrain_to_ml_matches,
     )
     # If any filter resulted in empty set, return empty response
@@ -1336,6 +1412,14 @@ async def list_images(
             "limit": limit,
             "offset": offset
         }
+        if is_face_recognition_audit_mode:
+            empty_state = _build_face_recognition_audit_empty_state(
+                db=db,
+                tenant=tenant,
+                keyword_id=ml_keyword_id,
+            )
+            if empty_state:
+                result["audit_empty_state"] = empty_state
         _log_images_search_event(
             db=db,
             request=request,
@@ -1881,7 +1965,7 @@ async def list_images(
             paginated_ids = sorted_ids[offset: offset + limit] if limit else sorted_ids[offset:]
             images = load_images_by_ordered_ids(paginated_ids)
         elif order_by_value == "ml_score" and ml_keyword_id:
-            is_ml_similarity_mode = str(ml_tag_type or "").strip().lower() == "ml-similarity"
+            is_ml_similarity_mode = is_similarity_ml_tag_type(normalized_ml_tag_type)
 
             if is_ml_similarity_mode:
                 similarity_seed_limit = similarity_seed_limit_value
@@ -1908,7 +1992,7 @@ async def list_images(
                     permatag_missing=False,
                     permatag_positive_missing=False,
                     ml_keyword=ml_keyword,
-                    ml_tag_type=ml_tag_type,
+                    ml_tag_type=normalized_ml_tag_type,
                     apply_ml_tag_filter=False,
                 )
                 candidate_base_query, candidate_subqueries, candidate_exclude_subqueries, candidate_has_empty_filter = build_image_query_with_subqueries(
@@ -1931,7 +2015,7 @@ async def list_images(
                     permatag_missing=True,
                     permatag_positive_missing=permatag_positive_missing,
                     ml_keyword=ml_keyword,
-                    ml_tag_type=ml_tag_type,
+                    ml_tag_type=normalized_ml_tag_type,
                     apply_ml_tag_filter=False,
                 )
 
@@ -2139,7 +2223,7 @@ async def list_images(
                     ml_query, ml_scores_subquery = builder.apply_ml_score_ordering(
                         query,
                         ml_keyword_id,
-                        ml_tag_type,
+                        normalized_ml_tag_type,
                         require_match=require_match,
                     )
                     if order_by_value == "processed":
@@ -2168,7 +2252,11 @@ async def list_images(
                     return ml_query, page_rows, resolved_offset, estimated_total
 
                 query, images, resolved_offset, total = fetch_ml_score_page(require_match=True)
-                if not images and query.limit(1).first() is None:
+                if (
+                    not images
+                    and query.limit(1).first() is None
+                    and not is_face_recognition_ml_tag_type(normalized_ml_tag_type)
+                ):
                     # No ML-tag matches at all: fall back to filtered rows ordered by ML score (nulls last).
                     query = base_query
                     query = builder.apply_subqueries(query, subqueries_list, exclude_subqueries_list)
@@ -2187,9 +2275,8 @@ async def list_images(
     asset_ids = list(asset_id_to_image_id.keys())
     # Use ml_tag_type if provided (for AI filtering), otherwise use active_tag_type.
     # ml-similarity is audit-only and not an actual machine tag type.
-    normalized_ml_tag_type = str(ml_tag_type or "").strip().lower()
-    if ml_tag_type and normalized_ml_tag_type != "ml-similarity":
-        tag_type_filter = ml_tag_type
+    if normalized_ml_tag_type and not is_similarity_ml_tag_type(normalized_ml_tag_type):
+        tag_type_filter = normalized_ml_tag_type
     else:
         tag_type_filter = get_tenant_setting(db, tenant.id, 'active_machine_tag_type', default='siglip')
     tags = db.query(MachineTag).filter(
@@ -2330,6 +2417,14 @@ async def list_images(
         "hybrid_vector_weight": vector_weight_value if text_query_value else None,
         "hybrid_lexical_weight": lexical_weight_value if text_query_value else None,
     }
+    if is_face_recognition_audit_mode and not images_list:
+        empty_state = _build_face_recognition_audit_empty_state(
+            db=db,
+            tenant=tenant,
+            keyword_id=ml_keyword_id,
+        )
+        if empty_state:
+            result["audit_empty_state"] = empty_state
     if similarity_groups is not None:
         result["similarity_groups"] = similarity_groups
     _log_images_search_event(

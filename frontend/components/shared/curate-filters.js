@@ -37,7 +37,26 @@ export function buildCurateFilterObject(state, overrides = {}) {
 }
 
 export function buildCurateAuditFilterObject(state, overrides = {}) {
-  const aiModel = String(state.curateAuditAiModel || '').trim().toLowerCase() || 'siglip';
+  let aiModel = String(state.curateAuditAiModel || '').trim().toLowerCase() || 'siglip';
+  if (aiModel === 'face-recognition') {
+    const selectedKeyword = String(state.curateAuditKeyword || '').trim();
+    const selectedCategory = String(state.curateAuditCategory || '').trim();
+    const isPersonLinkedKeyword = (Array.isArray(state.keywords) ? state.keywords : []).some((entry) => {
+      if (!entry || String(entry.keyword || '').trim() !== selectedKeyword) {
+        return false;
+      }
+      const entryCategory = String(entry.category || '').trim();
+      if (selectedCategory && entryCategory !== selectedCategory) {
+        return false;
+      }
+      const personId = Number(entry.person_id);
+      const tagType = String(entry.tag_type || '').trim().toLowerCase();
+      return (Number.isFinite(personId) && personId > 0) || tagType === 'person';
+    });
+    if (!isPersonLinkedKeyword) {
+      aiModel = 'siglip';
+    }
+  }
   const useAiSort = state.curateAuditMode === 'missing';
 
   const filters = {
