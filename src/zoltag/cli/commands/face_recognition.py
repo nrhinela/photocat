@@ -10,7 +10,7 @@ from google.cloud import storage
 from zoltag.asset_helpers import resolve_image_storage
 from zoltag.cli.base import CliCommand
 from zoltag.face_recognition import (
-    DlibFaceRecognitionProvider,
+    get_default_face_provider,
     recompute_face_detections,
     recompute_face_recognition_tags,
 )
@@ -101,7 +101,8 @@ class RecomputeFaceDetectionsCommand(CliCommand):
         self.setup_db()
         try:
             self.tenant = self.load_tenant(self.tenant_id)
-            provider = DlibFaceRecognitionProvider()
+            provider = get_default_face_provider()
+            click.echo(f"Using face provider: {provider.model_name} ({provider.model_version})")
             storage_client = storage.Client(project=settings.gcp_project_id)
             thumbnail_bucket = storage_client.bucket(self.tenant.get_thumbnail_bucket(settings))
 
@@ -171,7 +172,8 @@ class RecomputeFaceRecognitionTagsCommand(CliCommand):
         self.setup_db()
         try:
             self.tenant = self.load_tenant(self.tenant_id)
-            provider = DlibFaceRecognitionProvider()
+            provider = get_default_face_provider()
+            click.echo(f"Using face provider: {provider.model_name} ({provider.model_version})")
             storage_client = storage.Client(project=settings.gcp_project_id)
             reference_bucket = storage_client.bucket(self.tenant.get_person_reference_bucket(settings))
 
