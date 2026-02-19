@@ -2379,6 +2379,8 @@ class ImageEditor extends LitElement {
     this.newKeywordName = '';
     this.newKeywordCategoryId = '';
     this.newKeywordError = '';
+    this.tagInput = '';
+    this.tagCategory = '';
   }
 
   async _applyPermatag(keywordRaw, categoryRaw) {
