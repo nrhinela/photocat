@@ -349,7 +349,13 @@ class FaceDetector:
     
     def detect_faces(self, image_data: bytes) -> list[dict]:
         """Detect faces and return bounding boxes."""
-        import face_recognition
+        try:
+            import face_recognition
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Missing optional dependency 'face_recognition'. "
+                "Install with: pip install '.[ml]' (or pip install face-recognition)."
+            ) from exc
         
         # Load image
         image = face_recognition.load_image_file(io.BytesIO(image_data))
@@ -375,7 +381,13 @@ class FaceDetector:
         tolerance: float = 0.6
     ) -> list[int]:
         """Match a face encoding against known encodings."""
-        import face_recognition
+        try:
+            import face_recognition
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Missing optional dependency 'face_recognition'. "
+                "Install with: pip install '.[ml]' (or pip install face-recognition)."
+            ) from exc
         
         face_enc = np.array(face_encoding)
         known_encs = [np.array(enc) for enc in known_encodings]
