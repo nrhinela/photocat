@@ -2695,7 +2695,7 @@ class ImageEditor extends LitElement {
             <div class="tag-form">
               <keyword-dropdown
                 class="tag-dropdown"
-                .value=${selectedValue}
+                .value=${this.newKeywordMode ? '' : selectedValue}
                 .keywords=${flatKeywords}
                 .includeUntagged=${false}
                 .compact=${true}
@@ -2703,7 +2703,9 @@ class ImageEditor extends LitElement {
                 @keyword-selected=${this._handleTagSelectChange}
                 @change=${this._handleTagSelectChange}
               ></keyword-dropdown>
-              <button class="tag-add" @click=${this._handleAddTag}>Add Tag</button>
+              ${!this.newKeywordMode ? html`
+                <button class="tag-add" @click=${this._handleAddTag}>Add Tag</button>
+              ` : html``}
             </div>
             ${this.newKeywordMode ? html`
               <div class="new-keyword-panel">
@@ -2739,7 +2741,7 @@ class ImageEditor extends LitElement {
                     ?disabled=${this.newKeywordSaving}
                     @click=${this._handleSaveNewKeyword}
                   >
-                    ${this.newKeywordSaving ? 'Saving...' : 'Save keyword'}
+                    ${this.newKeywordSaving ? 'Saving...' : 'Save Tag'}
                   </button>
                   <button
                     type="button"
