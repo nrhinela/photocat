@@ -141,6 +141,10 @@ class Tenant:
         safe_name = self._sanitize_storage_filename(filename, fallback="reference")
         return f"tenants/{self.secret_scope}/person-references/{int(person_id)}/{reference_id}/{safe_name}"
 
+    def get_person_reference_bucket(self, settings) -> str:
+        """Get dedicated bucket for person reference photos."""
+        return str(getattr(settings, "person_reference_bucket", "") or self.get_storage_bucket(settings)).strip()
+
     def get_asset_file_path(self, asset_id: str, asset_file_id: str, original_filename: str) -> str:
         """
         Backward-compatible alias for the old helper signature.

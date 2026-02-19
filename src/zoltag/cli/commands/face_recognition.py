@@ -173,20 +173,16 @@ class RecomputeFaceRecognitionTagsCommand(CliCommand):
             self.tenant = self.load_tenant(self.tenant_id)
             provider = DlibFaceRecognitionProvider()
             storage_client = storage.Client(project=settings.gcp_project_id)
-            image_bucket = storage_client.bucket(self.tenant.get_storage_bucket(settings))
-            thumbnail_bucket = storage_client.bucket(self.tenant.get_thumbnail_bucket(settings))
+            reference_bucket = storage_client.bucket(self.tenant.get_person_reference_bucket(settings))
 
             def _load_reference_image_bytes(reference: PersonReferenceImage) -> bytes | None:
                 storage_key = (reference.storage_key or "").strip()
                 if not storage_key:
                     return None
 
-                storage_blob = image_bucket.blob(storage_key)
-                if storage_blob.exists():
-                    return storage_blob.download_as_bytes()
-                thumb_blob = thumbnail_bucket.blob(storage_key)
-                if thumb_blob.exists():
-                    return thumb_blob.download_as_bytes()
+                ref_blob = reference_bucket.blob(storage_key)
+                if ref_blob.exists():
+                    return ref_blob.download_as_bytes()
                 return None
 
             summary = recompute_face_recognition_tags(

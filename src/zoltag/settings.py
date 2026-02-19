@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     # Cloud Storage
     storage_bucket_name: str = "photocat-483622-images"
     thumbnail_bucket_name: Optional[str] = None
+    person_reference_bucket_name: Optional[str] = None
     thumbnail_cdn_base_url: str = ""
     
     # Secret Manager
@@ -102,6 +103,14 @@ class Settings(BaseSettings):
     def thumbnail_bucket(self) -> str:
         """Get thumbnail bucket name (defaults to main bucket)."""
         return self.thumbnail_bucket_name or self.storage_bucket_name
+
+    @property
+    def person_reference_bucket(self) -> str:
+        """Get dedicated bucket name for person-reference photos."""
+        if self.person_reference_bucket_name:
+            return self.person_reference_bucket_name
+        env = self.environment.lower()
+        return f"{self.gcp_project_id}-{env}-person-references"
 
     @property
     def is_production(self) -> bool:

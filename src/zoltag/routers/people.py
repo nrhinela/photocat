@@ -400,7 +400,7 @@ async def create_person_reference(
             storage_client = storage.Client(project=settings.gcp_project_id)
             src_storage_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
             src_thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
-            dest_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+            dest_bucket = storage_client.bucket(tenant.get_person_reference_bucket(settings))
 
             copied = False
             thumbnail_key = (asset.thumbnail_key or "").strip()
@@ -502,7 +502,7 @@ async def upload_person_reference(
 
     try:
         storage_client = storage.Client(project=settings.gcp_project_id)
-        bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+        bucket = storage_client.bucket(tenant.get_person_reference_bucket(settings))
         blob = bucket.blob(storage_key)
         content_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
         blob.cache_control = "public, max-age=31536000, immutable"
@@ -550,7 +550,7 @@ async def delete_person_reference(
     if should_delete_blob and storage_key:
         try:
             storage_client = storage.Client(project=settings.gcp_project_id)
-            bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+            bucket = storage_client.bucket(tenant.get_person_reference_bucket(settings))
             blob = bucket.blob(storage_key)
             blob.delete()
         except NotFound:
