@@ -67,6 +67,9 @@ def recompute_face_detections(
 
     processed = 0
     skipped = 0
+    skipped_missing_bytes = 0
+    skipped_detect_error = 0
+    detect_error_sample: str | None = None
     detected_faces_total = 0
     batch_offset = 0
 
@@ -87,12 +90,16 @@ def recompute_face_detections(
             image_bytes = load_image_bytes(image)
             if not image_bytes:
                 skipped += 1
+                skipped_missing_bytes += 1
                 continue
 
             try:
                 detections = provider.detect_faces(image_bytes)
-            except Exception:
+            except Exception as exc:
                 skipped += 1
+                skipped_detect_error += 1
+                if detect_error_sample is None:
+                    detect_error_sample = str(exc)
                 continue
 
             db.query(DetectedFace).filter(
@@ -126,6 +133,9 @@ def recompute_face_detections(
                     "stage": "batch",
                     "processed": int(processed),
                     "skipped": int(skipped),
+                    "skipped_missing_bytes": int(skipped_missing_bytes),
+                    "skipped_detect_error": int(skipped_detect_error),
+                    "detect_error_sample": detect_error_sample,
                     "detected_faces": int(detected_faces_total),
                     "batch_images": int(len(images)),
                     "elapsed_seconds": float(monotonic() - started_at),
@@ -139,6 +149,9 @@ def recompute_face_detections(
                 "stage": "done",
                 "processed": int(processed),
                 "skipped": int(skipped),
+                "skipped_missing_bytes": int(skipped_missing_bytes),
+                "skipped_detect_error": int(skipped_detect_error),
+                "detect_error_sample": detect_error_sample,
                 "detected_faces": int(detected_faces_total),
                 "elapsed_seconds": float(monotonic() - started_at),
             }
@@ -146,6 +159,9 @@ def recompute_face_detections(
     return {
         "processed": processed,
         "skipped": skipped,
+        "skipped_missing_bytes": skipped_missing_bytes,
+        "skipped_detect_error": skipped_detect_error,
+        "detect_error_sample": detect_error_sample,
         "detected_faces": detected_faces_total,
     }
 

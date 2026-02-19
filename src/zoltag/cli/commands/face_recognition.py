@@ -139,7 +139,9 @@ class RecomputeFaceDetectionsCommand(CliCommand):
                     click.echo(
                         "Progress: "
                         f"{processed} processed · "
-                        f"{int(payload.get('skipped') or 0)} skipped · "
+                        f"{int(payload.get('skipped') or 0)} skipped "
+                        f"(missing-bytes={int(payload.get('skipped_missing_bytes') or 0)}, "
+                        f"detect-error={int(payload.get('skipped_detect_error') or 0)}) · "
                         f"{int(payload.get('detected_faces') or 0)} faces · "
                         f"{elapsed:.1f}s elapsed · "
                         f"{rate:.2f}/s"
@@ -159,9 +161,13 @@ class RecomputeFaceDetectionsCommand(CliCommand):
             click.echo(
                 "✓ Face detections refreshed: "
                 f"{summary['processed']} processed · "
-                f"{summary['skipped']} skipped · "
+                f"{summary['skipped']} skipped "
+                f"(missing-bytes={int(summary.get('skipped_missing_bytes') or 0)}, "
+                f"detect-error={int(summary.get('skipped_detect_error') or 0)}) · "
                 f"{summary['detected_faces']} faces"
             )
+            if summary.get("detect_error_sample"):
+                click.echo(f"Sample detect error: {summary['detect_error_sample']}")
         finally:
             self.cleanup_db()
 
