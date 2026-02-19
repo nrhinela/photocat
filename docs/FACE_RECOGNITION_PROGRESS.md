@@ -13,7 +13,8 @@ Last updated: 2026-02-19
 - [x] Design reviewed and locked decisions captured
 - [x] Progress/checklist tracker created
 - [x] Phase 1 complete (schema + People reference APIs)
-- [ ] Phase 2 in progress (jobs + matching backend)
+- [x] Phase 2 complete (jobs + matching backend)
+- [ ] Phase 3 in progress (Tag Audit integration)
 
 ## Commit log
 | Date (UTC) | Commit | Summary |
@@ -23,6 +24,10 @@ Last updated: 2026-02-19
 | 2026-02-19 | `4dd9a42` | Add person reference images schema + migration |
 | 2026-02-19 | `31f10f9` | Add tenant-scoped People reference CRUD endpoints and tests |
 | 2026-02-19 | `518056f` | Record migration/test verification for completed Phase 1 |
+| 2026-02-19 | `07838c1` | Append prior progress-log entry for Phase 1 bookkeeping |
+| 2026-02-19 | `6feee40` | Add face detection/recognition services, provider abstraction, and CLI jobs |
+| 2026-02-19 | `a54237d` | Add scheduled job definition migration for face recompute commands |
+| 2026-02-19 | `1d83604` | Add tests for idempotent face suggestions and scoped recompute |
 
 ## Phase checklist
 
@@ -44,13 +49,13 @@ Last updated: 2026-02-19
 - [x] Add tests for People reference CRUD and tenant isolation
 
 ### Phase 2: Jobs + matching backend
-- [ ] Add scheduled job definition: `recompute-face-detections`
-- [ ] Add scheduled job definition: `recompute-face-recognition-tags`
-- [ ] Add face provider abstraction interface
-- [ ] Implement v1 provider with existing `face_recognition` path
-- [ ] Write face-recognition suggestions into `machine_tags` (`tag_type='face_recognition'`)
-- [ ] Enforce minimum references (`>= 3`) before suggestion generation
-- [ ] Add tests for idempotent writes and scoped recompute
+- [x] Add scheduled job definition: `recompute-face-detections`
+- [x] Add scheduled job definition: `recompute-face-recognition-tags`
+- [x] Add face provider abstraction interface
+- [x] Implement v1 provider with existing `face_recognition` path
+- [x] Write face-recognition suggestions into `machine_tags` (`tag_type='face_recognition'`)
+- [x] Enforce minimum references (`>= 3`) before suggestion generation
+- [x] Add tests for idempotent writes and scoped recompute
 
 ### Phase 3: Tag Audit integration
 - [ ] Add new model option in Tag Audit: `Face Recognition`
@@ -80,4 +85,5 @@ Last updated: 2026-02-19
 
 ## Verification run
 - `pytest tests/test_people_api.py` (pass)
-- `alembic upgrade head` (pass; applied `202602192100`)
+- `pytest tests/test_face_recognition_service.py` (pass)
+- `alembic upgrade head` (pass; applied `202602192230`)
