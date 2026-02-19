@@ -1,17 +1,21 @@
 """People management and tagging endpoints."""
 
+import mimetypes
 from typing import List, Literal, Optional
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from uuid import UUID, uuid4
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy import distinct, func, case
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
+from google.cloud import storage
+from google.api_core.exceptions import NotFound
 
 from zoltag.dependencies import get_db, get_tenant
 from zoltag.tenant import Tenant
 from zoltag.metadata import Asset, Person, PersonReferenceImage, Permatag
 from zoltag.models.config import Keyword, KeywordCategory
 from zoltag.tenant_scope import assign_tenant_scope, tenant_column_filter, tenant_column_filter_for_values
+from zoltag.settings import settings
 
 router = APIRouter(prefix="/api/v1/people", tags=["people"])
 
@@ -409,6 +413,58 @@ async def create_person_reference(
     return _serialize_reference(reference)
 
 
+@router.post("/{person_id}/references/upload", response_model=PersonReferenceResponse)
+async def upload_person_reference(
+    person_id: int,
+    file: UploadFile = File(...),
+    tenant: Tenant = Depends(get_tenant),
+    db: Session = Depends(get_db),
+):
+    """Upload a dedicated person reference photo (outside the asset system)."""
+    _get_person_for_tenant(db, tenant, person_id)
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    filename = (file.filename or "").strip() or "reference"
+    reference_id = uuid4()
+    storage_key = tenant.get_person_reference_key(
+        person_id=person_id,
+        reference_id=str(reference_id),
+        filename=filename,
+    )
+
+    reference = assign_tenant_scope(
+        PersonReferenceImage(
+            id=reference_id,
+            person_id=person_id,
+            source_type="upload",
+            storage_key=storage_key,
+            is_active=True,
+            face_count=0,
+        ),
+        tenant,
+    )
+
+    try:
+        storage_client = storage.Client(project=settings.gcp_project_id)
+        bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+        blob = bucket.blob(storage_key)
+        content_type = file.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        blob.cache_control = "public, max-age=31536000, immutable"
+        blob.upload_from_string(file_bytes, content_type=content_type)
+
+        db.add(reference)
+        db.commit()
+        db.refresh(reference)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to upload reference photo: {exc}")
+
+    return _serialize_reference(reference)
+
+
 @router.delete("/{person_id}/references/{reference_id}")
 async def delete_person_reference(
     person_id: int,
@@ -432,8 +488,22 @@ async def delete_person_reference(
     if not reference:
         raise HTTPException(status_code=404, detail="Reference not found")
 
+    should_delete_blob = reference.source_type == "upload" and bool((reference.storage_key or "").strip())
+    storage_key = (reference.storage_key or "").strip()
+
     db.delete(reference)
     db.commit()
+
+    if should_delete_blob and storage_key:
+        try:
+            storage_client = storage.Client(project=settings.gcp_project_id)
+            bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+            blob = bucket.blob(storage_key)
+            blob.delete()
+        except NotFound:
+            pass
+        except Exception:
+            pass
     return {"status": "deleted", "person_id": person_id, "reference_id": reference_id}
 
 

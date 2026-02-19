@@ -131,6 +131,16 @@ class Tenant:
         safe_name = self._sanitize_storage_filename(filename, fallback="default-256.jpg")
         return f"tenants/{self.secret_scope}/assets/{asset_id}/thumbnails/{safe_name}"
 
+    def get_person_reference_key(self, person_id: int, reference_id: str, filename: str) -> str:
+        """
+        Build a storage key for uploaded person reference photos.
+
+        Format:
+        tenants/{tenant_key_prefix}/person-references/{person_id}/{reference_id}/{filename}
+        """
+        safe_name = self._sanitize_storage_filename(filename, fallback="reference")
+        return f"tenants/{self.secret_scope}/person-references/{int(person_id)}/{reference_id}/{safe_name}"
+
     def get_asset_file_path(self, asset_id: str, asset_file_id: str, original_filename: str) -> str:
         """
         Backward-compatible alias for the old helper signature.

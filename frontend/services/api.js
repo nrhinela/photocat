@@ -1501,17 +1501,16 @@ export async function deletePersonReference(tenantId, personId, referenceId) {
 }
 
 /**
- * Upload and ingest a single image file into the library.
+ * Upload a dedicated person reference photo outside the asset system.
  * @param {string} tenantId
+ * @param {number} personId
  * @param {File} file
- * @param {{dedupPolicy?: 'keep_both'|'skip_duplicate'}} options
  * @returns {Promise<Object>}
  */
-export async function uploadAndIngestImage(tenantId, file, options = {}) {
-    const dedupPolicy = String(options.dedupPolicy || 'keep_both').trim() || 'keep_both';
+export async function uploadPersonReference(tenantId, personId, file) {
     const formData = new FormData();
     formData.append('file', file);
-    return fetchWithAuth(`/images/upload-and-ingest?dedup_policy=${encodeURIComponent(dedupPolicy)}`, {
+    return fetchWithAuth(`/people/${personId}/references/upload`, {
         method: 'POST',
         tenantId,
         body: formData,

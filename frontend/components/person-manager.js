@@ -10,8 +10,7 @@ import {
   deletePersonReference,
   getLists,
   getListItems,
-  getImageDetails,
-  uploadAndIngestImage,
+  uploadPersonReference,
 } from '../services/api.js';
 
 class PersonManager extends LitElement {
@@ -647,21 +646,7 @@ class PersonManager extends LitElement {
     this.referencesError = '';
     try {
       const tenantId = this._getTenantId();
-      const uploadResult = await uploadAndIngestImage(tenantId, this.referenceUploadFile, { dedupPolicy: 'skip_duplicate' });
-      const imageId = Number(uploadResult?.image_id);
-      if (!Number.isFinite(imageId) || imageId <= 0) {
-        throw new Error('Upload completed but no image_id was returned.');
-      }
-      const image = await getImageDetails(tenantId, imageId);
-      const sourceAssetId = String(image?.asset_id || '').trim();
-      if (!sourceAssetId) {
-        throw new Error('Uploaded image did not return an asset_id.');
-      }
-      await createPersonReference(tenantId, this.selectedPersonId, {
-        source_type: 'asset',
-        source_asset_id: sourceAssetId,
-        is_active: true,
-      });
+      await uploadPersonReference(tenantId, this.selectedPersonId, this.referenceUploadFile);
       this.referenceUploadFile = null;
       await this.loadReferences();
     } catch (err) {
