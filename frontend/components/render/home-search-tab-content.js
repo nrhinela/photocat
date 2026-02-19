@@ -135,9 +135,30 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
       (keywords || []).filter((kw) => Number(kw?.count || 0) > 0),
     ])
     .filter(([, keywords]) => keywords.length > 0);
+  const toTagCloudItems = (keywords = []) => {
+    const items = (keywords || []).map((kw) => ({
+      keyword: String(kw?.keyword || '').trim(),
+      count: Number(kw?.count || 0),
+    })).filter((kw) => kw.keyword && kw.count > 0);
+    if (!items.length) return [];
+    const counts = items.map((kw) => kw.count);
+    const min = Math.min(...counts);
+    const max = Math.max(...counts);
+    const span = Math.max(1, max - min);
+    return items.map((kw) => {
+      const weight = (kw.count - min) / span;
+      const fontSize = 12 + Math.round(weight * 14);
+      return {
+        ...kw,
+        fontSize,
+      };
+    });
+  };
   const homeLists = [...(host.homeLists || [])]
     .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  const homeRecommendationsTab = host.homeRecommendationsTab === 'keywords' ? 'keywords' : 'lists';
+  const homeRecommendationsTab = ['lists', 'keywords', 'tagcloud'].includes(host.homeRecommendationsTab)
+    ? host.homeRecommendationsTab
+    : 'lists';
   const ctaCards = [
     {
       key: 'search',
@@ -288,6 +309,13 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
                 >
                   Keywords
                 </button>
+                <button
+                  type="button"
+                  class="admin-subtab ${homeRecommendationsTab === 'tagcloud' ? 'active' : ''}"
+                  @click=${() => { host.homeRecommendationsTab = 'tagcloud'; }}
+                >
+                  Tagcloud
+                </button>
               </div>
               <div class="home-recommendations-body">
                 ${homeRecommendationsTab === 'lists' ? html`
@@ -309,7 +337,7 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
                   ` : html`
                     <div class="home-recommendations-empty">No lists available.</div>
                   `}
-                ` : html`
+                ` : homeRecommendationsTab === 'keywords' ? html`
                   ${exploreTagCategories.length ? html`
                     ${exploreTagCategories.map(([category, keywords]) => html`
                       <section class="home-tag-section">
@@ -328,6 +356,32 @@ export function renderHomeTabContent(host, { navCards, formatCurateDate }) {
                         </div>
                       </section>
                     `)}
+                  ` : html`
+                    <div class="home-recommendations-empty">No tags available.</div>
+                  `}
+                ` : html`
+                  ${exploreTagCategories.length ? html`
+                    ${exploreTagCategories.map(([category, keywords]) => {
+                      const tagCloudItems = toTagCloudItems(keywords);
+                      return html`
+                        <section class="home-tag-section">
+                          <div class="home-tag-section-title">${category}</div>
+                          <div class="home-tagcloud-wrap" role="list">
+                            ${tagCloudItems.map((kw) => html`
+                              <button
+                                type="button"
+                                class="home-tagcloud-item"
+                                style=${`font-size:${kw.fontSize}px;`}
+                                @click=${() => handleExploreTagNavigate(category, kw.keyword, kw.count)}
+                                title=${`${kw.keyword} (${formatStatNumber(kw.count)})`}
+                              >
+                                ${kw.keyword}
+                              </button>
+                            `)}
+                          </div>
+                        </section>
+                      `;
+                    })}
                   ` : html`
                     <div class="home-recommendations-empty">No tags available.</div>
                   `}

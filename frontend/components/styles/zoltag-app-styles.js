@@ -260,6 +260,31 @@ export const zoltagAppStyles = css`
         font-weight: 700;
         line-height: 1;
     }
+    .home-tagcloud-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 10px;
+        align-items: baseline;
+    }
+    .home-tagcloud-item {
+        border: none;
+        background: transparent;
+        color: #334155;
+        font-weight: 700;
+        line-height: 1.05;
+        padding: 0;
+        cursor: pointer;
+        transition: color 0.15s ease, transform 0.15s ease;
+    }
+    .home-tagcloud-item:hover {
+        color: #1d4ed8;
+        transform: translateY(-1px);
+    }
+    .home-tagcloud-item:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+        border-radius: 3px;
+    }
     .home-recommendations-empty {
         font-size: 14px;
         color: #64748b;
