@@ -2739,7 +2739,7 @@ class ImageEditor extends LitElement {
                     type="button"
                     class="new-keyword-save"
                     ?disabled=${this.newKeywordSaving}
-                    @click=${this._handleSaveNewKeyword}
+                    @click=${() => this._handleSaveNewKeyword()}
                   >
                     ${this.newKeywordSaving ? 'Saving...' : 'Save Tag'}
                   </button>
@@ -2747,7 +2747,7 @@ class ImageEditor extends LitElement {
                     type="button"
                     class="new-keyword-cancel"
                     ?disabled=${this.newKeywordSaving}
-                    @click=${this._cancelNewKeywordMode}
+                    @click=${() => this._cancelNewKeywordMode()}
                   >
                     Cancel
                   </button>
