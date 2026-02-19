@@ -387,6 +387,59 @@ async def create_person_reference(
         ).first()
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found for tenant")
+        # Copy asset media into dedicated person-reference storage so
+        # facial-recognition training reads from one canonical source.
+        reference_id = uuid4()
+        reference_filename = (asset.filename or "reference").strip() or "reference"
+        storage_key = tenant.get_person_reference_key(
+            person_id=person_id,
+            reference_id=str(reference_id),
+            filename=reference_filename,
+        )
+        try:
+            storage_client = storage.Client(project=settings.gcp_project_id)
+            src_storage_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+            src_thumbnail_bucket = storage_client.bucket(tenant.get_thumbnail_bucket(settings))
+            dest_bucket = storage_client.bucket(tenant.get_storage_bucket(settings))
+
+            copied = False
+            thumbnail_key = (asset.thumbnail_key or "").strip()
+            if thumbnail_key:
+                src_thumb_blob = src_thumbnail_bucket.blob(thumbnail_key)
+                if src_thumb_blob.exists():
+                    src_thumbnail_bucket.copy_blob(src_thumb_blob, dest_bucket, storage_key)
+                    copied = True
+            if not copied:
+                source_key = (asset.source_key or "").strip()
+                if not source_key:
+                    raise HTTPException(status_code=404, detail="Asset has no readable source or thumbnail")
+                src_source_blob = src_storage_bucket.blob(source_key)
+                if not src_source_blob.exists():
+                    raise HTTPException(status_code=404, detail="Asset source object not found in storage")
+                src_storage_bucket.copy_blob(src_source_blob, dest_bucket, storage_key)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to copy asset into reference storage: {exc}")
+
+        source_type = "upload"
+        reference = assign_tenant_scope(
+            PersonReferenceImage(
+                id=reference_id,
+                person_id=person_id,
+                source_type=source_type,
+                source_asset_id=source_asset_id,
+                storage_key=storage_key,
+                is_active=bool(request.is_active),
+                face_count=int(request.face_count or 0),
+                quality_score=request.quality_score,
+            ),
+            tenant,
+        )
+        db.add(reference)
+        db.commit()
+        db.refresh(reference)
+        return _serialize_reference(reference)
     elif source_type == "upload":
         storage_key = (request.storage_key or "").strip()
         if not storage_key:
