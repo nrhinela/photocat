@@ -2438,21 +2438,42 @@ class ImageEditor extends LitElement {
   }
 
   async _handleSaveNewKeyword() {
-    if (!this.details || !this.tenant || this.newKeywordSaving) return;
+    if (this.newKeywordSaving) {
+      console.warn('ImageEditor: save tag ignored because save is already in progress');
+      return;
+    }
+    if (!this.details) {
+      this.newKeywordError = 'Image details are still loading. Please try again.';
+      console.warn('ImageEditor: save tag aborted - missing image details');
+      return;
+    }
+    if (!this.tenant) {
+      this.newKeywordError = 'No tenant selected.';
+      console.warn('ImageEditor: save tag aborted - missing tenant');
+      return;
+    }
     const keyword = String(this.newKeywordName || '').trim();
     const categoryId = String(this.newKeywordCategoryId || '').trim();
     if (!categoryId) {
       this.newKeywordError = 'Select a category.';
+      console.warn('ImageEditor: save tag aborted - missing category selection');
       return;
     }
     if (!keyword) {
       this.newKeywordError = 'Enter a keyword name.';
+      console.warn('ImageEditor: save tag aborted - missing keyword name');
       return;
     }
     const categories = this._getKeywordCategoriesSorted();
+    if (!categories.length) {
+      this.newKeywordError = 'No categories are available for this tenant.';
+      console.warn('ImageEditor: save tag aborted - no keyword categories loaded');
+      return;
+    }
     const selectedCategory = categories.find((cat) => String(cat?.id) === categoryId);
     if (!selectedCategory) {
       this.newKeywordError = 'Selected category no longer exists.';
+      console.warn('ImageEditor: save tag aborted - selected category not found', { categoryId });
       return;
     }
     this.newKeywordSaving = true;
