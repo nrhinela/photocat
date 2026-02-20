@@ -40,6 +40,8 @@ from zoltag.routers import (
     config,
     nl_search,
     jobs,
+    sharing,
+    guest,
 )
 
 app = FastAPI(
@@ -150,6 +152,8 @@ app.include_router(sync.router)
 app.include_router(config.router)
 app.include_router(nl_search.router)
 app.include_router(jobs.router)
+app.include_router(sharing.router)
+app.include_router(guest.router)
 
 # Static file paths
 static_dir = Path(__file__).parent / "static"

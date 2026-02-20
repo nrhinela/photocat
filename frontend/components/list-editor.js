@@ -13,6 +13,7 @@ import {
 } from '../services/api.js';
 import { renderImageGrid } from './shared/image-grid.js';
 import { allowByPermissionOrRole } from './shared/tenant-permissions.js';
+import './share-list-modal.js';
 
 class ListEditor extends LitElement {
   static styles = [tailwind, css`
@@ -106,6 +107,7 @@ class ListEditor extends LitElement {
     renderCurateRatingStatic: { type: Object },
     renderCuratePermatagSummary: { type: Object },
     formatCurateDate: { type: Object },
+    shareModalActive: { type: Boolean },
   };
 
   constructor() {
@@ -127,6 +129,7 @@ class ListEditor extends LitElement {
     this.initialSelectedListToken = 0;
     this.thumbSize = 190;
     this.renderCurateRatingWidget = null;
+    this.shareModalActive = false;
     this.renderCurateRatingStatic = null;
     this.renderCuratePermatagSummary = null;
     this.formatCurateDate = null;
@@ -1102,6 +1105,7 @@ class ListEditor extends LitElement {
                     Download
                   </button>
                   ${this.selectedList.can_edit ? html`
+                    <button @click=${() => { this.shareModalActive = true; }} style="background: #4f46e5; color: white; padding: 0.25rem 0.75rem; border-radius: 0.25rem; font-size: 0.875rem; border: none; cursor: pointer;" onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">Share</button>
                     <button @click=${this._startEditingSelectedList} class="bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700">Edit</button>
                   ` : html``}
                 </div>
@@ -1292,6 +1296,20 @@ class ListEditor extends LitElement {
             </div>
           </div>
         </div>
+      ` : ''}
+
+      <!-- Share List Modal -->
+      ${this.shareModalActive && this.selectedList ? html`
+        <share-list-modal
+          .active=${true}
+          .list=${{ id: this.selectedList.id, title: this.selectedList.title }}
+          .tenantId=${this.tenant}
+          @close-modal=${() => { this.shareModalActive = false; }}
+          @share-created=${() => {
+            // Optional: Show success message or refresh data
+            console.log('Share created successfully');
+          }}
+        ></share-list-modal>
       ` : ''}
     `;
   }

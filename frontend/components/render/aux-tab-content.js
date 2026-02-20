@@ -112,12 +112,19 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
     'tenant.jobs.view',
     ['admin'],
   );
+  const canManageShares = allowByPermissionOrRole(
+    host.currentUser,
+    selectedTenant,
+    'list.edit.shared',
+    ['admin'],
+  );
   const unavailableLibraryTabs = [
     !canReadKeywords ? 'Keywords' : null,
     !canViewUsers ? 'Users' : null,
     !canViewAudit ? 'Audit' : null,
     !canManageProviders ? 'Providers' : null,
     !canManageJobs ? 'Jobs' : null,
+    !canManageShares ? 'Shares' : null,
   ].filter(Boolean);
   const libraryTabActive = host.activeTab === 'library';
   const defaultLibrarySubTab = 'assets';
@@ -127,7 +134,8 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
     || (rawLibrarySubTab === 'users' && canViewUsers)
     || (rawLibrarySubTab === 'audit' && canViewAudit)
     || (rawLibrarySubTab === 'providers' && canManageProviders)
-    || (rawLibrarySubTab === 'jobs' && canManageJobs))
+    || (rawLibrarySubTab === 'jobs' && canManageJobs)
+    || (rawLibrarySubTab === 'shares' && canManageShares))
     ? rawLibrarySubTab
     : defaultLibrarySubTab;
 
@@ -181,6 +189,14 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               @click=${() => host.activeLibrarySubTab = 'jobs'}
             >
               Jobs
+            </button>
+            <button
+              class="admin-subtab ${librarySubTab === 'shares' ? 'active' : ''}"
+              ?disabled=${!canManageShares}
+              title=${canManageShares ? 'Manage guest shares' : 'Requires list.edit.shared permission'}
+              @click=${() => host.activeLibrarySubTab = 'shares'}
+            >
+              Shares
             </button>
           </div>
         </div>
@@ -265,6 +281,13 @@ export function renderAuxTabContent(host, { formatCurateDate }) {
               .tenant=${host.tenant}
               .isSuperAdmin=${isSuperAdmin}
             ></library-jobs-admin>
+          </div>
+        ` : html``}
+        ${librarySubTab === 'shares' ? html`
+          <div class="mt-2">
+            <admin-reviews-panel
+              .tenantId=${host.tenant}
+            ></admin-reviews-panel>
           </div>
         ` : html``}
       </div>

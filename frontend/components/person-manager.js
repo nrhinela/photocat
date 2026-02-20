@@ -13,6 +13,7 @@ import {
   getListItems,
   uploadPersonReference,
 } from '../services/api.js';
+import { getStoredAppTenant } from '../services/app-storage.js';
 
 class PersonManager extends LitElement {
   static properties = {
@@ -489,7 +490,7 @@ class PersonManager extends LitElement {
   }
 
   async loadPeople() {
-    const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
+    const tenantId = this.tenant || getStoredAppTenant() || 'default';
     const data = await getPeople(tenantId, {
       limit: 500
     });
@@ -511,7 +512,7 @@ class PersonManager extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || getStoredAppTenant() || 'default';
       if (this.selectedPersonId) {
         await updatePerson(tenantId, this.selectedPersonId, payload);
       } else {
@@ -537,7 +538,7 @@ class PersonManager extends LitElement {
     this.loading = true;
     this.error = '';
     try {
-      const tenantId = this.tenant || localStorage.getItem('tenantId') || 'default';
+      const tenantId = this.tenant || getStoredAppTenant() || 'default';
       await deletePerson(tenantId, personId);
       this.formData = { name: '', instagram_url: '' };
       this.selectedPersonId = null;
@@ -607,7 +608,7 @@ class PersonManager extends LitElement {
   }
 
   _getTenantId() {
-    return this.tenant || localStorage.getItem('tenantId') || 'default';
+    return this.tenant || getStoredAppTenant() || 'default';
   }
 
   async loadReferences() {

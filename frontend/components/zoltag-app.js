@@ -43,6 +43,9 @@ import { propertyGridStyles } from './shared/widgets/property-grid.js';
 import { getTenants, getSystemSettings } from '../services/api.js';
 import './library-integrations-admin.js';
 import './library-jobs-admin.js';
+import './share-list-modal.js';
+import './admin-reviews-panel.js';
+import { getStoredAppTenant } from '../services/app-storage.js';
 
 class ZoltagApp extends LitElement {
   static styles = [tailwind, zoltagAppStyles, propertyGridStyles];
@@ -167,7 +170,7 @@ class ZoltagApp extends LitElement {
       super();
       let storedTenant = '';
       try {
-          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
+          storedTenant = getStoredAppTenant();
       } catch (_error) {
           storedTenant = '';
       }
@@ -342,7 +345,7 @@ class ZoltagApp extends LitElement {
   _syncTenantFromStorage() {
       let storedTenant = '';
       try {
-          storedTenant = (localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || '').trim();
+          storedTenant = getStoredAppTenant();
       } catch (_error) {
           storedTenant = '';
       }

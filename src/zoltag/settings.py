@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     gemini_api_mode: str = "generativelanguage"  # "generativelanguage" or "vertex"
 
+    # Email (Resend)
+    email_resend_api_key: Optional[str] = None
+    email_from_address: str = "Zoltag <info@zoltag.com>"
+
     @property
     def thumbnail_bucket(self) -> str:
         """Get thumbnail bucket name (defaults to main bucket)."""

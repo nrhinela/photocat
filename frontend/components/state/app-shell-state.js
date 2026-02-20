@@ -1,6 +1,11 @@
 import { BaseStateController } from './base-state-controller.js';
 import { getCurrentUser } from '../../services/auth.js';
 import { getImageStats } from '../../services/api.js';
+import {
+  clearStoredAppTenant,
+  getStoredAppTenant,
+  setStoredAppTenant,
+} from '../../services/app-storage.js';
 import { shouldAutoRefreshCurateStats } from '../shared/curate-stats.js';
 import {
   canCurateTenant,
@@ -31,33 +36,17 @@ export class AppShellStateController extends BaseStateController {
   }
 
   _getStoredTenantSelection() {
-    try {
-      return normalizeTenantValue(
-        localStorage.getItem('tenantId') || localStorage.getItem('currentTenant') || ''
-      );
-    } catch (_error) {
-      return '';
-    }
+    return normalizeTenantValue(getStoredAppTenant());
   }
 
   _setStoredTenantSelection(tenantId) {
     const normalized = normalizeTenantValue(tenantId);
     if (!normalized) return;
-    try {
-      localStorage.setItem('tenantId', normalized);
-      localStorage.setItem('currentTenant', normalized);
-    } catch (_error) {
-      // no-op; persistence failures should not block UI
-    }
+    setStoredAppTenant(normalized);
   }
 
   _clearStoredTenantSelection() {
-    try {
-      localStorage.removeItem('tenantId');
-      localStorage.removeItem('currentTenant');
-    } catch (_error) {
-      // no-op; persistence failures should not block UI
-    }
+    clearStoredAppTenant();
   }
 
   async loadCurrentUser() {

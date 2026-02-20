@@ -74,8 +74,12 @@ class Tenant:
         """
         if self.storage_bucket:
             return self.storage_bucket
-        # Use shared bucket with environment (lowercase for GCS compatibility)
-        env = settings.environment.lower()
+        configured_bucket = (getattr(settings, "storage_bucket_name", None) or "").strip()
+        if configured_bucket:
+            return configured_bucket
+        # Use shared bucket with normalized environment suffix.
+        env = str(getattr(settings, "environment", "") or "").strip().lower()
+        env = {"production": "prod", "development": "dev"}.get(env, env or "dev")
         return f"{settings.gcp_project_id}-{env}-shared"
 
     def get_thumbnail_bucket(self, settings) -> str:
@@ -86,6 +90,9 @@ class Tenant:
         """
         if self.thumbnail_bucket:
             return self.thumbnail_bucket
+        configured_bucket = (getattr(settings, "thumbnail_bucket_name", None) or "").strip()
+        if configured_bucket:
+            return configured_bucket
         return self.get_storage_bucket(settings)
 
     def get_storage_path(self, filename: str, path_type: str = "thumbnails") -> str:

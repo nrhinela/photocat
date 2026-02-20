@@ -10,6 +10,9 @@ import {
   getImagePlayback,
   getImagePlaybackStream,
   setRating,
+  getImageComments,
+  addImageComment,
+  deleteImageComment,
   refreshImageMetadata,
   propagateDropboxTags,
   listAssetVariants,
@@ -1409,6 +1412,14 @@ class ImageEditor extends LitElement {
     marketingNote: { type: String },
     marketingNoteSaving: { type: Boolean },
     marketingNoteError: { type: String },
+    comments: { type: Array },
+    commentsLoading: { type: Boolean },
+    commentsError: { type: String },
+    commentText: { type: String },
+    commentSaving: { type: Boolean },
+    commentDeletingId: { type: String },
+    commentFormOpen: { type: Boolean },
+    commentSortDesc: { type: Boolean },
     keywordCategories: { type: Array },
     newKeywordMode: { type: Boolean },
     newKeywordCategoryId: { type: [Number, String] },
@@ -1477,6 +1488,14 @@ class ImageEditor extends LitElement {
     this.marketingNote = '';
     this.marketingNoteSaving = false;
     this.marketingNoteError = '';
+    this.comments = [];
+    this.commentsLoading = false;
+    this.commentsError = '';
+    this.commentText = '';
+    this.commentSaving = false;
+    this.commentDeletingId = '';
+    this.commentFormOpen = false;
+    this.commentSortDesc = true;
     this.keywordCategories = [];
     this.newKeywordMode = false;
     this.newKeywordCategoryId = '';
@@ -1557,6 +1576,7 @@ class ImageEditor extends LitElement {
       this._resetVideoPlayback();
       this._resetSimilarResults();
       this._resetVariantEditor();
+      this._resetComments();
       this._cancelNewKeywordMode();
       this.fetchDetails();
       this.fetchKeywords();
@@ -1672,6 +1692,8 @@ class ImageEditor extends LitElement {
       this._loadSimilarImages();
     } else if (tab === 'variants') {
       this._loadAssetVariants();
+    } else if (tab === 'comments') {
+      this._loadComments();
     }
   }
 
@@ -1787,6 +1809,49 @@ class ImageEditor extends LitElement {
     this.variantInspectBusy = {};
     this.variantInspectData = {};
     this._variantUploadFile = null;
+  }
+
+  _resetComments() {
+    this.comments = [];
+    this.commentsLoading = false;
+    this.commentsError = '';
+    this.commentText = '';
+    this.commentSaving = false;
+    this.commentDeletingId = '';
+    this.commentFormOpen = false;
+    this.commentSortDesc = true;
+  }
+
+  get _sortedComments() {
+    const rows = Array.isArray(this.comments) ? [...this.comments] : [];
+    rows.sort((a, b) => {
+      const aTs = new Date(a?.created_at || 0).getTime();
+      const bTs = new Date(b?.created_at || 0).getTime();
+      if (this.commentSortDesc) return bTs - aTs;
+      return aTs - bTs;
+    });
+    return rows;
+  }
+
+  async _loadComments(force = false) {
+    if (!this.details?.id || !this.tenant) return;
+    if (!force && (this.commentsLoading || this.comments.length > 0)) return;
+    this.commentsLoading = true;
+    this.commentsError = '';
+    const imageId = this.details.id;
+    try {
+      const payload = await getImageComments(this.tenant, imageId);
+      if (this.details?.id !== imageId) return;
+      this.comments = Array.isArray(payload?.comments) ? payload.comments : [];
+    } catch (error) {
+      if (this.details?.id !== imageId) return;
+      this.commentsError = error?.message || 'Failed to load comments.';
+      console.error('ImageEditor: failed to load comments', error);
+    } finally {
+      if (this.details?.id === imageId) {
+        this.commentsLoading = false;
+      }
+    }
   }
 
   async _loadAssetVariants(force = false) {
@@ -2023,6 +2088,62 @@ class ImageEditor extends LitElement {
       console.error('ImageEditor: rating update failed', error);
     } finally {
       this.ratingSaving = false;
+    }
+  }
+
+  async _handleSaveComment() {
+    if (!this.details?.id || !this.tenant || this.commentSaving) return;
+    const commentText = String(this.commentText || '').trim();
+    if (!commentText) return;
+    this.commentSaving = true;
+    this.commentsError = '';
+    const imageId = this.details.id;
+    try {
+      const newComment = await addImageComment(this.tenant, imageId, commentText);
+      if (this.details?.id !== imageId) return;
+      this.comments = [newComment, ...(Array.isArray(this.comments) ? this.comments : [])];
+      this.details = {
+        ...this.details,
+        comment_count: Number(this.details?.comment_count || 0) + 1,
+      };
+      this.commentText = '';
+      this.commentFormOpen = false;
+    } catch (error) {
+      if (this.details?.id !== imageId) return;
+      this.commentsError = error?.message || 'Failed to save comment.';
+      console.error('ImageEditor: failed to save comment', error);
+    } finally {
+      if (this.details?.id === imageId) {
+        this.commentSaving = false;
+      }
+    }
+  }
+
+  async _handleDeleteComment(comment) {
+    if (!this.details?.id || !this.tenant || !comment?.id || !comment?.can_delete) return;
+    const commentId = String(comment.id);
+    if (this.commentDeletingId) return;
+    const confirmed = window.confirm('Delete this comment?');
+    if (!confirmed) return;
+    const imageId = this.details.id;
+    this.commentDeletingId = commentId;
+    this.commentsError = '';
+    try {
+      await deleteImageComment(this.tenant, imageId, commentId);
+      if (this.details?.id !== imageId) return;
+      this.comments = (Array.isArray(this.comments) ? this.comments : []).filter((row) => String(row?.id || '') !== commentId);
+      this.details = {
+        ...this.details,
+        comment_count: Math.max(0, Number(this.details?.comment_count || 0) - 1),
+      };
+    } catch (error) {
+      if (this.details?.id !== imageId) return;
+      this.commentsError = error?.message || 'Failed to delete comment.';
+      console.error('ImageEditor: failed to delete comment', error);
+    } finally {
+      if (this.details?.id === imageId) {
+        this.commentDeletingId = '';
+      }
     }
   }
 
@@ -3165,7 +3286,102 @@ class ImageEditor extends LitElement {
     `;
   }
 
+  _renderCommentsTab() {
+    const rows = this._sortedComments;
+    return html`
+      <div class="space-y-3 text-sm text-gray-700">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-xs font-semibold text-gray-600 uppercase">Comments</div>
+          <div class="flex items-center gap-2">
+            <button
+              class="nav-button"
+              @click=${() => { this.commentSortDesc = !this.commentSortDesc; }}
+            >
+              ${this.commentSortDesc ? 'Newest first ↓' : 'Oldest first ↑'}
+            </button>
+            <button
+              class="nav-button"
+              @click=${() => this._loadComments(true)}
+              ?disabled=${this.commentsLoading}
+            >
+              ${this.commentsLoading ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+
+        <div class="border border-gray-200 rounded-lg p-3 bg-gray-50">
+          <div class="flex items-center gap-2 mb-2">
+            <button
+              class="tag-add"
+              @click=${() => { this.commentFormOpen = !this.commentFormOpen; }}
+              ?disabled=${this.commentSaving}
+            >
+              ${this.commentFormOpen ? 'Hide New Comment' : 'New Comment'}
+            </button>
+          </div>
+          ${this.commentFormOpen ? html`
+            <div class="space-y-2">
+              <textarea
+                class="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                rows="3"
+                placeholder="Add a comment about this image..."
+                .value=${this.commentText}
+                @input=${(e) => { this.commentText = e.target.value; }}
+              ></textarea>
+              <div class="flex items-center gap-2">
+                <button
+                  class="tag-add"
+                  @click=${() => this._handleSaveComment()}
+                  ?disabled=${this.commentSaving || !String(this.commentText || '').trim()}
+                >
+                  ${this.commentSaving ? 'Saving...' : 'Save Comment'}
+                </button>
+              </div>
+            </div>
+          ` : html``}
+        </div>
+
+        ${this.commentsError ? html`<div class="text-xs text-red-600">${this.commentsError}</div>` : html``}
+
+        ${rows.length > 0 ? html`
+          <div class="space-y-2">
+            ${rows.map((comment) => html`
+              <div class="border border-gray-200 rounded-lg p-3 bg-white">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="text-xs font-semibold text-gray-700">
+                      ${(comment.author_name || comment.author_email || 'User')}
+                      ${comment.author_email ? html` (${comment.author_email})` : html``}
+                    </div>
+                    <div class="text-sm text-gray-800 whitespace-pre-wrap break-words">${comment.comment_text}</div>
+                  </div>
+                  <div class="flex flex-col items-end gap-2">
+                    <div class="text-xs text-gray-500 whitespace-nowrap">${this._formatDateTime(comment.created_at)}</div>
+                    ${comment.can_delete ? html`
+                      <button
+                        class="nav-button text-red-600 border-red-200 hover:bg-red-50"
+                        @click=${() => this._handleDeleteComment(comment)}
+                        ?disabled=${this.commentDeletingId === String(comment.id)}
+                      >
+                        ${this.commentDeletingId === String(comment.id) ? 'Deleting…' : 'Delete'}
+                      </button>
+                    ` : html``}
+                  </div>
+                </div>
+              </div>
+            `)}
+          </div>
+        ` : html`
+          <div class="text-sm text-gray-500">
+            ${this.commentsLoading ? 'Loading comments...' : 'No comments yet.'}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
   _renderTopTabs() {
+    const commentCount = Number(this.details?.comment_count || 0);
     return html`
       <div class="editor-tab-strip">
         <button class="tab-button ${this.activeTab === 'edit' ? 'active' : ''}" @click=${() => this._setTab('edit')}>
@@ -3176,6 +3392,14 @@ class ImageEditor extends LitElement {
         </button>
         <button class="tab-button ${this.activeTab === 'tags' ? 'active' : ''}" @click=${() => this._setTab('tags')}>
           Tags
+        </button>
+        <button class="tab-button ${this.activeTab === 'comments' ? 'active' : ''}" @click=${() => this._setTab('comments')}>
+          Comments
+          ${commentCount > 0 ? html`
+            <span class="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-100 text-amber-800 text-[10px] font-semibold">
+              ${commentCount}
+            </span>
+          ` : html``}
         </button>
         <button class="tab-button ${this.activeTab === 'similar' ? 'active' : ''}" @click=${() => this._setTab('similar')}>
           Similar
@@ -3621,6 +3845,8 @@ class ImageEditor extends LitElement {
       ? this._renderMetadataTab()
       : this.activeTab === 'tags'
         ? this._renderTagsReadOnly()
+        : this.activeTab === 'comments'
+          ? this._renderCommentsTab()
         : this._renderEditTab();
 
     if (this.activeTab === 'variants') {

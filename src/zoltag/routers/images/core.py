@@ -31,6 +31,7 @@ from zoltag.metadata import (
     PersonReferenceImage,
     Permatag,
 )
+from zoltag.models.sharing import MemberComment
 from zoltag.machine_tag_types import (
     is_face_recognition_ml_tag_type,
     is_similarity_ml_tag_type,
@@ -2911,6 +2912,12 @@ async def get_image(
         Permatag.asset_id == image.asset_id,
         tenant_column_filter(Permatag, tenant),
     ).scalar()
+    comment_count = int(
+        db.query(func.count(MemberComment.id)).filter(
+            MemberComment.asset_id == image.asset_id,
+            tenant_column_filter(MemberComment, tenant),
+        ).scalar() or 0
+    )
 
     storage_info = _resolve_storage_or_409(image=image, tenant=tenant, db=db)
     return {
@@ -2946,6 +2953,7 @@ async def get_image(
         "duration_ms": storage_info.asset.duration_ms if storage_info.asset else None,
         "rating": image.rating,
         "reviewed_at": reviewed_at.isoformat() if reviewed_at else None,
+        "comment_count": comment_count,
         "tags": machine_tags_list,
         "machine_tags_by_type": tags_by_type,
         "permatags": permatags_list,

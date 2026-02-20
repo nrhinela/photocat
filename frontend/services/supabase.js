@@ -9,6 +9,11 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  APP_AUTH_STORAGE_KEY,
+  GUEST_AUTH_STORAGE_KEY,
+  migrateLocalStorageKey,
+} from './app-storage.js';
 
 // Validate environment variables
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -18,22 +23,44 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)');
 }
 
+function createZoltagClient(storageKey, detectSessionInUrl) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      // Auto-refresh access tokens before expiry
+      autoRefreshToken: true,
+      // Persist session to localStorage
+      persistSession: true,
+      // Detect OAuth redirects in URL
+      detectSessionInUrl,
+      // Use localStorage for token persistence
+      storage: window.localStorage,
+      // Separate auth storage so /guest doesn't overwrite /app session.
+      storageKey,
+    },
+  });
+}
+
+function isGuestRoute() {
+  if (typeof window === 'undefined') return false;
+  return window.location.pathname.startsWith('/guest');
+}
+
+const guestRoute = isGuestRoute();
+if (guestRoute) {
+  migrateLocalStorageKey(GUEST_AUTH_STORAGE_KEY, ['zoltag-auth-guest']);
+} else {
+  migrateLocalStorageKey(APP_AUTH_STORAGE_KEY, ['zoltag-auth-app']);
+}
+const activeSupabaseClient = guestRoute
+  ? createZoltagClient(GUEST_AUTH_STORAGE_KEY, true)
+  : createZoltagClient(APP_AUTH_STORAGE_KEY, true);
+
 /**
- * Supabase client instance
- * Handles authentication and API calls to Supabase
+ * Active Supabase client for current route context.
+ * - /guest => guest storage key
+ * - all other routes => app storage key
  */
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    // Auto-refresh access tokens before expiry
-    autoRefreshToken: true,
-    // Persist session to localStorage
-    persistSession: true,
-    // Detect OAuth redirects in URL
-    detectSessionInUrl: true,
-    // Use localStorage for token persistence
-    storage: window.localStorage,
-  },
-});
+export const supabase = activeSupabaseClient;
 
 /**
  * Get current user session from Supabase Auth

@@ -87,9 +87,20 @@ export async function fetchWithAuth(url, options = {}) {
     throw new Error(error.detail || 'Request failed');
   }
 
-  // Return blob for image downloads, otherwise return JSON
+  // Return blob for image downloads
   if (responseType === 'blob') {
     return response.blob();
+  }
+
+  // Handle 204 No Content - don't try to parse empty body
+  if (response.status === 204) {
+    return null;
+  }
+
+  // Check if response has content before parsing JSON
+  const contentLength = response.headers.get('content-length');
+  if (contentLength === '0') {
+    return null;
   }
 
   return response.json();
@@ -276,6 +287,25 @@ export async function setRating(tenantId, imageId, rating) {
         method: 'PATCH',
         tenantId,
         body: JSON.stringify({ rating }),
+    });
+}
+
+export async function getImageComments(tenantId, imageId) {
+    return fetchWithAuth(`/images/${imageId}/comments`, { tenantId });
+}
+
+export async function addImageComment(tenantId, imageId, commentText) {
+    return fetchWithAuth(`/images/${imageId}/comments`, {
+        method: 'POST',
+        tenantId,
+        body: JSON.stringify({ comment_text: commentText }),
+    });
+}
+
+export async function deleteImageComment(tenantId, imageId, commentId) {
+    return fetchWithAuth(`/images/${imageId}/comments/${commentId}`, {
+        method: 'DELETE',
+        tenantId,
     });
 }
 
@@ -558,6 +588,43 @@ export async function updateList(tenantId, list) {
   const result = await listCrud.patch(tenantId, list.id, list);
   invalidateQueries(['lists', tenantId]);
   return result;
+}
+
+export async function getSharesSummary(tenantId) {
+  return fetchWithAuth('/lists/shares/summary', {
+    method: 'GET',
+    tenantId,
+  });
+}
+
+export async function updateListShare(tenantId, listId, shareId, payload = {}) {
+  return fetchWithAuth(`/lists/${listId}/shares/${shareId}`, {
+    method: 'PATCH',
+    tenantId,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function revokeListShare(tenantId, listId, shareId) {
+  return fetchWithAuth(`/lists/${listId}/shares/${shareId}`, {
+    method: 'DELETE',
+    tenantId,
+  });
+}
+
+export async function hardDeleteListShare(tenantId, shareId) {
+  return fetchWithAuth(`/lists/shares/${shareId}/hard`, {
+    method: 'DELETE',
+    tenantId,
+  });
+}
+
+export async function hardDeleteListShares(tenantId, shareIds = []) {
+  return fetchWithAuth('/lists/shares/hard-delete', {
+    method: 'POST',
+    tenantId,
+    body: JSON.stringify({ share_ids: Array.isArray(shareIds) ? shareIds : [] }),
+  });
 }
 
 // ============================================================================

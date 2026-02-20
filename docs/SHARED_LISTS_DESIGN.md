@@ -693,6 +693,11 @@ The guest route (`/guest`) must be accessible without the normal authenticated l
    - Add review endpoint to `src/zoltag/routers/guest.py` (`POST /review`)
    - Add tag endpoints to `src/zoltag/routers/guest.py` (`POST /tags`, `DELETE /tags/{tag_id}`)
    - Add admin tag management and harvesting endpoints to `src/zoltag/routers/sharing.py`
+4. **Guest promotion endpoint** (`POST /api/v1/admin/users/promote-guest`):
+   - Update Supabase `app_metadata`: set `role = 'user'`, clear `tenant_ids`
+   - Create `UserProfile` row (same UUID, `is_active=True`)
+   - Create `UserTenant` membership (`accepted_at` pre-filled)
+   - All existing `list_shares` and annotations remain valid
 
 #### Frontend
 
@@ -700,3 +705,7 @@ The guest route (`/guest`) must be accessible without the normal authenticated l
 - Add "Mark as Reviewed" bar to `guest-list-view.js`.
 - Extend `admin-reviews-panel.js` to show per-guest review status.
 - Add admin harvesting panel (freetext tag frequency view with promote-to-vocabulary action).
+- **Refactor `list-edit-modal.js`** to use Light DOM pattern (currently uses Shadow DOM, inconsistent with project standard):
+  - Replace `static styles` with `createRenderRoot() { return this; }`
+  - Convert scoped CSS to Tailwind utility classes
+  - Follow pattern from `share-list-modal.js` and other modern components
